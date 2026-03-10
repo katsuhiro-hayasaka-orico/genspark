@@ -6,6 +6,7 @@ import { committedApi } from './routes/committed'
 import { masterApi } from './routes/master'
 import { dashboardApi } from './routes/dashboard'
 import { reportApi } from './routes/report'
+import { getManualHtml } from './manual'
 
 type Bindings = {
   DB: D1Database
@@ -25,6 +26,11 @@ app.route('/api/reports', reportApi)
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
+// Manual page
+app.get('/manual', (c) => {
+  return c.html(getManualHtml())
+})
 
 // SPA - serve index.html for all non-API routes
 app.get('*', (c) => {
@@ -133,6 +139,11 @@ function getIndexHtml(): string {
         <a href="#" onclick="navigateTo('projects')" data-page="projects" class="sidebar-item flex items-center gap-3 px-5 py-3 text-sm text-gray-600 cursor-pointer">
           <i class="fas fa-project-diagram w-5 text-center"></i><span>プロジェクト管理</span>
         </a>
+        <div class="px-4 mt-4">
+          <a href="/manual" target="_blank" class="sidebar-item flex items-center gap-3 px-5 py-3 text-sm text-gray-400 hover:text-blue-600 cursor-pointer">
+            <i class="fas fa-book-open w-5 text-center"></i><span>操作マニュアル</span><i class="fas fa-external-link-alt text-[10px] ml-auto"></i>
+          </a>
+        </div>
       </nav>
       <div class="p-4 border-t border-gray-100">
         <div class="flex items-center gap-3">
