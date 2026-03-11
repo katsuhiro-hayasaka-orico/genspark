@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ローカルExcelダッシュボード</title>
+    <script type="module" src="/src/main.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>ローカルExcelダッシュボード</h1>
+      <p>データはブラウザ内だけで処理され、外部送信されません。</p>
+
+      <section class="card">
+        <h2>1. Excelアップロード</h2>
+        <input id="fileInput" type="file" accept=".xlsx,.csv" />
+        <p class="hint">.xlsx / .csv 対応。1行目をヘッダーとして読み込みます。</p>
+      </section>
+
+      <section class="card" id="mappingCard" hidden>
+        <h2>2. 列マッピング</h2>
+        <div class="grid">
+          <label>カテゴリ列<select id="categoryCol"></select></label>
+          <label>値列<select id="valueCol"></select></label>
+        </div>
+        <button id="renderBtn">可視化する</button>
+      </section>
+
+      <section class="card" id="summaryCard" hidden>
+        <h2>3. サマリー</h2>
+        <div id="summary" class="kpi"></div>
+      </section>
+
+      <section class="card" id="chartCard" hidden>
+        <h2>4. カテゴリ別グラフ</h2>
+        <div id="bars"></div>
+      </section>
+
+      <section class="card" id="tableCard" hidden>
+        <h2>5. 明細プレビュー（先頭50件）</h2>
+        <div id="tableWrap"></div>
+      </section>
+    </div>
+  </body>
+</html>
