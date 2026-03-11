@@ -4,122 +4,158 @@ type Bindings = { DB: D1Database }
 
 export const budgetApi = new Hono<{ Bindings: Bindings }>()
 
-// GET /api/budgets?fiscal_year_id=1&category_id=&department_id=&month=
-budgetApi.get('/', async (c) => {
+// GET /api/budgets/data - Get budget data with filters
+// Supports: fiscal_year_id, system_id, expense_item_id, domain_id, category_id
+budgetApi.get('/data', async (c) => {
   const fyId = c.req.query('fiscal_year_id') || '1'
-  const catId = c.req.query('category_id')
-  const deptId = c.req.query('department_id')
-  const month = c.req.query('month')
+  const systemId = c.req.query('system_id')
+  const itemId = c.req.query('expense_item_id')
+  const domainId = c.req.query('domain_id')
+  const categoryId = c.req.query('category_id')
 
   let sql = `
-    SELECT bp.*, bc.name as category_name, bc.code as category_code,
-           d.name as department_name, p.name as project_name,
-           u.name as created_by_name
-    FROM budget_plans bp
-    LEFT JOIN budget_categories bc ON bp.category_id = bc.id
-    LEFT JOIN departments d ON bp.department_id = d.id
-    LEFT JOIN projects p ON bp.project_id = p.id
-    LEFT JOIN users u ON bp.created_by = u.id
-    WHERE bp.fiscal_year_id = ?`
+    SELECT bd.*, s.name as system_name, s.code as system_code,
+           sd.name as domain_name, sd.code as domain_code,
+           ei.name as item_name, ei.code as item_code,
+           ec.name as category_name, ec.code as category_code,
+           ei.is_taxable
+    FROM budget_data bd
+    JOIN systems s ON bd.system_id = s.id
+    JOIN system_domains sd ON s.domain_id = sd.id
+    JOIN expense_items ei ON bd.expense_item_id = ei.id
+    JOIN expense_categories ec ON ei.category_id = ec.id
+    WHERE bd.fiscal_year_id = ?`
   const params: any[] = [fyId]
 
-  if (catId) { sql += ' AND bp.category_id = ?'; params.push(catId) }
-  if (deptId) { sql += ' AND bp.department_id = ?'; params.push(deptId) }
-  if (month) { sql += ' AND bp.month = ?'; params.push(month) }
+  if (systemId) { sql += ' AND bd.system_id = ?'; params.push(systemId) }
+  if (itemId) { sql += ' AND bd.expense_item_id = ?'; params.push(itemId) }
+  if (domainId) { sql += ' AND s.domain_id = ?'; params.push(domainId) }
+  if (categoryId) { sql += ' AND ei.category_id = ?'; params.push(categoryId) }
 
-  sql += ' ORDER BY bp.category_id, bp.month'
+  sql += ' ORDER BY sd.sort_order, s.sort_order, ec.sort_order, ei.sort_order, bd.month'
 
   const result = await c.env.DB.prepare(sql).bind(...params).all()
-  return c.json({ budgets: result.results })
+  return c.json({ data: result.results })
 })
 
-// GET /api/budgets/summary?fiscal_year_id=1
-budgetApi.get('/summary', async (c) => {
+// GET /api/budgets/matrix - Get data in matrix format (system × item with monthly columns)
+budgetApi.get('/matrix', async (c) => {
   const fyId = c.req.query('fiscal_year_id') || '1'
+  const systemId = c.req.query('system_id')
+  const amountType = c.req.query('amount_type') || 'initial_plan' // initial_plan, revised_plan, forecast, actual
 
-  const result = await c.env.DB.prepare(`
-    SELECT 
-      bc.id as category_id, bc.name as category_name, bc.code as category_code,
-      d.id as department_id, d.name as department_name,
-      SUM(bp.amount) as annual_budget,
-      GROUP_CONCAT(bp.month || ':' || bp.amount) as monthly_breakdown
-    FROM budget_plans bp
-    JOIN budget_categories bc ON bp.category_id = bc.id
-    LEFT JOIN departments d ON bp.department_id = d.id
-    WHERE bp.fiscal_year_id = ?
-    GROUP BY bc.id, d.id
-    ORDER BY bc.sort_order, d.name
-  `).bind(fyId).all()
+  let sql = `
+    SELECT bd.system_id, bd.expense_item_id, bd.month,
+           bd.initial_plan, bd.revised_plan, bd.forecast, bd.actual,
+           bd.contract_partner, bd.notes,
+           s.name as system_name, s.code as system_code,
+           sd.name as domain_name, sd.id as domain_id,
+           ei.name as item_name, ei.code as item_code,
+           ec.name as category_name, ec.id as category_id
+    FROM budget_data bd
+    JOIN systems s ON bd.system_id = s.id
+    JOIN system_domains sd ON s.domain_id = sd.id
+    JOIN expense_items ei ON bd.expense_item_id = ei.id
+    JOIN expense_categories ec ON ei.category_id = ec.id
+    WHERE bd.fiscal_year_id = ?`
+  const params: any[] = [fyId]
 
-  return c.json({ summary: result.results })
+  if (systemId) { sql += ' AND bd.system_id = ?'; params.push(systemId) }
+  sql += ' ORDER BY sd.sort_order, s.sort_order, ec.sort_order, ei.sort_order, bd.month'
+
+  const result = await c.env.DB.prepare(sql).bind(...params).all()
+  return c.json({ data: result.results })
 })
 
-// POST /api/budgets
-budgetApi.post('/', async (c) => {
+// POST /api/budgets/upsert - Insert or update a single cell
+budgetApi.post('/upsert', async (c) => {
   const body = await c.req.json()
-  const { fiscal_year_id, category_id, department_id, project_id, month, amount, notes, created_by } = body
+  const { fiscal_year_id, system_id, expense_item_id, month, field, value, contract_partner, notes, updated_by } = body
 
-  if (!fiscal_year_id || !category_id || !month || amount === undefined) {
+  if (!fiscal_year_id || !system_id || !expense_item_id || !month || !field) {
     return c.json({ error: '必須項目が不足しています' }, 400)
   }
 
-  try {
+  const allowedFields = ['initial_plan', 'revised_plan', 'forecast', 'actual']
+  if (!allowedFields.includes(field)) {
+    return c.json({ error: '無効なフィールド名です' }, 400)
+  }
+
+  // Check if record exists
+  const existing = await c.env.DB.prepare(
+    'SELECT id FROM budget_data WHERE fiscal_year_id = ? AND system_id = ? AND expense_item_id = ? AND month = ?'
+  ).bind(fiscal_year_id, system_id, expense_item_id, month).first()
+
+  if (existing) {
+    let updateSql = `UPDATE budget_data SET ${field} = ?, updated_at = datetime('now')`
+    const updateParams: any[] = [value || 0]
+    if (contract_partner !== undefined) { updateSql += ', contract_partner = ?'; updateParams.push(contract_partner) }
+    if (notes !== undefined) { updateSql += ', notes = ?'; updateParams.push(notes) }
+    if (updated_by) { updateSql += ', updated_by = ?'; updateParams.push(updated_by) }
+    updateSql += ' WHERE id = ?'
+    updateParams.push((existing as any).id)
+    await c.env.DB.prepare(updateSql).bind(...updateParams).run()
+    return c.json({ message: '更新しました', id: (existing as any).id })
+  } else {
+    const insertValues: Record<string, number> = { initial_plan: 0, revised_plan: 0, forecast: 0, actual: 0 }
+    insertValues[field] = value || 0
     const result = await c.env.DB.prepare(`
-      INSERT INTO budget_plans (fiscal_year_id, category_id, department_id, project_id, month, amount, notes, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(fiscal_year_id, category_id, department_id || null, project_id || null, month, amount, notes || null, created_by || 1).run()
-
-    return c.json({ id: result.meta.last_row_id, message: '予算を登録しました' }, 201)
-  } catch (e: any) {
-    if (e.message?.includes('UNIQUE')) {
-      return c.json({ error: '同じ条件の予算が既に登録されています' }, 409)
-    }
-    throw e
+      INSERT INTO budget_data (fiscal_year_id, system_id, expense_item_id, month, initial_plan, revised_plan, forecast, actual, contract_partner, notes, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      fiscal_year_id, system_id, expense_item_id, month,
+      insertValues.initial_plan, insertValues.revised_plan, insertValues.forecast, insertValues.actual,
+      contract_partner || null, notes || null, updated_by || null
+    ).run()
+    return c.json({ message: '登録しました', id: result.meta.last_row_id }, 201)
   }
 })
 
-// POST /api/budgets/bulk - Bulk create/update monthly budgets
-budgetApi.post('/bulk', async (c) => {
+// POST /api/budgets/bulk-upsert - Bulk upsert multiple cells
+budgetApi.post('/bulk-upsert', async (c) => {
   const body = await c.req.json()
-  const { fiscal_year_id, category_id, department_id, project_id, monthly_amounts, created_by } = body
+  const { records } = body
 
-  if (!fiscal_year_id || !category_id || !monthly_amounts) {
-    return c.json({ error: '必須項目が不足しています' }, 400)
+  if (!records || !Array.isArray(records) || records.length === 0) {
+    return c.json({ error: 'レコードが空です' }, 400)
   }
 
-  const stmts = []
-  for (const [month, amount] of Object.entries(monthly_amounts)) {
+  const stmts: any[] = []
+  for (const r of records) {
     stmts.push(
       c.env.DB.prepare(`
-        INSERT INTO budget_plans (fiscal_year_id, category_id, department_id, project_id, month, amount, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(fiscal_year_id, category_id, department_id, project_id, month) 
-        DO UPDATE SET amount = ?, updated_by = ?, updated_at = datetime('now')
-      `).bind(fiscal_year_id, category_id, department_id || null, project_id || null, parseInt(month), amount, created_by || 1, amount, created_by || 1)
+        INSERT INTO budget_data (fiscal_year_id, system_id, expense_item_id, month, initial_plan, revised_plan, forecast, actual, contract_partner, notes, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fiscal_year_id, system_id, expense_item_id, month)
+        DO UPDATE SET
+          initial_plan = CASE WHEN ? IS NOT NULL THEN ? ELSE initial_plan END,
+          revised_plan = CASE WHEN ? IS NOT NULL THEN ? ELSE revised_plan END,
+          forecast = CASE WHEN ? IS NOT NULL THEN ? ELSE forecast END,
+          actual = CASE WHEN ? IS NOT NULL THEN ? ELSE actual END,
+          contract_partner = COALESCE(?, contract_partner),
+          notes = COALESCE(?, notes),
+          updated_by = COALESCE(?, updated_by),
+          updated_at = datetime('now')
+      `).bind(
+        r.fiscal_year_id, r.system_id, r.expense_item_id, r.month,
+        r.initial_plan ?? 0, r.revised_plan ?? 0, r.forecast ?? 0, r.actual ?? 0,
+        r.contract_partner || null, r.notes || null, r.updated_by || null,
+        r.initial_plan, r.initial_plan,
+        r.revised_plan, r.revised_plan,
+        r.forecast, r.forecast,
+        r.actual, r.actual,
+        r.contract_partner || null, r.notes || null, r.updated_by || null
+      )
     )
   }
 
   await c.env.DB.batch(stmts)
-  return c.json({ message: '月別予算を一括登録しました' })
+  return c.json({ message: `${records.length}件を一括更新しました`, count: records.length })
 })
 
-// PUT /api/budgets/:id
-budgetApi.put('/:id', async (c) => {
+// DELETE /api/budgets/data/:id
+budgetApi.delete('/data/:id', async (c) => {
   const id = c.req.param('id')
-  const body = await c.req.json()
-  const { amount, notes, updated_by } = body
-
-  await c.env.DB.prepare(`
-    UPDATE budget_plans SET amount = ?, notes = ?, updated_by = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).bind(amount, notes || null, updated_by || 1, id).run()
-
-  return c.json({ message: '予算を更新しました' })
-})
-
-// DELETE /api/budgets/:id
-budgetApi.delete('/:id', async (c) => {
-  const id = c.req.param('id')
-  await c.env.DB.prepare('DELETE FROM budget_plans WHERE id = ?').bind(id).run()
-  return c.json({ message: '予算を削除しました' })
+  await c.env.DB.prepare('DELETE FROM budget_data WHERE id = ?').bind(id).run()
+  return c.json({ message: '削除しました' })
 })

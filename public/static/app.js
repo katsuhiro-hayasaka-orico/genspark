@@ -1,40 +1,47 @@
 // =============================================
-// IT Budget Dashboard - Main Application
+// System Planning Budget Management - Frontend App
 // =============================================
 
-// === State Management ===
 const state = {
   currentPage: 'dashboard',
   fiscalYearId: 1,
   fiscalYears: [],
+  domains: [],
+  systems: [],
   categories: [],
-  departments: [],
-  projects: [],
+  items: [],
   charts: {}
 };
 
 // === Utility Functions ===
 function fmt(n) {
-  if (n === null || n === undefined) return '¥0';
-  return '¥' + Math.round(n).toLocaleString('ja-JP');
-}
-function fmtM(n) {
-  if (n === null || n === undefined) return '0';
-  return (n / 10000).toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+  if (n === null || n === undefined || isNaN(n)) return '0';
+  return Math.round(n).toLocaleString('ja-JP');
 }
 function fmtPct(n) { return (n || 0).toFixed(1) + '%'; }
-function monthName(m) { return ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'][m - 1] || m + '月'; }
-function monthLabel(m) { return monthName(m); }
+function monthName(m) {
+  return ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'][m - 1] || m + '月';
+}
+function colorByVariance(rate) {
+  if (rate > 5) return 'text-red-600 font-semibold';
+  if (rate > 0) return 'text-yellow-600';
+  if (rate < -5) return 'text-green-600';
+  return 'text-gray-700';
+}
+function colorByUsage(rate) {
+  if (rate >= 100) return 'bg-red-500';
+  if (rate >= 90) return 'bg-yellow-500';
+  return 'bg-blue-500';
+}
 
 async function api(path, opts = {}) {
-  const url = '/api' + path + (path.includes('?') ? '&' : '?') + 'fiscal_year_id=' + state.fiscalYearId;
-  const res = await fetch(url, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
-    body: opts.body ? JSON.stringify(opts.body) : undefined
-  });
+  const sep = path.includes('?') ? '&' : '?';
+  const url = '/api' + path + sep + 'fiscal_year_id=' + state.fiscalYearId;
+  const fetchOpts = { ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } };
+  if (opts.body && typeof opts.body === 'object') fetchOpts.body = JSON.stringify(opts.body);
+  const res = await fetch(url, fetchOpts);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'エラーが発生しました' }));
+    const err = await res.json().catch(() => ({ error: 'API Error' }));
     throw new Error(err.error || 'API Error: ' + res.status);
   }
   return res.json();
@@ -45,7 +52,7 @@ function showToast(msg, type = 'success') {
   const colors = { success: 'bg-green-500', error: 'bg-red-500', warning: 'bg-yellow-500', info: 'bg-blue-500' };
   const icons = { success: 'check-circle', error: 'exclamation-circle', warning: 'exclamation-triangle', info: 'info-circle' };
   const el = document.createElement('div');
-  el.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 fade-in text-sm`;
+  el.className = `${colors[type]} text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 fade-in text-[13px]`;
   el.innerHTML = `<i class="fas fa-${icons[type]}"></i><span>${msg}</span>`;
   tc.appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
@@ -54,17 +61,11 @@ function showToast(msg, type = 'success') {
 function showModal(content) {
   const mc = document.getElementById('modalContainer');
   mc.innerHTML = `<div class="modal-overlay fixed inset-0 flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
-    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto fade-in">${content}</div>
+    <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto fade-in">${content}</div>
   </div>`;
   mc.classList.remove('hidden');
 }
 function closeModal() { document.getElementById('modalContainer').classList.add('hidden'); }
-
-function getAlertColor(rate) {
-  if (rate >= 95) return { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', badge: 'bg-red-500' };
-  if (rate >= 80) return { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', badge: 'bg-yellow-500' };
-  return { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', badge: 'bg-green-500' };
-}
 
 function destroyCharts() {
   Object.values(state.charts).forEach(c => { if (c && c.destroy) c.destroy(); });
@@ -79,1265 +80,779 @@ function navigateTo(page) {
     el.classList.toggle('active', el.dataset.page === page);
   });
   const labels = {
-    dashboard: 'ダッシュボード', budgets: '予算管理', actuals: '実績入力',
-    committed: 'コミット管理', analysis: '予実分析', reports: 'レポート出力',
-    categories: 'カテゴリ管理', departments: '部門管理', projects: 'プロジェクト管理'
+    'dashboard': 'ダッシュボード',
+    'budget-input': '予算データ入力',
+    'analysis': '予実差異分析',
+    'multi-year': '中期比較',
+    'reports': 'レポート出力',
+    'master-systems': 'システム管理',
+    'master-expenses': '費目管理',
+    'comments': '差異コメント'
   };
   document.getElementById('breadcrumb').innerHTML =
-    `<span class="text-gray-400">ホーム</span><i class="fas fa-chevron-right text-xs mx-2 text-gray-300"></i><span class="text-gray-700 font-medium">${labels[page] || page}</span>`;
-  
-  // Close mobile sidebar
+    `<span class="text-gray-400">ホーム</span><i class="fas fa-chevron-right text-[10px] mx-1.5 text-gray-300"></i><span class="text-gray-700 font-medium">${labels[page] || page}</span>`;
   document.getElementById('sidebar').classList.add('-translate-x-full');
   document.getElementById('sidebarOverlay').classList.add('hidden');
-  
   renderPage(page);
 }
-
 function toggleSidebar() {
-  const sb = document.getElementById('sidebar');
-  const ov = document.getElementById('sidebarOverlay');
-  sb.classList.toggle('-translate-x-full');
-  ov.classList.toggle('hidden');
-}
-
-async function onFiscalYearChange() {
-  state.fiscalYearId = parseInt(document.getElementById('fiscalYearSelect').value);
-  refreshData();
-}
-
-async function refreshData() {
-  renderPage(state.currentPage);
+  document.getElementById('sidebar').classList.toggle('-translate-x-full');
+  document.getElementById('sidebarOverlay').classList.toggle('hidden');
 }
 
 async function renderPage(page) {
-  const main = document.getElementById('mainContent');
-  main.innerHTML = '<div class="flex items-center justify-center h-64"><i class="fas fa-spinner fa-spin text-3xl text-blue-500"></i></div>';
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div class="flex items-center justify-center h-64"><i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i></div>';
   try {
     switch (page) {
-      case 'dashboard': await renderDashboard(main); break;
-      case 'budgets': await renderBudgets(main); break;
-      case 'actuals': await renderActuals(main); break;
-      case 'committed': await renderCommitted(main); break;
-      case 'analysis': await renderAnalysis(main); break;
-      case 'reports': await renderReports(main); break;
-      case 'categories': await renderCategories(main); break;
-      case 'departments': await renderDepartments(main); break;
-      case 'projects': await renderProjects(main); break;
-      default: main.innerHTML = '<p>ページが見つかりません</p>';
+      case 'dashboard': await renderDashboard(); break;
+      case 'budget-input': await renderBudgetInput(); break;
+      case 'analysis': await renderAnalysis(); break;
+      case 'multi-year': await renderMultiYear(); break;
+      case 'reports': await renderReports(); break;
+      case 'master-systems': await renderMasterSystems(); break;
+      case 'master-expenses': await renderMasterExpenses(); break;
+      case 'comments': await renderComments(); break;
+      default: mc.innerHTML = '<p class="text-gray-500 p-8">ページが見つかりません</p>';
     }
   } catch (e) {
-    main.innerHTML = `<div class="text-center py-12"><i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-4"></i><p class="text-red-600">${e.message}</p><button onclick="refreshData()" class="btn-primary mt-4">再試行</button></div>`;
     console.error(e);
+    mc.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700"><i class="fas fa-exclamation-triangle mr-2"></i>エラー: ${e.message}</div>`;
   }
 }
 
-// === Dashboard Page ===
-async function renderDashboard(main) {
-  const [summary, alerts, trends] = await Promise.all([
+// === Dashboard ===
+async function renderDashboard() {
+  const mc = document.getElementById('mainContent');
+  const [summary, alerts] = await Promise.all([
     api('/dashboard/summary'),
-    api('/dashboard/alerts'),
-    api('/dashboard/trends')
+    api('/dashboard/alerts')
   ]);
-
   const k = summary.kpi;
-  const alertLevel = k.consumptionRate >= 95 ? 'danger' : k.consumptionRate >= 80 ? 'warning' : 'success';
-  const alertColors = { danger: 'from-red-500 to-red-600', warning: 'from-yellow-500 to-yellow-600', success: 'from-green-500 to-green-600' };
+  const fy = summary.fiscalYear;
 
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
+  mc.innerHTML = `
+    <div class="fade-in space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-gauge-high mr-2 text-blue-600"></i>${fy?.name || ''} ダッシュボード</h2>
+        <span class="text-[11px] text-gray-400">${fy?.start_date || ''} 〜 ${fy?.end_date || ''}</span>
+      </div>
+
       <!-- KPI Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 card-hover">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm text-gray-500">年間予算総額</span>
-            <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-              <i class="fas fa-wallet text-blue-500"></i>
-            </div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] text-gray-500">修正計画</span>
+            <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center"><i class="fas fa-clipboard-list text-blue-500 text-xs"></i></div>
           </div>
-          <p class="text-2xl font-bold text-gray-800">${fmtM(k.totalBudget)}<span class="text-sm font-normal text-gray-400 ml-1">万円</span></p>
-          <p class="text-xs text-gray-400 mt-1">${summary.fiscalYear?.name || ''}</p>
+          <p class="text-xl font-bold text-gray-800">${fmt(k.totalRevisedPlan)}</p>
+          <p class="text-[10px] text-gray-400 mt-1">当初: ${fmt(k.totalInitialPlan)}</p>
         </div>
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 card-hover">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm text-gray-500">年累計実績</span>
-            <div class="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-              <i class="fas fa-receipt text-indigo-500"></i>
-            </div>
+        <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] text-gray-500">実績累計</span>
+            <div class="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center"><i class="fas fa-coins text-green-500 text-xs"></i></div>
           </div>
-          <p class="text-2xl font-bold text-gray-800">${fmtM(k.totalActual)}<span class="text-sm font-normal text-gray-400 ml-1">万円</span></p>
-          <p class="text-xs text-gray-400 mt-1">コミット: ${fmtM(k.totalCommitted)}万円</p>
+          <p class="text-xl font-bold text-gray-800">${fmt(k.totalActual)}</p>
+          <div class="mt-1.5"><div class="w-full bg-gray-100 rounded-full h-1.5"><div class="progress-bar h-1.5 rounded-full ${colorByUsage(k.consumptionRate)}" style="width: ${Math.min(k.consumptionRate, 100)}%"></div></div>
+          <p class="text-[10px] text-gray-400 mt-0.5">消化率 ${fmtPct(k.consumptionRate)}</p></div>
         </div>
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 card-hover">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm text-gray-500">予算消化率</span>
-            <div class="w-10 h-10 ${k.consumptionRate >= 95 ? 'bg-red-50' : k.consumptionRate >= 80 ? 'bg-yellow-50' : 'bg-green-50'} rounded-lg flex items-center justify-center">
-              <i class="fas fa-chart-pie ${k.consumptionRate >= 95 ? 'text-red-500' : k.consumptionRate >= 80 ? 'text-yellow-500' : 'text-green-500'}"></i>
-            </div>
+        <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] text-gray-500">着地見込</span>
+            <div class="w-7 h-7 bg-purple-50 rounded-lg flex items-center justify-center"><i class="fas fa-bullseye text-purple-500 text-xs"></i></div>
           </div>
-          <p class="text-2xl font-bold text-gray-800">${fmtPct(k.consumptionRate)}</p>
-          <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
-            <div class="h-2 rounded-full progress-bar ${k.consumptionRate >= 95 ? 'bg-red-500' : k.consumptionRate >= 80 ? 'bg-yellow-500' : 'bg-blue-500'}" style="width:${Math.min(k.consumptionRate, 100)}%"></div>
-          </div>
+          <p class="text-xl font-bold text-gray-800">${fmt(k.totalForecast)}</p>
+          <p class="text-[10px] ${k.forecastVariance > 0 ? 'text-red-500' : 'text-green-500'} mt-1">
+            計画比 ${k.forecastVariance > 0 ? '+' : ''}${fmt(k.forecastVariance)} (${k.varianceRate > 0 ? '+' : ''}${fmtPct(k.varianceRate)})
+          </p>
         </div>
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 card-hover">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm text-gray-500">残予算</span>
-            <div class="w-10 h-10 ${k.remaining < 0 ? 'bg-red-50' : 'bg-emerald-50'} rounded-lg flex items-center justify-center">
-              <i class="fas fa-piggy-bank ${k.remaining < 0 ? 'text-red-500' : 'text-emerald-500'}"></i>
+        <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] text-gray-500">残予算</span>
+            <div class="w-7 h-7 ${k.remaining < 0 ? 'bg-red-50' : 'bg-teal-50'} rounded-lg flex items-center justify-center">
+              <i class="fas fa-wallet ${k.remaining < 0 ? 'text-red-500' : 'text-teal-500'} text-xs"></i>
             </div>
           </div>
-          <p class="text-2xl font-bold ${k.remaining < 0 ? 'text-red-600' : 'text-gray-800'}">${fmtM(k.remaining)}<span class="text-sm font-normal text-gray-400 ml-1">万円</span></p>
-          <p class="text-xs text-gray-400 mt-1">着地見込: ${fmtM(k.forecastTotal)}万円</p>
+          <p class="text-xl font-bold ${k.remaining < 0 ? 'text-red-600' : 'text-gray-800'}">${fmt(k.remaining)}</p>
+          <p class="text-[10px] text-gray-400 mt-1">修正計画 - 実績</p>
         </div>
       </div>
 
       <!-- Alerts -->
-      ${alerts.alerts?.length ? `
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <h3 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-bell text-yellow-500 mr-2"></i>予算超過アラート</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          ${alerts.alerts.map(a => {
-            const c = getAlertColor(a.usage_rate);
-            return `<div class="${c.bg} ${c.border} border rounded-lg p-3 flex items-center justify-between">
+      ${alerts.alerts && alerts.alerts.length > 0 ? `
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-triangle-exclamation mr-1.5 text-yellow-500"></i>超過/差異アラート</h3>
+        <div class="space-y-2">
+          ${alerts.alerts.map(a => `
+            <div class="flex items-center justify-between px-3 py-2 rounded-lg ${a.variance_rate >= 5 ? 'bg-red-50 border border-red-100' : 'bg-yellow-50 border border-yellow-100'}">
               <div>
-                <p class="text-sm font-medium ${c.text}">${a.category_name}</p>
-                <p class="text-xs text-gray-500">実績+コミット: ${fmtM(a.actual + a.committed)}万円 / ${fmtM(a.budget)}万円</p>
+                <span class="text-[13px] font-medium ${a.variance_rate >= 5 ? 'text-red-700' : 'text-yellow-700'}">${a.system_name}</span>
+                <span class="text-[11px] text-gray-500 ml-2">${a.domain_name}</span>
               </div>
-              <span class="${c.badge} text-white text-xs font-bold px-2 py-1 rounded-full">${a.usage_rate}%</span>
-            </div>`;
-          }).join('')}
+              <div class="flex items-center gap-3 text-[12px]">
+                <span>消化率: <b>${fmtPct(a.usage_rate)}</b></span>
+                <span class="${a.variance_rate >= 5 ? 'text-red-600' : 'text-yellow-600'}">見込差異: <b>${a.variance_rate > 0 ? '+' : ''}${fmtPct(a.variance_rate)}</b></span>
+              </div>
+            </div>`).join('')}
         </div>
       </div>` : ''}
 
       <!-- Charts Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Monthly Budget vs Actual -->
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-chart-bar text-blue-500 mr-2"></i>月別予実比較</h3>
-          <div style="height:300px"><canvas id="monthlyChart"></canvas></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">月別推移（計画 vs 実績）</h3>
+          <div style="height: 280px"><canvas id="monthlyChart"></canvas></div>
         </div>
-        <!-- Category Breakdown -->
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-chart-pie text-purple-500 mr-2"></i>カテゴリ別予算配分</h3>
-          <div style="height:300px"><canvas id="categoryChart"></canvas></div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">費用カテゴリ別構成</h3>
+          <div style="height: 280px"><canvas id="categoryChart"></canvas></div>
         </div>
       </div>
 
-      <!-- Cumulative Trend -->
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <h3 class="text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-chart-line text-green-500 mr-2"></i>累計予実績推移</h3>
-        <div style="height:300px"><canvas id="trendChart"></canvas></div>
-      </div>
-
-      <!-- Category Detail Table -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-5 border-b border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700"><i class="fas fa-table text-gray-500 mr-2"></i>カテゴリ別サマリー</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">カテゴリ</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase">予算(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase">実績(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase">コミット(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase">残額(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase">消化率</th>
-                <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">ステータス</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${summary.categoryData.map(cat => {
-                const remaining = cat.budget - cat.actual - cat.committed;
-                const rate = cat.budget > 0 ? ((cat.actual + cat.committed) / cat.budget * 100) : 0;
-                const c = getAlertColor(rate);
-                return `<tr class="table-row">
-                  <td class="px-5 py-3 font-medium text-gray-700">${cat.name}</td>
-                  <td class="px-5 py-3 text-right text-gray-600">${fmtM(cat.budget)}</td>
-                  <td class="px-5 py-3 text-right text-gray-600">${fmtM(cat.actual)}</td>
-                  <td class="px-5 py-3 text-right text-gray-600">${fmtM(cat.committed)}</td>
-                  <td class="px-5 py-3 text-right ${remaining < 0 ? 'text-red-600 font-semibold' : 'text-gray-600'}">${fmtM(remaining)}</td>
-                  <td class="px-5 py-3 text-right font-medium ${c.text}">${rate.toFixed(1)}%</td>
-                  <td class="px-5 py-3"><span class="${c.badge} text-white text-xs px-2 py-1 rounded-full">${rate >= 95 ? '超過注意' : rate >= 80 ? '警告' : '正常'}</span></td>
+      <!-- Domain + System Summary -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">ドメイン別集計</h3>
+          <table class="w-full text-[12px]">
+            <thead><tr class="border-b"><th class="text-left py-2 text-gray-500">ドメイン</th><th class="text-right py-2 text-gray-500">修正計画</th><th class="text-right py-2 text-gray-500">実績</th><th class="text-right py-2 text-gray-500">着地見込</th><th class="text-right py-2 text-gray-500">差異率</th></tr></thead>
+            <tbody>
+              ${(summary.domainData || []).map(d => {
+                const vr = d.revised_plan > 0 ? ((d.forecast - d.revised_plan) / d.revised_plan * 100) : 0;
+                return `<tr class="border-b border-gray-50 hover:bg-gray-50">
+                  <td class="py-2 font-medium">${d.name}</td>
+                  <td class="text-right">${fmt(d.revised_plan)}</td>
+                  <td class="text-right">${fmt(d.actual)}</td>
+                  <td class="text-right">${fmt(d.forecast)}</td>
+                  <td class="text-right ${colorByVariance(vr)}">${vr > 0 ? '+' : ''}${vr.toFixed(1)}%</td>
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">累積推移</h3>
+          <div style="height: 240px"><canvas id="cumulativeChart"></canvas></div>
+        </div>
       </div>
-    </div>`;
+    </div>
+  `;
 
-  // Render Charts
-  setTimeout(() => {
-    renderMonthlyChart(summary.monthlyData);
-    renderCategoryChart(summary.categoryData);
-    renderTrendChart(trends.trends);
-  }, 100);
-}
-
-function renderMonthlyChart(data) {
-  const ctx = document.getElementById('monthlyChart');
-  if (!ctx) return;
-  state.charts.monthly = new Chart(ctx, {
+  // Monthly Chart
+  const mData = summary.monthlyData || [];
+  const mLabels = mData.map(d => monthName(d.month));
+  state.charts.monthly = new Chart(document.getElementById('monthlyChart'), {
     type: 'bar',
     data: {
-      labels: data.map(d => monthLabel(d.month)),
+      labels: mLabels,
       datasets: [
-        { label: '予算', data: data.map(d => d.budget / 10000), backgroundColor: 'rgba(59,130,246,0.2)', borderColor: '#3b82f6', borderWidth: 1.5, borderRadius: 4 },
-        { label: '実績', data: data.map(d => d.actual / 10000), backgroundColor: 'rgba(99,102,241,0.6)', borderColor: '#6366f1', borderWidth: 1.5, borderRadius: 4 },
-        { label: 'コミット', data: data.map(d => d.committed / 10000), backgroundColor: 'rgba(245,158,11,0.5)', borderColor: '#f59e0b', borderWidth: 1.5, borderRadius: 4 }
+        { label: '修正計画', data: mData.map(d => d.revised_plan), backgroundColor: 'rgba(59,130,246,0.2)', borderColor: '#3b82f6', borderWidth: 1 },
+        { label: '実績', data: mData.map(d => d.actual), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1 },
+        { label: '着地見込', data: mData.map(d => d.forecast), type: 'line', borderColor: '#a855f7', borderWidth: 2, pointRadius: 3, fill: false }
       ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', labels: { usePointStyle: true, padding: 15, font: { size: 11 } } },
-        tooltip: { callbacks: { label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + '万円' } }
-      },
-      scales: { y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString() + '万' } } }
-    }
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
-}
 
-function renderCategoryChart(data) {
-  const ctx = document.getElementById('categoryChart');
-  if (!ctx) return;
-  const colors = ['#3b82f6','#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f59e0b','#10b981'];
-  state.charts.category = new Chart(ctx, {
+  // Category Pie
+  const cData = (summary.categoryData || []).filter(c => c.revised_plan > 0);
+  const pieColors = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#64748b'];
+  state.charts.category = new Chart(document.getElementById('categoryChart'), {
     type: 'doughnut',
     data: {
-      labels: data.map(d => d.name),
-      datasets: [{
-        data: data.map(d => d.budget),
-        backgroundColor: colors,
-        borderWidth: 2, borderColor: '#fff'
-      }]
+      labels: cData.map(c => c.name),
+      datasets: [{ data: cData.map(c => c.revised_plan), backgroundColor: pieColors }]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '60%',
-      plugins: {
-        legend: { position: 'right', labels: { usePointStyle: true, padding: 10, font: { size: 11 } } },
-        tooltip: { callbacks: { label: (ctx) => ctx.label + ': ' + fmtM(ctx.raw) + '万円 (' + ((ctx.raw / data.reduce((s, d) => s + d.budget, 0)) * 100).toFixed(1) + '%)' } }
-      }
-    }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } } } }
   });
+
+  // Cumulative Line
+  try {
+    const trends = await api('/dashboard/trends');
+    const tData = trends.trends || [];
+    state.charts.cumulative = new Chart(document.getElementById('cumulativeChart'), {
+      type: 'line',
+      data: {
+        labels: tData.map(t => monthName(t.month)),
+        datasets: [
+          { label: '計画累計', data: tData.map(t => t.cum_plan), borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 2 },
+          { label: '見込累計', data: tData.map(t => t.cum_forecast), borderColor: '#a855f7', borderWidth: 2, borderDash: [5,3], fill: false, pointRadius: 2 },
+          { label: '実績累計', data: tData.map(t => t.cum_actual), borderColor: '#22c55e', borderWidth: 2.5, fill: false, pointRadius: 3 }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+    });
+  } catch(e) { console.warn('Cumulative chart error:', e); }
 }
 
-function renderTrendChart(data) {
-  const ctx = document.getElementById('trendChart');
-  if (!ctx) return;
-  state.charts.trend = new Chart(ctx, {
-    type: 'line',
+// === Budget Input (Excel-style) ===
+async function renderBudgetInput() {
+  const mc = document.getElementById('mainContent');
+  const [systemTree, itemTree] = await Promise.all([
+    api('/master/systems/tree'),
+    api('/master/expense-items/tree')
+  ]);
+
+  // Build system select options
+  let systemOpts = '<option value="">全システム</option>';
+  (systemTree.tree || []).forEach(d => {
+    systemOpts += `<optgroup label="${d.name}">`;
+    (d.systems || []).forEach(s => { systemOpts += `<option value="${s.id}">${s.name}</option>`; });
+    systemOpts += '</optgroup>';
+  });
+
+  // Amount type tabs
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-table-cells mr-2 text-blue-600"></i>予算データ入力</h2>
+        <div class="flex gap-2">
+          <button onclick="exportBudgetCSV()" class="btn-secondary text-[12px]"><i class="fas fa-download mr-1"></i>CSV出力</button>
+          <button onclick="showCSVImportModal()" class="btn-secondary text-[12px]"><i class="fas fa-upload mr-1"></i>CSV取込</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <div class="flex items-center gap-1.5">
+            <label class="text-[12px] text-gray-500">システム:</label>
+            <select id="budgetSystemSelect" onchange="loadBudgetMatrix()" class="border rounded-md px-2 py-1 text-[12px]">${systemOpts}</select>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <label class="text-[12px] text-gray-500">表示タイプ:</label>
+            <select id="budgetAmountType" onchange="loadBudgetMatrix()" class="border rounded-md px-2 py-1 text-[12px]">
+              <option value="all">全タイプ比較</option>
+              <option value="initial_plan">当初計画</option>
+              <option value="revised_plan">修正計画</option>
+              <option value="forecast">着地見込</option>
+              <option value="actual">実績</option>
+            </select>
+          </div>
+          <div class="flex gap-1 ml-auto">
+            <span class="text-[10px] px-2 py-0.5 rounded bg-yellow-50 border border-yellow-200 text-yellow-700">■ 入力セル</span>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-green-50 border border-green-200 text-green-700">■ 参照セル</span>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">■ 実績セル</span>
+          </div>
+        </div>
+        <div id="budgetMatrixContainer" class="overflow-auto max-h-[65vh]">
+          <p class="text-gray-400 text-sm p-4">読み込み中...</p>
+        </div>
+      </div>
+    </div>`;
+
+  await loadBudgetMatrix();
+}
+
+async function loadBudgetMatrix() {
+  const container = document.getElementById('budgetMatrixContainer');
+  if (!container) return;
+  container.innerHTML = '<p class="text-gray-400 text-sm p-4"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</p>';
+
+  const systemId = document.getElementById('budgetSystemSelect')?.value;
+  const amountType = document.getElementById('budgetAmountType')?.value || 'all';
+
+  let url = '/budgets/matrix';
+  if (systemId) url += '?system_id=' + systemId;
+
+  const data = await api(url);
+  const rows = data.data || [];
+
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="text-gray-400 text-sm p-8 text-center">データがありません</p>';
+    return;
+  }
+
+  // Group by system > item
+  const grouped = {};
+  rows.forEach(r => {
+    const key = `${r.system_id}_${r.expense_item_id}`;
+    if (!grouped[key]) {
+      grouped[key] = { system_id: r.system_id, system_name: r.system_name, domain_name: r.domain_name, domain_id: r.domain_id,
+        item_id: r.expense_item_id, item_name: r.item_name, item_code: r.item_code, category_name: r.category_name, category_id: r.category_id,
+        months: {} };
+    }
+    grouped[key].months[r.month] = { initial_plan: r.initial_plan, revised_plan: r.revised_plan, forecast: r.forecast, actual: r.actual, contract_partner: r.contract_partner, notes: r.notes };
+  });
+
+  const entries = Object.values(grouped);
+
+  if (amountType === 'all') {
+    renderComparisonMatrix(container, entries);
+  } else {
+    renderSingleTypeMatrix(container, entries, amountType);
+  }
+}
+
+function renderComparisonMatrix(container, entries) {
+  // Group by domain for subtotals
+  const domains = {};
+  entries.forEach(e => {
+    if (!domains[e.domain_id]) domains[e.domain_id] = { name: e.domain_name, entries: [], totals: {} };
+    domains[e.domain_id].entries.push(e);
+  });
+
+  let html = '<table class="budget-table w-full"><thead><tr>';
+  html += '<th class="row-header" style="min-width:100px">ドメイン</th>';
+  html += '<th class="row-header" style="min-width:120px">システム</th>';
+  html += '<th class="row-header" style="min-width:100px">費目</th>';
+  html += '<th>タイプ</th>';
+  for (let m = 1; m <= 12; m++) html += `<th>${monthName(m)}</th>`;
+  html += '<th style="background:#dbeafe">年間計</th>';
+  html += '</tr></thead><tbody>';
+
+  const types = [
+    { key: 'initial_plan', label: '当初計画', cls: 'ref-cell' },
+    { key: 'revised_plan', label: '修正計画', cls: 'input-cell' },
+    { key: 'forecast', label: '着地見込', cls: 'input-cell' },
+    { key: 'actual', label: '実績', cls: 'actual-cell' }
+  ];
+  const grandTotals = {};
+  types.forEach(t => { grandTotals[t.key] = Array(12).fill(0); });
+
+  Object.values(domains).forEach(domain => {
+    const domTotals = {};
+    types.forEach(t => { domTotals[t.key] = Array(12).fill(0); });
+
+    domain.entries.forEach((entry, ei) => {
+      types.forEach((type, ti) => {
+        html += '<tr>';
+        if (ti === 0 && ei === 0) html += `<td class="row-header" rowspan="${domain.entries.length * 4}" style="vertical-align:top;font-weight:600;background:#e0e7ff">${domain.name}</td>`;
+        if (ti === 0) html += `<td class="row-header" rowspan="4" style="vertical-align:top">${entry.system_name}<br><span class="text-[10px] text-gray-400">${entry.item_name}</span></td>`;
+        if (ti === 0) html += `<td class="row-header" rowspan="4" style="vertical-align:top"><span class="text-[10px] text-gray-500">${entry.category_name}</span></td>`;
+        html += `<td class="text-center text-[10px] ${type.cls}" style="font-weight:500">${type.label}</td>`;
+
+        let annual = 0;
+        for (let m = 1; m <= 12; m++) {
+          const val = entry.months[m] ? entry.months[m][type.key] || 0 : 0;
+          annual += val;
+          domTotals[type.key][m - 1] += val;
+          grandTotals[type.key][m - 1] += val;
+          html += `<td class="${type.cls}">${fmt(val)}</td>`;
+        }
+        html += `<td style="background:#dbeafe;font-weight:600">${fmt(annual)}</td>`;
+        html += '</tr>';
+      });
+    });
+
+    // Domain subtotal
+    types.forEach((type, ti) => {
+      html += `<tr class="subtotal-row"><td colspan="3" class="row-header" style="background:#e2e8f0">${ti === 0 ? domain.name + ' 小計' : ''}</td>`;
+      html += `<td class="text-center text-[10px]">${type.label}</td>`;
+      let annual = 0;
+      for (let m = 0; m < 12; m++) { annual += domTotals[type.key][m]; html += `<td>${fmt(domTotals[type.key][m])}</td>`; }
+      html += `<td style="font-weight:700">${fmt(annual)}</td></tr>`;
+    });
+  });
+
+  // Grand total
+  types.forEach((type, ti) => {
+    html += `<tr class="total-row"><td colspan="3" class="row-header" style="background:#1e40af;color:white">${ti === 0 ? '全体合計' : ''}</td>`;
+    html += `<td class="text-center text-[10px]">${type.label}</td>`;
+    let annual = 0;
+    for (let m = 0; m < 12; m++) { annual += grandTotals[type.key][m]; html += `<td>${fmt(grandTotals[type.key][m])}</td>`; }
+    html += `<td>${fmt(annual)}</td></tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderSingleTypeMatrix(container, entries, amountType) {
+  const labels = { initial_plan: '当初計画', revised_plan: '修正計画', forecast: '着地見込', actual: '実績' };
+  const cellCls = { initial_plan: 'ref-cell', revised_plan: 'input-cell', forecast: 'input-cell', actual: 'actual-cell' };
+
+  let html = `<table class="budget-table w-full"><thead><tr>`;
+  html += '<th class="row-header" style="min-width:80px">ドメイン</th>';
+  html += '<th class="row-header" style="min-width:120px">システム</th>';
+  html += '<th class="row-header" style="min-width:100px">費目</th>';
+  for (let m = 1; m <= 12; m++) html += `<th>${monthName(m)}</th>`;
+  html += '<th style="background:#dbeafe">年間計</th></tr></thead><tbody>';
+
+  // Group by domain
+  const byDomain = {};
+  entries.forEach(e => {
+    if (!byDomain[e.domain_id]) byDomain[e.domain_id] = { name: e.domain_name, entries: [] };
+    byDomain[e.domain_id].entries.push(e);
+  });
+
+  const grandTotal = Array(12).fill(0);
+
+  Object.values(byDomain).forEach(domain => {
+    const domTotal = Array(12).fill(0);
+
+    domain.entries.forEach((entry, idx) => {
+      html += '<tr>';
+      if (idx === 0) html += `<td class="row-header" rowspan="${domain.entries.length}" style="font-weight:600;background:#e0e7ff">${domain.name}</td>`;
+      html += `<td class="row-header">${entry.system_name}</td>`;
+      html += `<td class="row-header"><span class="text-[10px] text-gray-500">${entry.category_name}</span><br>${entry.item_name}</td>`;
+
+      let annual = 0;
+      for (let m = 1; m <= 12; m++) {
+        const val = entry.months[m] ? entry.months[m][amountType] || 0 : 0;
+        annual += val;
+        domTotal[m - 1] += val;
+        grandTotal[m - 1] += val;
+
+        if (amountType === 'revised_plan' || amountType === 'forecast' || amountType === 'actual') {
+          html += `<td class="${cellCls[amountType]}">
+            <input type="number" value="${val}" onchange="onCellEdit(this, ${state.fiscalYearId}, ${entry.system_id}, ${entry.item_id}, ${m}, '${amountType}')" />
+          </td>`;
+        } else {
+          html += `<td class="${cellCls[amountType]}">${fmt(val)}</td>`;
+        }
+      }
+      html += `<td style="background:#dbeafe;font-weight:600">${fmt(annual)}</td></tr>`;
+    });
+
+    // Domain subtotal
+    html += `<tr class="subtotal-row"><td colspan="3" class="row-header" style="background:#e2e8f0;font-weight:600">${domain.name} 小計</td>`;
+    let domAnnual = 0;
+    for (let m = 0; m < 12; m++) { domAnnual += domTotal[m]; html += `<td>${fmt(domTotal[m])}</td>`; }
+    html += `<td style="font-weight:700">${fmt(domAnnual)}</td></tr>`;
+  });
+
+  // Grand total
+  html += `<tr class="total-row"><td colspan="3" class="row-header" style="background:#1e40af;color:white;font-weight:700">全体合計</td>`;
+  let grandAnnual = 0;
+  for (let m = 0; m < 12; m++) { grandAnnual += grandTotal[m]; html += `<td>${fmt(grandTotal[m])}</td>`; }
+  html += `<td>${fmt(grandAnnual)}</td></tr>`;
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function onCellEdit(input, fyId, systemId, itemId, month, field) {
+  try {
+    await api('/budgets/upsert', {
+      method: 'POST',
+      body: { fiscal_year_id: fyId, system_id: systemId, expense_item_id: itemId, month: month, field: field, value: parseFloat(input.value) || 0 }
+    });
+    input.style.borderColor = '#22c55e';
+    setTimeout(() => { input.style.borderColor = '#d1d5db'; }, 1000);
+  } catch (e) {
+    showToast('保存エラー: ' + e.message, 'error');
+    input.style.borderColor = '#ef4444';
+  }
+}
+
+function exportBudgetCSV() {
+  const table = document.querySelector('.budget-table');
+  if (!table) { showToast('テーブルがありません', 'warning'); return; }
+  let csv = '\uFEFF';
+  table.querySelectorAll('tr').forEach(row => {
+    const cells = [];
+    row.querySelectorAll('th, td').forEach(cell => {
+      let val = cell.querySelector('input') ? cell.querySelector('input').value : cell.textContent.trim();
+      cells.push('"' + val.replace(/"/g, '""') + '"');
+    });
+    csv += cells.join(',') + '\n';
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `budget_data_FY${state.fiscalYearId}.csv`;
+  a.click();
+  showToast('CSVをダウンロードしました');
+}
+
+function showCSVImportModal() {
+  showModal(`
+    <div class="p-6">
+      <h3 class="text-base font-bold mb-4"><i class="fas fa-upload mr-2 text-blue-500"></i>CSV取込</h3>
+      <p class="text-[12px] text-gray-500 mb-3">CSVフォーマット: system_id, expense_item_id, month, field(initial_plan/revised_plan/forecast/actual), value</p>
+      <textarea id="csvImportArea" class="w-full h-40 border rounded-lg p-3 text-[12px] font-mono" placeholder="1,1,1,revised_plan,2500&#10;1,1,2,revised_plan,2500"></textarea>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeModal()" class="btn-secondary">キャンセル</button>
+        <button onclick="importCSV()" class="btn-primary">インポート</button>
+      </div>
+    </div>`);
+}
+
+async function importCSV() {
+  const text = document.getElementById('csvImportArea')?.value;
+  if (!text) { showToast('CSVデータを入力してください', 'warning'); return; }
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  const records = lines.map(line => {
+    const [system_id, expense_item_id, month, field, value] = line.split(',').map(s => s.trim());
+    return { fiscal_year_id: state.fiscalYearId, system_id: parseInt(system_id), expense_item_id: parseInt(expense_item_id), month: parseInt(month), [field]: parseFloat(value) };
+  });
+  try {
+    await api('/budgets/bulk-upsert', { method: 'POST', body: { records } });
+    closeModal();
+    showToast(`${records.length}件をインポートしました`);
+    loadBudgetMatrix();
+  } catch (e) { showToast('インポートエラー: ' + e.message, 'error'); }
+}
+
+// === Analysis ===
+async function renderAnalysis() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-chart-column mr-2 text-blue-600"></i>予実差異分析</h2>
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="flex border rounded-lg overflow-hidden">
+            <button onclick="loadAnalysis('system')" id="tabSystem" class="tab-btn active">システム別</button>
+            <button onclick="loadAnalysis('category')" id="tabCategory" class="tab-btn">カテゴリ別</button>
+            <button onclick="loadAnalysis('domain')" id="tabDomain" class="tab-btn">ドメイン別</button>
+            <button onclick="loadAnalysis('item')" id="tabItem" class="tab-btn">費目別</button>
+          </div>
+          <div class="flex border rounded-lg overflow-hidden ml-auto">
+            <button onclick="loadPeriodAnalysis('quarter')" id="tabQuarter" class="tab-btn">四半期</button>
+            <button onclick="loadPeriodAnalysis('half')" id="tabHalf" class="tab-btn">半期</button>
+          </div>
+        </div>
+        <div id="analysisContent">
+          <p class="text-gray-400 text-sm p-4">読み込み中...</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">差異分析チャート</h3>
+          <div style="height:300px"><canvas id="varianceChart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3" id="periodChartTitle">四半期推移</h3>
+          <div style="height:300px"><canvas id="periodChart"></canvas></div>
+        </div>
+      </div>
+    </div>`;
+  await loadAnalysis('system');
+  await loadPeriodAnalysis('quarter');
+}
+
+async function loadAnalysis(groupBy) {
+  document.querySelectorAll('#tabSystem,#tabCategory,#tabDomain,#tabItem').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab' + groupBy.charAt(0).toUpperCase() + groupBy.slice(1))?.classList.add('active');
+
+  const container = document.getElementById('analysisContent');
+  const result = await api(`/analysis/variance?group_by=${groupBy}`);
+  const rows = result.data || [];
+
+  let html = '<div class="overflow-auto"><table class="budget-table w-full"><thead><tr>';
+  if (groupBy === 'system' || groupBy === 'item') html += '<th class="row-header">親</th>';
+  html += '<th class="row-header">名称</th><th>当初計画</th><th>修正計画</th><th>着地見込</th><th>実績</th>';
+  html += '<th>計画vs実績</th><th>差異率</th><th>見込vs計画</th><th>消化率</th></tr></thead><tbody>';
+
+  let totals = { initial_plan: 0, revised_plan: 0, forecast: 0, actual: 0 };
+  rows.forEach(r => {
+    totals.initial_plan += r.initial_plan;
+    totals.revised_plan += r.revised_plan;
+    totals.forecast += r.forecast;
+    totals.actual += r.actual;
+
+    html += '<tr class="hover:bg-gray-50">';
+    if (groupBy === 'system' || groupBy === 'item') html += `<td class="row-header text-[11px] text-gray-500">${r.parent_name || ''}</td>`;
+    html += `<td class="row-header">${r.group_name}</td>`;
+    html += `<td>${fmt(r.initial_plan)}</td><td>${fmt(r.revised_plan)}</td>`;
+    html += `<td>${fmt(r.forecast)}</td><td class="actual-cell">${fmt(r.actual)}</td>`;
+    html += `<td class="${r.planVsActual < 0 ? 'negative' : ''}">${fmt(r.planVsActual)}</td>`;
+    html += `<td class="${colorByVariance(Math.abs(r.planVsActualRate))}">${r.planVsActualRate > 0 ? '+' : ''}${fmtPct(r.planVsActualRate)}</td>`;
+    html += `<td class="${r.forecastVsPlan > 0 ? 'negative' : 'positive'}">${r.forecastVsPlan > 0 ? '+' : ''}${fmt(r.forecastVsPlan)}</td>`;
+    html += `<td><div class="flex items-center gap-1"><div class="w-16 bg-gray-100 rounded-full h-1.5"><div class="h-1.5 rounded-full ${colorByUsage(r.consumptionRate)}" style="width:${Math.min(r.consumptionRate, 100)}%"></div></div><span class="text-[10px]">${fmtPct(r.consumptionRate)}</span></div></td>`;
+    html += '</tr>';
+  });
+
+  // Total row
+  const totalVR = totals.revised_plan > 0 ? ((totals.actual - totals.revised_plan) / totals.revised_plan * 100) : 0;
+  const totalCR = totals.revised_plan > 0 ? (totals.actual / totals.revised_plan * 100) : 0;
+  html += `<tr class="total-row"><td colspan="${groupBy === 'system' || groupBy === 'item' ? 2 : 1}" class="row-header" style="background:#1e40af;color:white">合計</td>`;
+  html += `<td>${fmt(totals.initial_plan)}</td><td>${fmt(totals.revised_plan)}</td><td>${fmt(totals.forecast)}</td><td>${fmt(totals.actual)}</td>`;
+  html += `<td>${fmt(totals.revised_plan - totals.actual)}</td><td>${totalVR > 0 ? '+' : ''}${fmtPct(totalVR)}</td>`;
+  html += `<td>${fmt(totals.forecast - totals.revised_plan)}</td><td>${fmtPct(totalCR)}</td></tr>`;
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+
+  // Variance chart
+  if (state.charts.variance) state.charts.variance.destroy();
+  const chartRows = rows.filter(r => r.revised_plan > 0).slice(0, 10);
+  state.charts.variance = new Chart(document.getElementById('varianceChart'), {
+    type: 'bar',
     data: {
-      labels: data.map(d => monthLabel(d.month)),
+      labels: chartRows.map(r => r.group_name.substring(0, 8)),
       datasets: [
-        { label: '累計予算', data: data.map(d => d.cumulative_budget / 10000), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.3, pointRadius: 4 },
-        { label: '累計実績', data: data.map(d => d.cumulative_actual / 10000), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.3, pointRadius: 4 }
+        { label: '修正計画', data: chartRows.map(r => r.revised_plan), backgroundColor: 'rgba(59,130,246,0.3)', borderColor: '#3b82f6', borderWidth: 1 },
+        { label: '着地見込', data: chartRows.map(r => r.forecast), backgroundColor: 'rgba(168,85,247,0.3)', borderColor: '#a855f7', borderWidth: 1 },
+        { label: '実績', data: chartRows.map(r => r.actual), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1 }
       ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', labels: { usePointStyle: true, padding: 15, font: { size: 11 } } },
-        tooltip: { callbacks: { label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + '万円' } }
-      },
-      scales: { y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString() + '万' } } }
-    }
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 }
 
-// === Budget Management Page ===
-async function renderBudgets(main) {
-  const [budgetData, catData, deptData] = await Promise.all([
-    api('/budgets/summary'),
-    api('/master/categories'),
-    api('/master/departments')
+async function loadPeriodAnalysis(period) {
+  document.querySelectorAll('#tabQuarter,#tabHalf').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab' + (period === 'quarter' ? 'Quarter' : 'Half'))?.classList.add('active');
+  document.getElementById('periodChartTitle').textContent = period === 'quarter' ? '四半期推移' : '半期推移';
+
+  const result = await api(`/analysis/period?period=${period}`);
+  const data = result.data || [];
+
+  if (state.charts.period) state.charts.period.destroy();
+  state.charts.period = new Chart(document.getElementById('periodChart'), {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.period_label),
+      datasets: [
+        { label: '修正計画', data: data.map(d => d.revised_plan), backgroundColor: 'rgba(59,130,246,0.3)', borderColor: '#3b82f6', borderWidth: 1 },
+        { label: '着地見込', data: data.map(d => d.forecast), backgroundColor: 'rgba(168,85,247,0.3)', borderColor: '#a855f7', borderWidth: 1 },
+        { label: '実績', data: data.map(d => d.actual), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+  });
+}
+
+// === Multi-Year Comparison ===
+async function renderMultiYear() {
+  const mc = document.getElementById('mainContent');
+  const [multiYear, systemTree] = await Promise.all([
+    api('/dashboard/multi-year'),
+    api('/master/systems/tree')
   ]);
-  state.categories = catData.categories;
-  state.departments = deptData.departments;
+  const data = multiYear.data || [];
 
-  const topCats = catData.categories.filter(c => !c.parent_id);
+  let systemOpts = '<option value="">全体</option>';
+  (systemTree.tree || []).forEach(d => {
+    (d.systems || []).forEach(s => { systemOpts += `<option value="${s.id}">${s.name}</option>`; });
+  });
 
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-wallet text-blue-500 mr-2"></i>予算管理</h2>
-        <button onclick="showBudgetForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>予算登録</button>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">カテゴリ</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">部門</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">年間予算(万円)</th>
-                ${[...Array(12)].map((_, i) => `<th class="text-right px-3 py-3 text-xs font-semibold text-gray-500">${monthLabel(i + 1)}</th>`).join('')}
-                <th class="px-4 py-3 text-xs font-semibold text-gray-500">操作</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${budgetData.summary.map(s => {
-                const monthly = {};
-                if (s.monthly_breakdown) {
-                  s.monthly_breakdown.split(',').forEach(mb => {
-                    const [m, a] = mb.split(':');
-                    monthly[parseInt(m)] = parseFloat(a);
-                  });
-                }
-                return `<tr class="table-row">
-                  <td class="px-4 py-3 font-medium text-gray-700">${s.category_name}</td>
-                  <td class="px-4 py-3 text-gray-500">${s.department_name || '-'}</td>
-                  <td class="px-4 py-3 text-right font-semibold text-gray-700">${fmtM(s.annual_budget)}</td>
-                  ${[...Array(12)].map((_, i) => `<td class="px-3 py-3 text-right text-gray-500 text-xs">${monthly[i + 1] ? fmtM(monthly[i + 1]) : '-'}</td>`).join('')}
-                  <td class="px-4 py-3">
-                    <button onclick="editBudgetRow(${s.category_id}, ${s.department_id || 'null'})" class="text-blue-500 hover:text-blue-700 text-xs"><i class="fas fa-edit"></i></button>
-                  </td>
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-calendar-days mr-2 text-blue-600"></i>中期比較 (FY65-FY70)</h2>
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <div class="flex items-center gap-3 mb-4">
+          <label class="text-[12px] text-gray-500">システム絞り込み:</label>
+          <select id="multiYearSystem" onchange="loadMultiYearChart()" class="border rounded-md px-2 py-1 text-[12px]">${systemOpts}</select>
+        </div>
+        <div class="overflow-auto">
+          <table class="budget-table w-full">
+            <thead><tr><th class="row-header">年度</th><th>当初計画</th><th>修正計画</th><th>着地見込</th><th>実績</th><th>計画vs見込</th></tr></thead>
+            <tbody>
+              ${data.map(d => {
+                const diff = d.forecast - d.revised_plan;
+                const rate = d.revised_plan > 0 ? ((d.forecast - d.revised_plan) / d.revised_plan * 100) : 0;
+                return `<tr class="hover:bg-gray-50">
+                  <td class="row-header font-semibold">${d.code}</td>
+                  <td>${fmt(d.initial_plan)}</td><td>${fmt(d.revised_plan)}</td>
+                  <td>${fmt(d.forecast)}</td><td class="actual-cell">${fmt(d.actual)}</td>
+                  <td class="${rate > 0 ? 'negative' : rate < 0 ? 'positive' : ''}">${diff > 0 ? '+' : ''}${fmt(diff)} (${rate > 0 ? '+' : ''}${rate.toFixed(1)}%)</td>
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
       </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 class="text-sm font-semibold text-gray-800 mb-3">中期推移チャート</h3>
+        <div style="height:320px"><canvas id="multiYearChart"></canvas></div>
+      </div>
     </div>`;
+
+  state.charts.multiYear = new Chart(document.getElementById('multiYearChart'), {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.code),
+      datasets: [
+        { label: '当初計画', data: data.map(d => d.initial_plan), backgroundColor: 'rgba(148,163,184,0.3)', borderColor: '#94a3b8', borderWidth: 1 },
+        { label: '修正計画', data: data.map(d => d.revised_plan), backgroundColor: 'rgba(59,130,246,0.3)', borderColor: '#3b82f6', borderWidth: 1 },
+        { label: '着地見込', data: data.map(d => d.forecast), type: 'line', borderColor: '#a855f7', borderWidth: 2, pointRadius: 4, fill: false },
+        { label: '実績', data: data.map(d => d.actual), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+  });
 }
 
-function showBudgetForm(data = null) {
-  const topCats = state.categories.filter(c => !c.parent_id);
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-wallet text-blue-500 mr-2"></i>${data ? '予算編集' : '予算登録'}</h3>
-      <form id="budgetForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">カテゴリ</label>
-            <select id="bf_category" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-              <option value="">選択してください</option>
-              ${topCats.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">部門</label>
-            <select id="bf_dept" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-              <option value="">全社共通</option>
-              ${state.departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">月別予算配分 (万円)</label>
-          <div class="grid grid-cols-4 gap-2">
-            ${[...Array(12)].map((_, i) => `
-              <div>
-                <label class="text-xs text-gray-500">${monthLabel(i + 1)}</label>
-                <input type="number" id="bf_m${i + 1}" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" placeholder="0" step="1">
-              </div>
-            `).join('')}
-          </div>
-          <div class="mt-2 flex items-center gap-2">
-            <label class="text-xs text-gray-500">年間合計を均等配分:</label>
-            <input type="number" id="bf_total" class="border border-gray-300 rounded px-2 py-1 text-sm w-32" placeholder="年間(万円)">
-            <button type="button" onclick="distributeBudget()" class="btn-secondary text-xs">均等配分</button>
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">保存</button>
-        </div>
-      </form>
-    </div>
-  `);
+async function loadMultiYearChart() {
+  const systemId = document.getElementById('multiYearSystem')?.value;
+  let url = '/analysis/cross-year';
+  if (systemId) url += '?system_id=' + systemId;
+  const result = await api(url);
+  const data = result.data || [];
 
-  document.getElementById('budgetForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const categoryId = document.getElementById('bf_category').value;
-    const deptId = document.getElementById('bf_dept').value;
-    const monthly = {};
-    for (let i = 1; i <= 12; i++) {
-      const val = parseFloat(document.getElementById('bf_m' + i).value);
-      if (val) monthly[i] = val * 10000;
-    }
-    if (!categoryId || Object.keys(monthly).length === 0) {
-      showToast('カテゴリと月別金額を入力してください', 'error');
-      return;
-    }
-    try {
-      await api('/budgets/bulk', { method: 'POST', body: {
-        fiscal_year_id: state.fiscalYearId, category_id: parseInt(categoryId),
-        department_id: deptId ? parseInt(deptId) : null, monthly_amounts: monthly
-      }});
-      closeModal();
-      showToast('予算を保存しました');
-      navigateTo('budgets');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
+  if (state.charts.multiYear) state.charts.multiYear.destroy();
+  state.charts.multiYear = new Chart(document.getElementById('multiYearChart'), {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.code),
+      datasets: [
+        { label: '当初計画', data: data.map(d => d.initial_plan), backgroundColor: 'rgba(148,163,184,0.3)', borderColor: '#94a3b8', borderWidth: 1 },
+        { label: '修正計画', data: data.map(d => d.revised_plan), backgroundColor: 'rgba(59,130,246,0.3)', borderColor: '#3b82f6', borderWidth: 1 },
+        { label: '着地見込', data: data.map(d => d.forecast), type: 'line', borderColor: '#a855f7', borderWidth: 2, pointRadius: 4, fill: false },
+        { label: '実績', data: data.map(d => d.actual), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+  });
 }
 
-function distributeBudget() {
-  const total = parseFloat(document.getElementById('bf_total').value);
-  if (!total) return;
-  const monthly = Math.floor(total / 12);
-  const remainder = total - monthly * 12;
-  for (let i = 1; i <= 12; i++) {
-    document.getElementById('bf_m' + i).value = i === 12 ? monthly + remainder : monthly;
-  }
-}
-
-async function editBudgetRow(catId, deptId) {
-  const data = await api(`/budgets?category_id=${catId}${deptId ? '&department_id=' + deptId : ''}`);
-  showBudgetForm();
-  // Fill in existing data
-  if (data.budgets.length > 0) {
-    document.getElementById('bf_category').value = catId;
-    if (deptId) document.getElementById('bf_dept').value = deptId;
-    data.budgets.forEach(b => {
-      const el = document.getElementById('bf_m' + b.month);
-      if (el) el.value = Math.round(b.amount / 10000);
-    });
-  }
-}
-
-// === Actuals Page ===
-async function renderActuals(main) {
-  const [actualData, catData, deptData] = await Promise.all([
-    api('/actuals'),
-    api('/master/categories'),
-    api('/master/departments')
+// === Reports ===
+async function renderReports() {
+  const mc = document.getElementById('mainContent');
+  const [domSummary, sysSummary, catSummary] = await Promise.all([
+    api('/reports/department-summary'),
+    api('/reports/system-summary'),
+    api('/reports/category-summary')
   ]);
-  state.categories = catData.categories;
-  state.departments = deptData.departments;
 
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between flex-wrap gap-4">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-receipt text-indigo-500 mr-2"></i>実績入力</h2>
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-file-export mr-2 text-blue-600"></i>レポート出力</h2>
         <div class="flex gap-2">
-          <button onclick="showCsvImport()" class="btn-secondary"><i class="fas fa-file-csv mr-2"></i>CSVインポート</button>
-          <button onclick="showActualForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>実績登録</button>
-        </div>
-      </div>
-      <!-- Filters -->
-      <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-wrap gap-4">
-        <div>
-          <label class="text-xs text-gray-500 block mb-1">月</label>
-          <select id="actualMonthFilter" onchange="filterActuals()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
-            <option value="">全月</option>
-            ${[...Array(12)].map((_, i) => `<option value="${i + 1}">${monthLabel(i + 1)}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 block mb-1">カテゴリ</label>
-          <select id="actualCatFilter" onchange="filterActuals()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
-            <option value="">全カテゴリ</option>
-            ${catData.categories.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">月</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">カテゴリ</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">説明</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">ベンダー</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">金額(万円)</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500">ステータス</th>
-                <th class="px-4 py-3 text-xs font-semibold text-gray-500">操作</th>
-              </tr>
-            </thead>
-            <tbody id="actualsTableBody" class="divide-y divide-gray-100">
-              ${renderActualsRows(actualData.actuals)}
-            </tbody>
-          </table>
-        </div>
-        <div class="p-4 bg-gray-50 border-t border-gray-100 text-sm text-gray-500">
-          合計 ${actualData.actuals.length} 件 / 総額 ${fmtM(actualData.actuals.reduce((s, a) => s + a.amount, 0))} 万円
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderActualsRows(actuals) {
-  if (!actuals.length) return '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">データがありません</td></tr>';
-  return actuals.map(a => {
-    const statusColors = { draft: 'bg-gray-100 text-gray-600', recorded: 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', rejected: 'bg-red-100 text-red-700' };
-    const statusLabels = { draft: '下書き', recorded: '記録済', approved: '承認済', rejected: '却下' };
-    return `<tr class="table-row">
-      <td class="px-4 py-3 text-gray-600">${monthLabel(a.month)}</td>
-      <td class="px-4 py-3 text-gray-700 font-medium">${a.category_name || '-'}</td>
-      <td class="px-4 py-3 text-gray-600 max-w-xs truncate">${a.description || '-'}</td>
-      <td class="px-4 py-3 text-gray-500">${a.vendor || '-'}</td>
-      <td class="px-4 py-3 text-right font-medium text-gray-700">${fmtM(a.amount)}</td>
-      <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[a.status] || ''}">${statusLabels[a.status] || a.status}</span></td>
-      <td class="px-4 py-3 flex gap-2">
-        <button onclick='showActualForm(${JSON.stringify(a).replace(/'/g, "\\'")})' class="text-blue-500 hover:text-blue-700 text-xs"><i class="fas fa-edit"></i></button>
-        <button onclick="deleteActual(${a.id})" class="text-red-400 hover:text-red-600 text-xs"><i class="fas fa-trash"></i></button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-async function filterActuals() {
-  const month = document.getElementById('actualMonthFilter').value;
-  const cat = document.getElementById('actualCatFilter').value;
-  let url = '/actuals?';
-  if (month) url += '&month=' + month;
-  if (cat) url += '&category_id=' + cat;
-  const data = await api(url);
-  document.getElementById('actualsTableBody').innerHTML = renderActualsRows(data.actuals);
-}
-
-function showActualForm(data = null) {
-  const topCats = state.categories.filter(c => !c.parent_id);
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-receipt text-indigo-500 mr-2"></i>${data ? '実績編集' : '実績登録'}</h3>
-      <form id="actualForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">月 *</label>
-            <select id="af_month" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              ${[...Array(12)].map((_, i) => `<option value="${i + 1}" ${data && data.month === i + 1 ? 'selected' : ''}>${monthLabel(i + 1)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">カテゴリ *</label>
-            <select id="af_category" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">選択してください</option>
-              ${topCats.map(c => `<option value="${c.id}" ${data && data.category_id === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">金額 (円) *</label>
-            <input type="number" id="af_amount" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value="${data ? data.amount : ''}" step="1">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">部門</label>
-            <select id="af_dept" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">選択してください</option>
-              ${state.departments.map(d => `<option value="${d.id}" ${data && data.department_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
-            </select>
-          </div>
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">説明</label>
-            <input type="text" id="af_desc" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value="${data?.description || ''}" placeholder="例: AWS月額利用料">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">ベンダー</label>
-            <input type="text" id="af_vendor" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value="${data?.vendor || ''}">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">請求書番号</label>
-            <input type="text" id="af_invoice" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value="${data?.invoice_number || ''}">
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">${data ? '更新' : '登録'}</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  document.getElementById('actualForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const payload = {
-      fiscal_year_id: state.fiscalYearId,
-      month: parseInt(document.getElementById('af_month').value),
-      category_id: parseInt(document.getElementById('af_category').value),
-      amount: parseFloat(document.getElementById('af_amount').value),
-      department_id: document.getElementById('af_dept').value ? parseInt(document.getElementById('af_dept').value) : null,
-      description: document.getElementById('af_desc').value,
-      vendor: document.getElementById('af_vendor').value,
-      invoice_number: document.getElementById('af_invoice').value
-    };
-    try {
-      if (data) {
-        await api('/actuals/' + data.id, { method: 'PUT', body: payload });
-        showToast('実績を更新しました');
-      } else {
-        await api('/actuals', { method: 'POST', body: payload });
-        showToast('実績を登録しました');
-      }
-      closeModal();
-      navigateTo('actuals');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-}
-
-async function deleteActual(id) {
-  if (!confirm('この実績データを削除しますか？')) return;
-  try {
-    await api('/actuals/' + id, { method: 'DELETE' });
-    showToast('実績を削除しました');
-    navigateTo('actuals');
-  } catch (e) { showToast(e.message, 'error'); }
-}
-
-function showCsvImport() {
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-file-csv text-green-500 mr-2"></i>CSVインポート</h3>
-      <div class="space-y-4">
-        <div class="bg-gray-50 rounded-lg p-4">
-          <p class="text-sm font-medium text-gray-700 mb-2">CSVフォーマット:</p>
-          <code class="text-xs text-gray-600 block bg-white rounded p-2">月,カテゴリID,部門ID,金額,説明,ベンダー,請求書番号</code>
-          <p class="text-xs text-gray-400 mt-2">例: 1,3,1,12000000,AWS月額利用料,AWS,INV-001</p>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">CSVデータ</label>
-          <textarea id="csvData" rows="8" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" placeholder="CSVデータを貼り付け..."></textarea>
-        </div>
-        <div>
-          <input type="file" id="csvFile" accept=".csv" onchange="loadCsvFile()" class="text-sm text-gray-500">
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="button" onclick="importCsv()" class="btn-primary">インポート</button>
-        </div>
-      </div>
-    </div>
-  `);
-}
-
-function loadCsvFile() {
-  const file = document.getElementById('csvFile').files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => { document.getElementById('csvData').value = e.target.result; };
-  reader.readAsText(file);
-}
-
-async function importCsv() {
-  const csv = document.getElementById('csvData').value.trim();
-  if (!csv) { showToast('CSVデータを入力してください', 'error'); return; }
-  const lines = csv.split('\n').filter(l => l.trim());
-  const records = lines.map(line => {
-    const [month, category_id, department_id, amount, description, vendor, invoice_number] = line.split(',').map(s => s.trim());
-    return { month: parseInt(month), category_id: parseInt(category_id), department_id: department_id ? parseInt(department_id) : null, amount: parseFloat(amount), description, vendor, invoice_number };
-  }).filter(r => r.month && r.category_id && r.amount);
-
-  if (!records.length) { showToast('有効なデータがありません', 'error'); return; }
-
-  try {
-    const result = await api('/actuals/import', { method: 'POST', body: { fiscal_year_id: state.fiscalYearId, records } });
-    closeModal();
-    showToast(result.message);
-    navigateTo('actuals');
-  } catch (e) { showToast(e.message, 'error'); }
-}
-
-// === Committed Expenses Page ===
-async function renderCommitted(main) {
-  const data = await api('/committed');
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-file-invoice text-amber-500 mr-2"></i>コミット管理</h2>
-        <button onclick="showCommittedForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>コミット登録</button>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">月</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">カテゴリ</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">説明</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">ベンダー</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">発注番号</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">金額(万円)</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500">ステータス</th>
-                <th class="px-4 py-3 text-xs font-semibold text-gray-500">操作</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${data.committed.length ? data.committed.map(ce => {
-                const statusColors = { ordered: 'bg-blue-100 text-blue-700', delivered: 'bg-purple-100 text-purple-700', invoiced: 'bg-green-100 text-green-700', cancelled: 'bg-gray-100 text-gray-500' };
-                const statusLabels = { ordered: '発注済', delivered: '納品済', invoiced: '請求済', cancelled: 'キャンセル' };
-                return `<tr class="table-row">
-                  <td class="px-4 py-3">${monthLabel(ce.month)}</td>
-                  <td class="px-4 py-3 font-medium text-gray-700">${ce.category_name || '-'}</td>
-                  <td class="px-4 py-3 text-gray-600 max-w-xs truncate">${ce.description || '-'}</td>
-                  <td class="px-4 py-3 text-gray-500">${ce.vendor || '-'}</td>
-                  <td class="px-4 py-3 text-gray-500">${ce.order_number || '-'}</td>
-                  <td class="px-4 py-3 text-right font-medium">${fmtM(ce.amount)}</td>
-                  <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[ce.status]}">${statusLabels[ce.status]}</span></td>
-                  <td class="px-4 py-3 flex gap-2">
-                    <button onclick="deleteCommitted(${ce.id})" class="text-red-400 hover:text-red-600 text-xs"><i class="fas fa-trash"></i></button>
-                  </td>
-                </tr>`;
-              }).join('') : '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">データがありません</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-        <div class="p-4 bg-gray-50 border-t border-gray-100 text-sm text-gray-500">
-          合計 ${data.committed.length} 件 / 総額 ${fmtM(data.committed.filter(c => c.status !== 'cancelled').reduce((s, c) => s + c.amount, 0))} 万円
-        </div>
-      </div>
-    </div>`;
-}
-
-function showCommittedForm() {
-  const topCats = state.categories.filter(c => !c.parent_id);
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-file-invoice text-amber-500 mr-2"></i>コミット登録</h3>
-      <form id="committedForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">月 *</label>
-            <select id="cf_month" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              ${[...Array(12)].map((_, i) => `<option value="${i + 1}">${monthLabel(i + 1)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">カテゴリ *</label>
-            <select id="cf_category" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">選択</option>
-              ${topCats.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">金額 (円) *</label>
-            <input type="number" id="cf_amount" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">ベンダー</label>
-            <input type="text" id="cf_vendor" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">発注番号</label>
-            <input type="text" id="cf_order" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">部門</label>
-            <select id="cf_dept" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">選択</option>
-              ${state.departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
-            </select>
-          </div>
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">説明</label>
-            <input type="text" id="cf_desc" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">登録</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  document.getElementById('committedForm').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api('/committed', { method: 'POST', body: {
-        fiscal_year_id: state.fiscalYearId,
-        month: parseInt(document.getElementById('cf_month').value),
-        category_id: parseInt(document.getElementById('cf_category').value),
-        amount: parseFloat(document.getElementById('cf_amount').value),
-        department_id: document.getElementById('cf_dept').value ? parseInt(document.getElementById('cf_dept').value) : null,
-        vendor: document.getElementById('cf_vendor').value,
-        order_number: document.getElementById('cf_order').value,
-        description: document.getElementById('cf_desc').value
-      }});
-      closeModal(); showToast('コミット金額を登録しました'); navigateTo('committed');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-}
-
-async function deleteCommitted(id) {
-  if (!confirm('このコミットデータを削除しますか？')) return;
-  try { await api('/committed/' + id, { method: 'DELETE' }); showToast('削除しました'); navigateTo('committed'); } catch (e) { showToast(e.message, 'error'); }
-}
-
-// === Analysis Page ===
-async function renderAnalysis(main) {
-  const [report, deptReport, trendData] = await Promise.all([
-    api('/reports/monthly'),
-    api('/reports/department'),
-    api('/dashboard/trends')
-  ]);
-
-  const totals = report.report.reduce((acc, r) => ({
-    budget: acc.budget + r.budget, actual: acc.actual + r.actual,
-    committed: acc.committed + r.committed, remaining: acc.remaining + r.remaining
-  }), { budget: 0, actual: 0, committed: 0, remaining: 0 });
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-chart-line text-green-500 mr-2"></i>予実分析</h2>
-
-      <!-- Summary Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
-          <p class="text-sm opacity-80">年間予算</p>
-          <p class="text-2xl font-bold mt-1">${fmtM(totals.budget)}<span class="text-sm font-normal opacity-80 ml-1">万円</span></p>
-        </div>
-        <div class="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-5 text-white">
-          <p class="text-sm opacity-80">累計実績</p>
-          <p class="text-2xl font-bold mt-1">${fmtM(totals.actual)}<span class="text-sm font-normal opacity-80 ml-1">万円</span></p>
-        </div>
-        <div class="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-5 text-white">
-          <p class="text-sm opacity-80">コミット済</p>
-          <p class="text-2xl font-bold mt-1">${fmtM(totals.committed)}<span class="text-sm font-normal opacity-80 ml-1">万円</span></p>
-        </div>
-        <div class="bg-gradient-to-br ${totals.remaining >= 0 ? 'from-emerald-500 to-emerald-600' : 'from-red-500 to-red-600'} rounded-xl p-5 text-white">
-          <p class="text-sm opacity-80">残予算</p>
-          <p class="text-2xl font-bold mt-1">${fmtM(totals.remaining)}<span class="text-sm font-normal opacity-80 ml-1">万円</span></p>
+          <button onclick="exportExcel()" class="btn-primary text-[12px]"><i class="fas fa-file-excel mr-1"></i>Excel出力</button>
+          <button onclick="exportPDF()" class="btn-secondary text-[12px]"><i class="fas fa-file-pdf mr-1"></i>PDF出力</button>
+          <button onclick="window.print()" class="btn-secondary text-[12px]"><i class="fas fa-print mr-1"></i>印刷</button>
         </div>
       </div>
 
-      <!-- Analysis Charts -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-chart-bar text-blue-500 mr-2"></i>カテゴリ別予実比較</h3>
-          <div style="height:300px"><canvas id="analysisBarChart"></canvas></div>
-        </div>
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-chart-line text-green-500 mr-2"></i>消化率トレンド</h3>
-          <div style="height:300px"><canvas id="analysisRateChart"></canvas></div>
-        </div>
-      </div>
-
-      <!-- Category Detail -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-5 border-b border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700"><i class="fas fa-table text-gray-500 mr-2"></i>カテゴリ別予実分析</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500">カテゴリ</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">予算</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">実績</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">コミット</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">残額</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">差異</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">消化率</th>
-                <th class="px-5 py-3 text-xs font-semibold text-gray-500">進捗</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${report.report.map(r => {
-                const c = getAlertColor(r.consumption_rate);
-                return `<tr class="table-row">
-                  <td class="px-5 py-3 font-medium text-gray-700">${r.category_name}</td>
-                  <td class="px-5 py-3 text-right">${fmtM(r.budget)}万</td>
-                  <td class="px-5 py-3 text-right">${fmtM(r.actual)}万</td>
-                  <td class="px-5 py-3 text-right">${fmtM(r.committed)}万</td>
-                  <td class="px-5 py-3 text-right ${r.remaining < 0 ? 'text-red-600 font-semibold' : ''}">${fmtM(r.remaining)}万</td>
-                  <td class="px-5 py-3 text-right ${r.variance > 0 ? 'text-red-600' : 'text-green-600'}">${r.variance > 0 ? '+' : ''}${fmtM(r.variance)}万</td>
-                  <td class="px-5 py-3 text-right font-medium ${c.text}">${r.consumption_rate}%</td>
-                  <td class="px-5 py-3 w-32">
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                      <div class="h-2 rounded-full progress-bar ${r.consumption_rate >= 95 ? 'bg-red-500' : r.consumption_rate >= 80 ? 'bg-yellow-500' : 'bg-blue-500'}" style="width:${Math.min(r.consumption_rate, 100)}%"></div>
-                    </div>
-                  </td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Department Report -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-5 border-b border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700"><i class="fas fa-building text-purple-500 mr-2"></i>部門別サマリー</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500">部門</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">予算(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">実績(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">コミット(万円)</th>
-                <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500">残額(万円)</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${deptReport.report.map(d => `<tr class="table-row">
-                <td class="px-5 py-3 font-medium text-gray-700">${d.department_name}</td>
-                <td class="px-5 py-3 text-right">${fmtM(d.budget)}</td>
-                <td class="px-5 py-3 text-right">${fmtM(d.actual)}</td>
-                <td class="px-5 py-3 text-right">${fmtM(d.committed)}</td>
-                <td class="px-5 py-3 text-right ${d.remaining < 0 ? 'text-red-600 font-semibold' : ''}">${fmtM(d.remaining)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-
-  setTimeout(() => {
-    // Bar chart
-    const ctx1 = document.getElementById('analysisBarChart');
-    if (ctx1) {
-      state.charts.analysisBar = new Chart(ctx1, {
-        type: 'bar',
-        data: {
-          labels: report.report.map(r => r.category_name),
-          datasets: [
-            { label: '予算', data: report.report.map(r => r.budget / 10000), backgroundColor: 'rgba(59,130,246,0.3)', borderColor: '#3b82f6', borderWidth: 1, borderRadius: 4 },
-            { label: '実績', data: report.report.map(r => r.actual / 10000), backgroundColor: 'rgba(99,102,241,0.6)', borderColor: '#6366f1', borderWidth: 1, borderRadius: 4 },
-            { label: 'コミット', data: report.report.map(r => r.committed / 10000), backgroundColor: 'rgba(245,158,11,0.5)', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 4 }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-          plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } } },
-          scales: { x: { ticks: { callback: v => v.toLocaleString() + '万' } } }
-        }
-      });
-    }
-    // Rate trend
-    const ctx2 = document.getElementById('analysisRateChart');
-    if (ctx2 && trendData.trends) {
-      const cumBudgets = [], cumActuals = [];
-      let cBudget = 0, cActual = 0;
-      trendData.trends.forEach(t => {
-        cBudget += t.budget; cActual += t.actual;
-        cumBudgets.push(cBudget); cumActuals.push(cActual);
-      });
-      const rates = cumBudgets.map((b, i) => b > 0 ? (cumActuals[i] / b * 100).toFixed(1) : 0);
-      state.charts.analysisRate = new Chart(ctx2, {
-        type: 'line',
-        data: {
-          labels: trendData.trends.map(d => monthLabel(d.month)),
-          datasets: [
-            { label: '消化率', data: rates, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.3, pointRadius: 4 },
-            { label: '80%ライン', data: Array(12).fill(80), borderColor: '#f59e0b', borderDash: [5, 5], pointRadius: 0 },
-            { label: '95%ライン', data: Array(12).fill(95), borderColor: '#ef4444', borderDash: [5, 5], pointRadius: 0 }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } } },
-          scales: { y: { min: 0, max: 120, ticks: { callback: v => v + '%' } } }
-        }
-      });
-    }
-  }, 100);
-}
-
-// === Reports Page ===
-async function renderReports(main) {
-  const report = await api('/reports/monthly');
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between flex-wrap gap-4">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-file-pdf text-red-500 mr-2"></i>レポート出力</h2>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <button onclick="exportPDF()" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 card-hover text-left">
-          <div class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center mb-4"><i class="fas fa-file-pdf text-red-500 text-xl"></i></div>
-          <h4 class="font-semibold text-gray-800">PDF月次報告書</h4>
-          <p class="text-sm text-gray-500 mt-1">月次予実績レポートをPDFで出力</p>
-        </button>
-        <button onclick="exportExcel()" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 card-hover text-left">
-          <div class="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center mb-4"><i class="fas fa-file-excel text-green-500 text-xl"></i></div>
-          <h4 class="font-semibold text-gray-800">Excelエクスポート</h4>
-          <p class="text-sm text-gray-500 mt-1">予実績データをExcel形式でダウンロード</p>
-        </button>
-        <button onclick="exportCSV()" class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 card-hover text-left">
-          <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-4"><i class="fas fa-file-csv text-blue-500 text-xl"></i></div>
-          <h4 class="font-semibold text-gray-800">CSVエクスポート</h4>
-          <p class="text-sm text-gray-500 mt-1">データをCSV形式でダウンロード</p>
-        </button>
-      </div>
-
-      <!-- Preview Table -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-5 border-b border-gray-100">
-          <h3 class="text-sm font-semibold text-gray-700">レポートプレビュー: カテゴリ別予実績</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm" id="reportTable">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">カテゴリ</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">予算</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">実績</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">コミット</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">残額</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">消化率</th>
-                <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500">差異</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              ${report.report.map(r => `<tr class="table-row">
-                <td class="px-4 py-3 font-medium">${r.category_name}</td>
-                <td class="px-4 py-3 text-right">${fmt(r.budget)}</td>
-                <td class="px-4 py-3 text-right">${fmt(r.actual)}</td>
-                <td class="px-4 py-3 text-right">${fmt(r.committed)}</td>
-                <td class="px-4 py-3 text-right ${r.remaining < 0 ? 'text-red-600' : ''}">${fmt(r.remaining)}</td>
-                <td class="px-4 py-3 text-right">${r.consumption_rate}%</td>
-                <td class="px-4 py-3 text-right ${r.variance > 0 ? 'text-red-600' : 'text-green-600'}">${fmt(r.variance)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-}
-
-function exportCSV() {
-  const table = document.getElementById('reportTable');
-  if (!table) { showToast('レポートデータがありません', 'error'); return; }
-  let csv = '\uFEFF'; // BOM for Japanese Excel
-  const rows = table.querySelectorAll('tr');
-  rows.forEach(row => {
-    const cells = row.querySelectorAll('th, td');
-    csv += Array.from(cells).map(c => '"' + c.textContent.trim().replace(/"/g, '""') + '"').join(',') + '\n';
-  });
-  downloadFile(csv, 'budget_report.csv', 'text/csv;charset=utf-8');
-  showToast('CSVファイルをダウンロードしました');
-}
-
-function exportExcel() {
-  // Create simple XLSX-compatible XML
-  const table = document.getElementById('reportTable');
-  if (!table) return;
-  let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
-  xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
-  xml += '<Worksheet ss:Name="予実績レポート"><Table>';
-  const rows = table.querySelectorAll('tr');
-  rows.forEach(row => {
-    xml += '<Row>';
-    row.querySelectorAll('th, td').forEach(cell => {
-      const val = cell.textContent.trim();
-      const isNum = /^[¥\-\+]?[\d,]+\.?\d*%?$/.test(val.replace(/[¥,%]/g, ''));
-      if (isNum) {
-        xml += `<Cell><Data ss:Type="Number">${val.replace(/[¥,%万円]/g, '').replace(/,/g, '')}</Data></Cell>`;
-      } else {
-        xml += `<Cell><Data ss:Type="String">${val}</Data></Cell>`;
-      }
-    });
-    xml += '</Row>';
-  });
-  xml += '</Table></Worksheet></Workbook>';
-  downloadFile(xml, 'budget_report.xls', 'application/vnd.ms-excel');
-  showToast('Excelファイルをダウンロードしました');
-}
-
-function exportPDF() {
-  // Print-friendly version
-  const table = document.getElementById('reportTable');
-  if (!table) return;
-  const fy = state.fiscalYears.find(f => f.id === state.fiscalYearId);
-  const win = window.open('', '_blank');
-  win.document.write(`
-    <html><head><title>IT予算予実績レポート</title>
-    <style>
-      body { font-family: 'Noto Sans JP', sans-serif; padding: 40px; color: #333; }
-      h1 { font-size: 20px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
-      h2 { font-size: 14px; color: #666; margin-top: 4px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-      th { background: #f3f4f6; text-align: left; padding: 8px 12px; border: 1px solid #e5e7eb; font-weight: 600; }
-      td { padding: 8px 12px; border: 1px solid #e5e7eb; }
-      .text-right { text-align: right; }
-      .negative { color: #dc2626; }
-      .footer { margin-top: 30px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
-      @media print { body { padding: 20px; } }
-    </style>
-    </head><body>
-    <h1>IT予算予実績レポート</h1>
-    <h2>${fy?.name || ''} | 出力日: ${new Date().toLocaleDateString('ja-JP')}</h2>
-    ${table.outerHTML}
-    <div class="footer">IT予算管理ダッシュボード - 自動生成レポート</div>
-    <script>window.print();</script>
-    </body></html>
-  `);
-  showToast('PDFレポートを生成しました');
-}
-
-function downloadFile(content, filename, type) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
-// === Categories Management ===
-async function renderCategories(main) {
-  const data = await api('/master/categories/tree');
-
-  function renderTree(nodes, level = 0) {
-    return nodes.map(n => {
-      const indent = level * 24;
-      const hasChildren = n.children && n.children.length > 0;
-      return `
-        <tr class="table-row">
-          <td class="px-4 py-3">
-            <div style="padding-left:${indent}px" class="flex items-center gap-2">
-              ${hasChildren ? '<i class="fas fa-folder-open text-yellow-500 text-xs"></i>' : '<i class="fas fa-tag text-gray-400 text-xs"></i>'}
-              <span class="font-medium text-gray-700">${n.name}</span>
-            </div>
-          </td>
-          <td class="px-4 py-3 text-gray-500 text-sm">${n.code}</td>
-          <td class="px-4 py-3 text-gray-500 text-sm">レベル ${n.level}</td>
-          <td class="px-4 py-3">
-            <button onclick="editCategory(${n.id}, '${n.name}', '${n.code}', ${n.sort_order}, '${n.description || ''}')" class="text-blue-500 hover:text-blue-700 text-xs mr-2"><i class="fas fa-edit"></i></button>
-          </td>
-        </tr>
-        ${hasChildren ? renderTree(n.children, level + 1) : ''}
-      `;
-    }).join('');
-  }
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-folder-tree text-yellow-500 mr-2"></i>カテゴリ管理</h2>
-        <button onclick="showCategoryForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>カテゴリ追加</button>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">名前</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">コード</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500">レベル</th>
-              <th class="px-4 py-3 text-xs font-semibold text-gray-500">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            ${renderTree(data.tree)}
+      <!-- Domain Summary -->
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 class="text-sm font-semibold text-gray-800 mb-3">ドメイン別サマリ</h3>
+        <table class="budget-table w-full">
+          <thead><tr><th class="row-header">ドメイン</th><th>当初計画</th><th>修正計画</th><th>着地見込</th><th>実績</th><th>残額</th><th>消化率</th></tr></thead>
+          <tbody>
+            ${(domSummary.data || []).map(d => {
+              const rem = d.revised_plan - d.actual;
+              const cr = d.revised_plan > 0 ? (d.actual / d.revised_plan * 100) : 0;
+              return `<tr><td class="row-header">${d.name}</td><td>${fmt(d.initial_plan)}</td><td>${fmt(d.revised_plan)}</td>
+                <td>${fmt(d.forecast)}</td><td>${fmt(d.actual)}</td>
+                <td class="${rem < 0 ? 'negative' : ''}">${fmt(rem)}</td><td>${fmtPct(cr)}</td></tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
-    </div>`;
-}
 
-function showCategoryForm(parentId = null) {
-  const topCats = state.categories.filter(c => !c.parent_id);
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-folder-tree text-yellow-500 mr-2"></i>カテゴリ追加</h3>
-      <form id="categoryForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">名前 *</label>
-            <input type="text" id="catf_name" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">コード *</label>
-            <input type="text" id="catf_code" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="例: CLOUD-AWS">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">親カテゴリ</label>
-            <select id="catf_parent" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">なし(トップレベル)</option>
-              ${state.categories.map(c => `<option value="${c.id}" ${c.id === parentId ? 'selected' : ''}>${'　'.repeat(c.level)}${c.name}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">並び順</label>
-            <input type="number" id="catf_sort" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value="0">
-          </div>
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">説明</label>
-            <input type="text" id="catf_desc" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">登録</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  document.getElementById('categoryForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const parentId = document.getElementById('catf_parent').value;
-    const parentCat = parentId ? state.categories.find(c => c.id === parseInt(parentId)) : null;
-    try {
-      await api('/master/categories', { method: 'POST', body: {
-        name: document.getElementById('catf_name').value,
-        code: document.getElementById('catf_code').value,
-        parent_id: parentId ? parseInt(parentId) : null,
-        level: parentCat ? parentCat.level + 1 : 0,
-        sort_order: parseInt(document.getElementById('catf_sort').value) || 0,
-        description: document.getElementById('catf_desc').value
-      }});
-      closeModal(); showToast('カテゴリを登録しました'); navigateTo('categories');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-}
-
-function editCategory(id, name, code, sortOrder, desc) {
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4">カテゴリ編集</h3>
-      <form id="editCatForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">名前</label>
-            <input type="text" id="ecf_name" value="${name}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">コード</label>
-            <input type="text" id="ecf_code" value="${code}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">並び順</label>
-            <input type="number" id="ecf_sort" value="${sortOrder}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">説明</label>
-            <input type="text" id="ecf_desc" value="${desc}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">更新</button>
-        </div>
-      </form>
-    </div>
-  `);
-  document.getElementById('editCatForm').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api('/master/categories/' + id, { method: 'PUT', body: {
-        name: document.getElementById('ecf_name').value, code: document.getElementById('ecf_code').value,
-        sort_order: parseInt(document.getElementById('ecf_sort').value), description: document.getElementById('ecf_desc').value, is_active: 1
-      }});
-      closeModal(); showToast('更新しました'); navigateTo('categories');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-}
-
-// === Departments Management ===
-async function renderDepartments(main) {
-  const data = await api('/master/departments');
-  state.departments = data.departments;
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-building text-purple-500 mr-2"></i>部門管理</h2>
-        <button onclick="showDeptForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>部門追加</button>
+      <!-- System Summary -->
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 class="text-sm font-semibold text-gray-800 mb-3">システム別サマリ</h3>
+        <table class="budget-table w-full">
+          <thead><tr><th class="row-header">ドメイン</th><th class="row-header">システム</th><th>当初計画</th><th>修正計画</th><th>着地見込</th><th>実績</th><th>見込差異率</th></tr></thead>
+          <tbody>
+            ${(sysSummary.data || []).map(s => `<tr>
+              <td class="row-header text-[11px] text-gray-500">${s.domain_name}</td>
+              <td class="row-header">${s.name}</td>
+              <td>${fmt(s.initial_plan)}</td><td>${fmt(s.revised_plan)}</td>
+              <td>${fmt(s.forecast)}</td><td>${fmt(s.actual)}</td>
+              <td class="${colorByVariance(s.variance_rate)}">${s.variance_rate > 0 ? '+' : ''}${fmtPct(s.variance_rate)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500">部門名</th>
-              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500">コード</th>
-              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500">責任者</th>
-              <th class="px-5 py-3 text-xs font-semibold text-gray-500">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            ${data.departments.map(d => `<tr class="table-row">
-              <td class="px-5 py-3 font-medium text-gray-700"><i class="fas fa-building text-purple-400 mr-2"></i>${d.name}</td>
-              <td class="px-5 py-3 text-gray-500">${d.code}</td>
-              <td class="px-5 py-3 text-gray-500">${d.manager_name || '-'}</td>
-              <td class="px-5 py-3">
-                <button onclick="editDept(${d.id}, '${d.name}', '${d.code}', '${d.manager_name || ''}')" class="text-blue-500 hover:text-blue-700 text-xs"><i class="fas fa-edit"></i></button>
-              </td>
+
+      <!-- Category Summary -->
+      <div class="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 class="text-sm font-semibold text-gray-800 mb-3">費用カテゴリ別サマリ</h3>
+        <table class="budget-table w-full">
+          <thead><tr><th class="row-header">カテゴリ</th><th>当初計画</th><th>修正計画</th><th>着地見込</th><th>実績</th></tr></thead>
+          <tbody>
+            ${(catSummary.data || []).map(c => `<tr>
+              <td class="row-header">${c.name}</td>
+              <td>${fmt(c.initial_plan)}</td><td>${fmt(c.revised_plan)}</td>
+              <td>${fmt(c.forecast)}</td><td>${fmt(c.actual)}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -1345,179 +860,314 @@ async function renderDepartments(main) {
     </div>`;
 }
 
-function showDeptForm() {
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4">部門追加</h3>
-      <form id="deptForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">部門名 *</label>
-            <input type="text" id="df_name" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">コード *</label>
-            <input type="text" id="df_code" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">責任者</label>
-            <input type="text" id="df_manager" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">登録</button>
-        </div>
-      </form>
-    </div>
-  `);
-  document.getElementById('deptForm').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api('/master/departments', { method: 'POST', body: {
-        name: document.getElementById('df_name').value,
-        code: document.getElementById('df_code').value,
-        manager_name: document.getElementById('df_manager').value
-      }});
-      closeModal(); showToast('部門を登録しました'); navigateTo('departments');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
+function exportExcel() {
+  const tables = document.querySelectorAll('.budget-table');
+  let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+  xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+  xml += '<Styles><Style ss:ID="header"><Font ss:Bold="1"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/></Style>';
+  xml += '<Style ss:ID="num"><NumberFormat ss:Format="#,##0"/></Style></Styles>';
+
+  tables.forEach((table, i) => {
+    const title = table.closest('.bg-white')?.querySelector('h3')?.textContent || `Sheet${i+1}`;
+    xml += `<Worksheet ss:Name="${title.substring(0,31)}"><Table>`;
+    table.querySelectorAll('tr').forEach(row => {
+      xml += '<Row>';
+      row.querySelectorAll('th, td').forEach(cell => {
+        const val = cell.querySelector('input') ? cell.querySelector('input').value : cell.textContent.trim().replace(/,/g, '');
+        const isNum = !isNaN(val) && val !== '';
+        const style = cell.tagName === 'TH' ? ' ss:StyleID="header"' : (isNum ? ' ss:StyleID="num"' : '');
+        xml += `<Cell${style}><Data ss:Type="${isNum ? 'Number' : 'String'}">${val}</Data></Cell>`;
+      });
+      xml += '</Row>';
+    });
+    xml += '</Table></Worksheet>';
+  });
+  xml += '</Workbook>';
+
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `budget_report_FY${state.fiscalYearId}.xls`;
+  a.click();
+  showToast('Excelファイルを出力しました');
 }
 
-function editDept(id, name, code, manager) {
-  showModal(`
-    <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4">部門編集</h3>
-      <form id="editDeptForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">部門名</label>
-            <input type="text" id="edf_name" value="${name}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">コード</label>
-            <input type="text" id="edf_code" value="${code}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">責任者</label>
-            <input type="text" id="edf_manager" value="${manager}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-        </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">更新</button>
-        </div>
-      </form>
-    </div>
-  `);
-  document.getElementById('editDeptForm').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api('/master/departments/' + id, { method: 'PUT', body: {
-        name: document.getElementById('edf_name').value, code: document.getElementById('edf_code').value,
-        manager_name: document.getElementById('edf_manager').value, is_active: 1
-      }});
-      closeModal(); showToast('更新しました'); navigateTo('departments');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
+function exportPDF() {
+  window.print();
+  showToast('印刷ダイアログを開きました（PDF保存可能）', 'info');
 }
 
-// === Projects Management ===
-async function renderProjects(main) {
-  const [projData, deptData] = await Promise.all([
-    api('/master/projects'),
-    api('/master/departments')
-  ]);
-  state.departments = deptData.departments;
+// === Master Systems ===
+async function renderMasterSystems() {
+  const mc = document.getElementById('mainContent');
+  const systemTree = await api('/master/systems/tree');
 
-  const statusColors = { planning: 'bg-gray-100 text-gray-600', active: 'bg-green-100 text-green-700', completed: 'bg-blue-100 text-blue-700', cancelled: 'bg-red-100 text-red-600' };
-  const statusLabels = { planning: '計画中', active: '進行中', completed: '完了', cancelled: '中止' };
-
-  main.innerHTML = `
-    <div class="fade-in space-y-6">
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
       <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-project-diagram text-teal-500 mr-2"></i>プロジェクト管理</h2>
-        <button onclick="showProjectForm()" class="btn-primary"><i class="fas fa-plus mr-2"></i>プロジェクト追加</button>
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-server mr-2 text-blue-600"></i>システム管理</h2>
+        <button onclick="showAddSystemModal()" class="btn-primary text-[12px]"><i class="fas fa-plus mr-1"></i>新規追加</button>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        ${projData.projects.map(p => `
-          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 card-hover">
-            <div class="flex items-center justify-between mb-3">
-              <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[p.status]}">${statusLabels[p.status]}</span>
-              <span class="text-xs text-gray-400">${p.code}</span>
-            </div>
-            <h4 class="font-semibold text-gray-800 mb-2">${p.name}</h4>
-            <p class="text-sm text-gray-500 mb-3">${p.description || '説明なし'}</p>
-            <div class="flex items-center gap-4 text-xs text-gray-400">
-              <span><i class="fas fa-building mr-1"></i>${p.department_name || '-'}</span>
-              <span><i class="fas fa-calendar mr-1"></i>${p.fiscal_year_name || '-'}</span>
-            </div>
+      ${(systemTree.tree || []).map(domain => `
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">
+            <span class="badge bg-blue-100 text-blue-700 mr-2">${domain.code}</span>${domain.name}
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            ${(domain.systems || []).map(s => `
+              <div class="border border-gray-100 rounded-lg p-3 hover:border-blue-200 transition-colors">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <p class="text-[13px] font-semibold text-gray-800">${s.name}</p>
+                    <p class="text-[11px] text-gray-400">${s.code}</p>
+                    ${s.description ? `<p class="text-[11px] text-gray-500 mt-1">${s.description}</p>` : ''}
+                  </div>
+                  <span class="badge ${s.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${s.is_active ? '有効' : '無効'}</span>
+                </div>
+              </div>`).join('')}
           </div>
-        `).join('')}
+        </div>`).join('')}
+    </div>`;
+}
+
+function showAddSystemModal() {
+  showModal(`
+    <div class="p-6">
+      <h3 class="text-base font-bold mb-4">システム追加</h3>
+      <div class="space-y-3">
+        <div><label class="text-[12px] text-gray-500 block mb-1">ドメイン</label>
+          <select id="newSysDomain" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+            ${state.domains.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+          </select></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">コード</label>
+          <input id="newSysCode" class="w-full border rounded-lg px-3 py-2 text-[13px]" placeholder="例: CORE-NEW"></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">名称</label>
+          <input id="newSysName" class="w-full border rounded-lg px-3 py-2 text-[13px]" placeholder="例: 新システム"></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">説明</label>
+          <input id="newSysDesc" class="w-full border rounded-lg px-3 py-2 text-[13px]" placeholder="概要"></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeModal()" class="btn-secondary">キャンセル</button>
+        <button onclick="addSystem()" class="btn-primary">追加</button>
+      </div>
+    </div>`);
+}
+
+async function addSystem() {
+  try {
+    await api('/master/systems', { method: 'POST', body: {
+      domain_id: parseInt(document.getElementById('newSysDomain').value),
+      code: document.getElementById('newSysCode').value,
+      name: document.getElementById('newSysName').value,
+      description: document.getElementById('newSysDesc').value
+    }});
+    closeModal();
+    showToast('システムを追加しました');
+    renderMasterSystems();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// === Master Expenses ===
+async function renderMasterExpenses() {
+  const mc = document.getElementById('mainContent');
+  const itemTree = await api('/master/expense-items/tree');
+
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-tags mr-2 text-blue-600"></i>費目管理</h2>
+        <button onclick="showAddItemModal()" class="btn-primary text-[12px]"><i class="fas fa-plus mr-1"></i>新規追加</button>
+      </div>
+      ${(itemTree.tree || []).map(cat => `
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3">
+            <span class="badge bg-purple-100 text-purple-700 mr-2">${cat.code}</span>${cat.name}
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            ${(cat.items || []).map(item => `
+              <div class="border border-gray-100 rounded-lg p-3 hover:border-purple-200 transition-colors">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-[13px] font-semibold text-gray-800">${item.name}</p>
+                    <p class="text-[11px] text-gray-400">${item.code}</p>
+                  </div>
+                  <span class="badge ${item.is_taxable ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}">${item.is_taxable ? '課税' : '非課税'}</span>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function showAddItemModal() {
+  showModal(`
+    <div class="p-6">
+      <h3 class="text-base font-bold mb-4">費目追加</h3>
+      <div class="space-y-3">
+        <div><label class="text-[12px] text-gray-500 block mb-1">カテゴリ</label>
+          <select id="newItemCat" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+            ${state.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+          </select></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">コード</label>
+          <input id="newItemCode" class="w-full border rounded-lg px-3 py-2 text-[13px]" placeholder="例: HW-NEW"></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">名称</label>
+          <input id="newItemName" class="w-full border rounded-lg px-3 py-2 text-[13px]" placeholder="例: 新費目"></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">課税</label>
+          <select id="newItemTax" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+            <option value="1">課税</option><option value="0">非課税</option>
+          </select></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeModal()" class="btn-secondary">キャンセル</button>
+        <button onclick="addItem()" class="btn-primary">追加</button>
+      </div>
+    </div>`);
+}
+
+async function addItem() {
+  try {
+    await api('/master/expense-items', { method: 'POST', body: {
+      category_id: parseInt(document.getElementById('newItemCat').value),
+      code: document.getElementById('newItemCode').value,
+      name: document.getElementById('newItemName').value,
+      is_taxable: parseInt(document.getElementById('newItemTax').value)
+    }});
+    closeModal();
+    showToast('費目を追加しました');
+    renderMasterExpenses();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// === Comments ===
+async function renderComments() {
+  const mc = document.getElementById('mainContent');
+  const result = await api('/comments');
+  const comments = result.comments || [];
+
+  mc.innerHTML = `
+    <div class="fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-comments mr-2 text-blue-600"></i>差異コメント</h2>
+        <button onclick="showAddCommentModal()" class="btn-primary text-[12px]"><i class="fas fa-plus mr-1"></i>新規追加</button>
+      </div>
+      <div class="space-y-3">
+        ${comments.length === 0 ? '<p class="text-gray-400 text-sm p-4 text-center">コメントがありません</p>' : ''}
+        ${comments.map(c => {
+          const typeColors = { variance: 'bg-red-100 text-red-700', note: 'bg-blue-100 text-blue-700', action: 'bg-green-100 text-green-700', risk: 'bg-yellow-100 text-yellow-700' };
+          const typeLabels = { variance: '差異説明', note: '備考', action: 'アクション', risk: 'リスク' };
+          const periodLabels = { annual: '年間', half: '半期', quarter: '四半期', month: '月次' };
+          return `
+          <div class="bg-white rounded-xl border border-gray-100 p-4">
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="badge ${typeColors[c.comment_type] || 'bg-gray-100 text-gray-700'}">${typeLabels[c.comment_type] || c.comment_type}</span>
+                <span class="text-[11px] text-gray-400">${periodLabels[c.period_type] || c.period_type}${c.period_value ? ' ' + c.period_value : ''}</span>
+                ${c.system_name ? `<span class="text-[11px] text-gray-500">| ${c.system_name}</span>` : ''}
+                ${c.item_name ? `<span class="text-[11px] text-gray-500">| ${c.item_name}</span>` : ''}
+              </div>
+              <button onclick="deleteComment(${c.id})" class="text-gray-300 hover:text-red-500 text-xs"><i class="fas fa-trash"></i></button>
+            </div>
+            <p class="text-[13px] text-gray-700 leading-relaxed">${c.content}</p>
+            <p class="text-[10px] text-gray-400 mt-2">${c.created_by_name || ''} | ${c.created_at || ''}</p>
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
 }
 
-function showProjectForm() {
+function showAddCommentModal() {
   showModal(`
     <div class="p-6">
-      <h3 class="text-lg font-bold text-gray-800 mb-4">プロジェクト追加</h3>
-      <form id="projForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">名前 *</label>
-            <input type="text" id="pf_name" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">コード *</label>
-            <input type="text" id="pf_code" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="例: PRJ-005"></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">部門</label>
-            <select id="pf_dept" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="">選択</option>
-              ${state.departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+      <h3 class="text-base font-bold mb-4">コメント追加</h3>
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-[12px] text-gray-500 block mb-1">種別</label>
+            <select id="newComType" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+              <option value="variance">差異説明</option><option value="note">備考</option>
+              <option value="action">アクション</option><option value="risk">リスク</option>
             </select></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
-            <select id="pf_status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="planning">計画中</option><option value="active">進行中</option>
+          <div><label class="text-[12px] text-gray-500 block mb-1">期間</label>
+            <select id="newComPeriod" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+              <option value="annual">年間</option><option value="half">半期</option>
+              <option value="quarter">四半期</option><option value="month">月次</option>
             </select></div>
-          <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">説明</label>
-            <textarea id="pf_desc" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea></div>
         </div>
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" onclick="closeModal()" class="btn-secondary">キャンセル</button>
-          <button type="submit" class="btn-primary">登録</button>
-        </div>
-      </form>
-    </div>
-  `);
-  document.getElementById('projForm').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api('/master/projects', { method: 'POST', body: {
-        name: document.getElementById('pf_name').value,
-        code: document.getElementById('pf_code').value,
-        department_id: document.getElementById('pf_dept').value ? parseInt(document.getElementById('pf_dept').value) : null,
-        fiscal_year_id: state.fiscalYearId,
-        status: document.getElementById('pf_status').value,
-        description: document.getElementById('pf_desc').value
-      }});
-      closeModal(); showToast('プロジェクトを登録しました'); navigateTo('projects');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
+        <div><label class="text-[12px] text-gray-500 block mb-1">システム（任意）</label>
+          <select id="newComSystem" class="w-full border rounded-lg px-3 py-2 text-[13px]">
+            <option value="">全体</option>
+            ${state.systems.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+          </select></div>
+        <div><label class="text-[12px] text-gray-500 block mb-1">コメント内容</label>
+          <textarea id="newComContent" class="w-full border rounded-lg px-3 py-2 text-[13px] h-24" placeholder="差異の理由や対応策を記載"></textarea></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeModal()" class="btn-secondary">キャンセル</button>
+        <button onclick="addComment()" class="btn-primary">追加</button>
+      </div>
+    </div>`);
+}
+
+async function addComment() {
+  try {
+    await api('/comments', { method: 'POST', body: {
+      fiscal_year_id: state.fiscalYearId,
+      system_id: document.getElementById('newComSystem').value || null,
+      period_type: document.getElementById('newComPeriod').value,
+      comment_type: document.getElementById('newComType').value,
+      content: document.getElementById('newComContent').value
+    }});
+    closeModal();
+    showToast('コメントを追加しました');
+    renderComments();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function deleteComment(id) {
+  if (!confirm('このコメントを削除しますか？')) return;
+  try {
+    await api(`/comments/${id}`, { method: 'DELETE' });
+    showToast('コメントを削除しました');
+    renderComments();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 // === Initialization ===
-async function init() {
+async function initApp() {
   try {
-    const fyData = await fetch('/api/master/fiscal-years').then(r => r.json());
-    state.fiscalYears = fyData.fiscalYears;
-    const select = document.getElementById('fiscalYearSelect');
-    select.innerHTML = fyData.fiscalYears.map(fy =>
-      `<option value="${fy.id}" ${fy.is_active ? 'selected' : ''}>${fy.name} (${fy.year})</option>`
-    ).join('');
-    const active = fyData.fiscalYears.find(f => f.is_active);
-    if (active) state.fiscalYearId = active.id;
-
-    // Load master data
-    const [catData, deptData] = await Promise.all([
-      fetch('/api/master/categories?fiscal_year_id=' + state.fiscalYearId).then(r => r.json()),
-      fetch('/api/master/departments?fiscal_year_id=' + state.fiscalYearId).then(r => r.json())
+    const [fyData, domData, sysData, catData, itemData] = await Promise.all([
+      fetch('/api/master/fiscal-years').then(r => r.json()),
+      fetch('/api/master/domains').then(r => r.json()),
+      fetch('/api/master/systems').then(r => r.json()),
+      fetch('/api/master/expense-categories').then(r => r.json()),
+      fetch('/api/master/expense-items').then(r => r.json())
     ]);
-    state.categories = catData.categories;
-    state.departments = deptData.departments;
+
+    state.fiscalYears = fyData.fiscalYears || [];
+    state.domains = domData.domains || [];
+    state.systems = sysData.systems || [];
+    state.categories = catData.categories || [];
+    state.items = itemData.items || [];
+
+    const sel = document.getElementById('fiscalYearSelect');
+    sel.innerHTML = state.fiscalYears.map(fy =>
+      `<option value="${fy.id}" ${fy.is_active ? 'selected' : ''}>${fy.code} ${fy.name}</option>`
+    ).join('');
+
+    const active = state.fiscalYears.find(fy => fy.is_active);
+    if (active) state.fiscalYearId = active.id;
 
     navigateTo('dashboard');
   } catch (e) {
     console.error('Init error:', e);
-    document.getElementById('mainContent').innerHTML =
-      `<div class="text-center py-12"><i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-4"></i><p class="text-red-600">初期化エラー: ${e.message}</p><button onclick="init()" class="btn-primary mt-4">再試行</button></div>`;
+    document.getElementById('mainContent').innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700"><i class="fas fa-exclamation-triangle mr-2"></i>初期化エラー: ${e.message}</div>`;
   }
 }
 
+function onFiscalYearChange() {
+  state.fiscalYearId = parseInt(document.getElementById('fiscalYearSelect').value);
+  renderPage(state.currentPage);
+}
+function refreshData() { renderPage(state.currentPage); }
+
 // Start
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', initApp);
