@@ -1,0 +1,19 @@
+:root { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { margin: 0; background: #f6f8fb; color: #1f2937; }
+.container { max-width: 920px; margin: 0 auto; padding: 24px; }
+h1 { margin: 0 0 4px; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-top: 16px; }
+.hint { color: #6b7280; font-size: 12px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+select, input, button { padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; }
+button { background: #2563eb; color: #fff; border: none; cursor: pointer; }
+.kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.kpi > div { background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #e2e8f0; }
+#bars { display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 200px 1fr 80px; align-items: center; gap: 8px; }
+.bar-track { height: 18px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; }
+thead { background: #f8fafc; }
