@@ -1,9 +1,8 @@
 module.exports = {
   apps: [
     {
-      name: 'budget-dashboard',
-      script: 'npx',
-      args: 'wrangler pages dev dist --d1=budget-tracker-db --local --ip 0.0.0.0 --port 3000',
+      name: 'budget-viewer',
+      script: 'server.js',
       cwd: '/home/user/webapp',
       env: {
         NODE_ENV: 'development',

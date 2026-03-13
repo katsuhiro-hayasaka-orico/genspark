@@ -1,21 +1,11 @@
 # Dependencies
 node_modules/
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Compiled output
-dist/
-
-# Wrangler local state
-.wrangler/
+# Uploaded files (temporary)
+uploads/
 
 # Environment variables
 .env
-.dev.vars
 
 # PM2
 .pm2/
