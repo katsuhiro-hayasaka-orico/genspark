@@ -1,5 +1,6 @@
 // =============================================
-// Budget CSV Viewer - Frontend App v3.0
+// Budget CSV Viewer - Frontend App v4.0
+// New schema: management_no based, period/year_month tracking
 // Plan / Forecast / Actual comparison dashboard
 // =============================================
 
@@ -15,6 +16,13 @@ const state = {
 function fmt(n) {
   if (n === null || n === undefined || isNaN(n)) return '0';
   return Math.round(n).toLocaleString('ja-JP');
+}
+
+function fmtMoney(n) {
+  if (n === null || n === undefined || isNaN(n)) return '0';
+  const abs = Math.abs(Math.round(n));
+  const formatted = abs.toLocaleString('ja-JP');
+  return n < 0 ? '-' + formatted : formatted;
 }
 
 function pct(n) {
@@ -34,9 +42,19 @@ function varianceIcon(val) {
   return '<i class="fas fa-minus text-gray-400 text-[10px]"></i>';
 }
 
-const FY_MONTHS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
-function monthName(m) {
-  return m + '月';
+function fmtYM(ym) {
+  const s = String(ym).trim();
+  if (s.length === 6) return s.substring(0, 4) + '/' + s.substring(4, 6);
+  return ym;
+}
+
+function shortYM(ym) {
+  const s = String(ym).trim();
+  if (s.length === 6) {
+    const m = parseInt(s.substring(4, 6));
+    return m + '月';
+  }
+  return ym;
 }
 
 const COLORS = {
@@ -170,7 +188,7 @@ function renderUpload() {
       <div class="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
         <div>
           <label class="block text-sm font-semibold text-gray-700 mb-2">
-            <i class="fas fa-database text-blue-500 mr-1.5"></i>budget_master（マスタ情報）
+            <i class="fas fa-database text-blue-500 mr-1.5"></i>budget_master（契約マスタ情報）
           </label>
           <div class="upload-zone rounded-xl p-6 text-center cursor-pointer" id="masterZone"
                ondragover="event.preventDefault(); this.classList.add('dragover')"
@@ -181,14 +199,14 @@ function renderUpload() {
             <div id="masterContent">
               <i class="fas fa-file-csv text-2xl text-blue-300 mb-2"></i>
               <p class="text-gray-500 text-sm">ドロップまたは<span class="text-blue-500 underline">選択</span></p>
-              <p class="text-gray-300 text-[10px] mt-1">fiscal_year, system_code, system_name, domain, expense_category, ...</p>
+              <p class="text-gray-300 text-[10px] mt-1">period, management_no, item_no, budget_category, ...</p>
             </div>
           </div>
         </div>
 
         <div>
           <label class="block text-sm font-semibold text-gray-700 mb-2">
-            <i class="fas fa-table text-green-500 mr-1.5"></i>budget_detail（月別明細）
+            <i class="fas fa-table text-green-500 mr-1.5"></i>budget_detail（月別金額明細）
           </label>
           <div class="upload-zone rounded-xl p-6 text-center cursor-pointer" id="detailZone"
                ondragover="event.preventDefault(); this.classList.add('dragover')"
@@ -199,7 +217,7 @@ function renderUpload() {
             <div id="detailContent">
               <i class="fas fa-file-csv text-2xl text-green-300 mb-2"></i>
               <p class="text-gray-500 text-sm">ドロップまたは<span class="text-green-500 underline">選択</span></p>
-              <p class="text-gray-300 text-[10px] mt-1">fiscal_year, system_code, expense_category, ..., month_4 ~ month_3</p>
+              <p class="text-gray-300 text-[10px] mt-1">management_no, item_no, fiscal_period, target_year_month, value_type, amount</p>
             </div>
           </div>
         </div>
@@ -238,7 +256,7 @@ function renderUpload() {
             <i class="fas fa-file-csv text-green-500"></i>budget_detail.csv
           </a>
         </div>
-        <p class="text-[11px] text-amber-700 mt-2">7システム×16費目の計画/見通し/実績サンプルデータ（FY2025）</p>
+        <p class="text-[11px] text-amber-700 mt-2">複数期・複数システムの計画/見通し/実績サンプルデータ</p>
       </div>
 
       <div class="bg-blue-50 rounded-xl p-4 border border-blue-100">
@@ -246,13 +264,13 @@ function renderUpload() {
         <div class="space-y-2">
           <div>
             <p class="text-[12px] font-medium text-blue-700">budget_master ヘッダー:</p>
-            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1">fiscal_year, system_code, system_name, domain, expense_category, expense_item, budget_type, annual_total, remarks</code>
+            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1 break-all">period, management_no, item_no, budget_category, project_name, department_name, owner_name, payee_name, contract_no, contract_amount, monthly_amount, payment_category, fixed_variable_type, system_code, system_name, expense_item_name, system_classification_name ...</code>
           </div>
           <div>
             <p class="text-[12px] font-medium text-blue-700">budget_detail ヘッダー:</p>
-            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1">fiscal_year, system_code, expense_category, expense_item, budget_type, month_4, month_5, ..., month_3</code>
+            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1 break-all">management_no, item_no, expense_item_code, system_code, fiscal_period, target_year_month, value_type, amount</code>
           </div>
-          <p class="text-[11px] text-blue-600">budget_type: plan（計画）/ forecast（見通し）/ actual（実績）</p>
+          <p class="text-[11px] text-blue-600">value_type: plan（計画）/ forecast（見通し）/ actual（実績）</p>
         </div>
       </div>
 
@@ -326,7 +344,7 @@ async function submitUpload() {
     enableNav();
     updateSidebarInfo();
     updateStatusBadge();
-    showToast(`データを読み込みました（${data.itemCount}件 / ${data.systemCount}システム）`);
+    showToast(`データを読み込みました（${data.itemCount}件 / ${data.systemCount}システム / ${data.periodCount}期間）`);
     navigateTo('dashboard');
   } catch (e) {
     showToast(e.message, 'error');
@@ -356,6 +374,7 @@ async function renderDashboard() {
     return;
   }
   const k = summary.kpi;
+  const sortedYMs = summary.sortedYMs || [];
 
   mc.innerHTML = `
     <div class="fade-in space-y-5">
@@ -375,7 +394,7 @@ async function renderDashboard() {
             <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center"><i class="fas fa-bullseye text-blue-500 text-xs"></i></div>
           </div>
           <p class="text-xl font-bold text-gray-800">${fmt(k.totalPlan)}</p>
-          <p class="text-[10px] text-gray-400 mt-1">千円 / ${k.itemCount}費目</p>
+          <p class="text-[10px] text-gray-400 mt-1">円 / ${k.itemCount}費目 / ${k.periodCount}期</p>
         </div>
         <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
           <div class="flex items-center justify-between mb-2">
@@ -403,7 +422,7 @@ async function renderDashboard() {
             <div class="w-7 h-7 bg-purple-50 rounded-lg flex items-center justify-center"><i class="fas fa-tags text-purple-500 text-xs"></i></div>
           </div>
           <p class="text-xl font-bold text-gray-800">${k.systemCount}</p>
-          <p class="text-[10px] text-gray-400 mt-1">システム / ${k.categoryCount}カテゴリ / ${k.domainCount}ドメイン</p>
+          <p class="text-[10px] text-gray-400 mt-1">システム / ${k.classificationCount}分類 / ${k.departmentCount}部門</p>
         </div>
       </div>
 
@@ -420,8 +439,8 @@ async function renderDashboard() {
           <div style="height:320px"><canvas id="systemCompareChart"></canvas></div>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 p-4">
-          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-chart-pie mr-1.5 text-purple-500"></i>カテゴリ別構成（計画）</h3>
-          <div style="height:320px"><canvas id="categoryPieChart"></canvas></div>
+          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-chart-pie mr-1.5 text-purple-500"></i>システム分類別構成（計画）</h3>
+          <div style="height:320px"><canvas id="classificationPieChart"></canvas></div>
         </div>
       </div>
 
@@ -432,8 +451,20 @@ async function renderDashboard() {
           <div style="height:300px"><canvas id="cumulativeChart"></canvas></div>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 p-4">
-          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-layer-group mr-1.5 text-indigo-500"></i>ドメイン別内訳</h3>
-          <div style="height:300px"><canvas id="domainChart"></canvas></div>
+          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-building mr-1.5 text-indigo-500"></i>部門別内訳</h3>
+          <div style="height:300px"><canvas id="departmentChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Charts Row 4: Period and Fixed/Variable -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-calendar-alt mr-1.5 text-orange-500"></i>期別予算推移</h3>
+          <div style="height:300px"><canvas id="periodChart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-lock mr-1.5 text-cyan-500"></i>固定費/変動費構成</h3>
+          <div style="height:300px"><canvas id="fixedVariableChart"></canvas></div>
         </div>
       </div>
 
@@ -443,13 +474,14 @@ async function renderDashboard() {
         <h3 class="text-sm font-semibold text-red-700 mb-3"><i class="fas fa-triangle-exclamation mr-1.5 text-red-500"></i>予算超過アラート</h3>
         <div class="overflow-auto">
           <table class="data-table">
-            <thead><tr><th>システム</th><th>カテゴリ</th><th>費目</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">見通し差異</th><th class="num">実績差異</th></tr></thead>
+            <thead><tr><th>管理番号</th><th>システム</th><th>案件名</th><th>費目</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">見通し差異</th><th class="num">実績差異</th></tr></thead>
             <tbody>
               ${summary.overrunItems.map(v => `
                 <tr>
-                  <td class="font-medium">${v.system_name}</td>
-                  <td>${v.expense_category}</td>
-                  <td>${v.expense_item}</td>
+                  <td class="font-medium text-[11px]">${v.management_no}</td>
+                  <td>${v.system_name}</td>
+                  <td class="text-[11px]">${v.project_name || '-'}</td>
+                  <td class="text-[11px]">${v.expense_item_name || '-'}</td>
                   <td class="num">${fmt(v.plan)}</td>
                   <td class="num">${fmt(v.forecast)}</td>
                   <td class="num">${fmt(v.actual)}</td>
@@ -464,21 +496,24 @@ async function renderDashboard() {
 
   // --- Chart: Monthly Trend ---
   const mbt = summary.monthlyByType;
-  if (mbt) {
+  if (mbt && sortedYMs.length > 0) {
     state.charts.monthlyTrend = new Chart(document.getElementById('monthlyTrendChart'), {
       type: 'line',
       data: {
-        labels: FY_MONTHS.map(m => monthName(m)),
+        labels: sortedYMs.map(ym => fmtYM(ym)),
         datasets: [
-          { label: '計画', data: FY_MONTHS.map(m => mbt.plan[m] || 0), borderColor: COLORS.plan, backgroundColor: COLORS.planBg, borderWidth: 2.5, fill: false, pointRadius: 4, tension: 0.3 },
-          { label: '見通し', data: FY_MONTHS.map(m => mbt.forecast[m] || 0), borderColor: COLORS.forecast, backgroundColor: COLORS.forecastBg, borderWidth: 2.5, borderDash: [6,3], fill: false, pointRadius: 4, tension: 0.3 },
-          { label: '実績', data: FY_MONTHS.map(m => mbt.actual[m] || 0), borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 5, pointBackgroundColor: COLORS.actual, tension: 0.3 },
+          { label: '計画', data: sortedYMs.map(ym => mbt[ym] ? mbt[ym].plan : 0), borderColor: COLORS.plan, backgroundColor: COLORS.planBg, borderWidth: 2.5, fill: false, pointRadius: 3, tension: 0.3 },
+          { label: '見通し', data: sortedYMs.map(ym => mbt[ym] ? mbt[ym].forecast : 0), borderColor: COLORS.forecast, backgroundColor: COLORS.forecastBg, borderWidth: 2.5, borderDash: [6,3], fill: false, pointRadius: 3, tension: 0.3 },
+          { label: '実績', data: sortedYMs.map(ym => mbt[ym] ? mbt[ym].actual : 0), borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 4, pointBackgroundColor: COLORS.actual, tension: 0.3 },
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => fmt(v) } },
+          x: { ticks: { maxRotation: 45, font: { size: 10 } } }
+        },
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
       }
     });
   }
@@ -500,15 +535,15 @@ async function renderDashboard() {
         responsive: true, maintainAspectRatio: false,
         indexAxis: 'y',
         scales: { x: { ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
       }
     });
   }
 
-  // --- Chart: Category Pie ---
-  const cData = (summary.byCategory || []).slice(0, 10);
+  // --- Chart: Classification Pie ---
+  const cData = (summary.byClassification || []).slice(0, 10);
   if (cData.length > 0) {
-    state.charts.categoryPie = new Chart(document.getElementById('categoryPieChart'), {
+    state.charts.classificationPie = new Chart(document.getElementById('classificationPieChart'), {
       type: 'doughnut',
       data: {
         labels: cData.map(c => c.name),
@@ -518,43 +553,46 @@ async function renderDashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12, padding: 8 } },
-          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 千円` } }
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円` } }
         }
       }
     });
   }
 
   // --- Chart: Cumulative ---
-  if (mbt) {
+  if (mbt && sortedYMs.length > 0) {
     let cumPlan = 0, cumForecast = 0, cumActual = 0;
     const cumPlanArr = [], cumForecastArr = [], cumActualArr = [];
-    FY_MONTHS.forEach(m => {
-      cumPlan += mbt.plan[m] || 0; cumPlanArr.push(cumPlan);
-      cumForecast += mbt.forecast[m] || 0; cumForecastArr.push(cumForecast);
-      cumActual += mbt.actual[m] || 0; cumActualArr.push(cumActual);
+    sortedYMs.forEach(ym => {
+      cumPlan += mbt[ym] ? mbt[ym].plan : 0; cumPlanArr.push(cumPlan);
+      cumForecast += mbt[ym] ? mbt[ym].forecast : 0; cumForecastArr.push(cumForecast);
+      cumActual += mbt[ym] ? mbt[ym].actual : 0; cumActualArr.push(cumActual);
     });
     state.charts.cumulative = new Chart(document.getElementById('cumulativeChart'), {
       type: 'line',
       data: {
-        labels: FY_MONTHS.map(m => monthName(m)),
+        labels: sortedYMs.map(ym => fmtYM(ym)),
         datasets: [
-          { label: '計画累計', data: cumPlanArr, borderColor: COLORS.plan, borderWidth: 2, fill: false, pointRadius: 3, tension: 0.3 },
-          { label: '見通し累計', data: cumForecastArr, borderColor: COLORS.forecast, borderWidth: 2, borderDash: [5,3], fill: false, pointRadius: 3, tension: 0.3 },
-          { label: '実績累計', data: cumActualArr, borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 4, tension: 0.3 },
+          { label: '計画累計', data: cumPlanArr, borderColor: COLORS.plan, borderWidth: 2, fill: false, pointRadius: 2, tension: 0.3 },
+          { label: '見通し累計', data: cumForecastArr, borderColor: COLORS.forecast, borderWidth: 2, borderDash: [5,3], fill: false, pointRadius: 2, tension: 0.3 },
+          { label: '実績累計', data: cumActualArr, borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 3, tension: 0.3 },
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        scales: { y: { ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+        scales: {
+          y: { ticks: { callback: v => fmt(v) } },
+          x: { ticks: { maxRotation: 45, font: { size: 9 } } }
+        },
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
       }
     });
   }
 
-  // --- Chart: Domain ---
-  const dData = (summary.byDomain || []);
+  // --- Chart: Department ---
+  const dData = (summary.byDepartment || []);
   if (dData.length > 0) {
-    state.charts.domain = new Chart(document.getElementById('domainChart'), {
+    state.charts.department = new Chart(document.getElementById('departmentChart'), {
       type: 'bar',
       data: {
         labels: dData.map(d => d.name),
@@ -567,7 +605,47 @@ async function renderDashboard() {
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: { y: { ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+      }
+    });
+  }
+
+  // --- Chart: Period ---
+  const pData = (summary.byPeriod || []);
+  if (pData.length > 0) {
+    state.charts.period = new Chart(document.getElementById('periodChart'), {
+      type: 'bar',
+      data: {
+        labels: pData.map(d => d.label || `第${d.period}期`),
+        datasets: [
+          { label: '計画', data: pData.map(d => d.plan), backgroundColor: COLORS.plan + '80', borderRadius: 3 },
+          { label: '見通し', data: pData.map(d => d.forecast), backgroundColor: COLORS.forecast + '80', borderRadius: 3 },
+          { label: '実績', data: pData.map(d => d.actual), backgroundColor: COLORS.actual + '80', borderRadius: 3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: { y: { ticks: { callback: v => fmt(v) } }, x: { ticks: { font: { size: 10 } } } },
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+      }
+    });
+  }
+
+  // --- Chart: Fixed/Variable ---
+  const fvData = (summary.byFixedVariable || []);
+  if (fvData.length > 0) {
+    state.charts.fixedVariable = new Chart(document.getElementById('fixedVariableChart'), {
+      type: 'doughnut',
+      data: {
+        labels: fvData.map(d => d.name),
+        datasets: [{ data: fvData.map(d => d.plan), backgroundColor: PIE_COLORS.slice(3) }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円 (${((ctx.raw / fvData.reduce((s,d)=>s+d.plan,0))*100).toFixed(1)}%)` } }
+        }
       }
     });
   }
@@ -584,8 +662,10 @@ async function renderAnalysis() {
       <div class="bg-white rounded-xl border border-gray-100 p-4">
         <div class="flex flex-wrap gap-1 mb-4">
           <button onclick="loadAnalysisTab('system')" id="anaTabSystem" class="tab-btn active">システム別</button>
-          <button onclick="loadAnalysisTab('category')" id="anaTabCategory" class="tab-btn">カテゴリ別</button>
-          <button onclick="loadAnalysisTab('domain')" id="anaTabDomain" class="tab-btn">ドメイン別</button>
+          <button onclick="loadAnalysisTab('classification')" id="anaTabClassification" class="tab-btn">分類別</button>
+          <button onclick="loadAnalysisTab('department')" id="anaTabDepartment" class="tab-btn">部門別</button>
+          <button onclick="loadAnalysisTab('period')" id="anaTabPeriod" class="tab-btn">期別</button>
+          <button onclick="loadAnalysisTab('expenseItem')" id="anaTabExpenseItem" class="tab-btn">費目別</button>
           <button onclick="loadAnalysisTab('cross')" id="anaTabCross" class="tab-btn">クロス集計</button>
           <button onclick="loadAnalysisTab('systemDetail')" id="anaTabSystemDetail" class="tab-btn">システム詳細</button>
         </div>
@@ -619,7 +699,22 @@ async function loadAnalysisTab(tab) {
   if (tab === 'cross') { await renderCrossTab(container); return; }
   if (tab === 'systemDetail') { await renderSystemDetailTab(container); return; }
 
-  const endpoint = tab === 'system' ? '/analysis/by-system' : tab === 'category' ? '/analysis/by-category' : '/analysis/by-domain';
+  const endpoints = {
+    system: '/analysis/by-system',
+    classification: '/analysis/by-classification',
+    department: '/analysis/by-department',
+    period: '/analysis/by-period',
+    expenseItem: '/analysis/by-expense-item',
+  };
+  const labels = {
+    system: 'システム別',
+    classification: '分類別',
+    department: '部門別',
+    period: '期別',
+    expenseItem: '費目別',
+  };
+
+  const endpoint = endpoints[tab];
   const result = await api(endpoint);
   const data = result.data || [];
 
@@ -629,15 +724,17 @@ async function loadAnalysisTab(tab) {
   }
 
   const totalPlan = data.reduce((s, d) => s + d.plan, 0);
+  const nameField = tab === 'period' ? 'label' : 'name';
 
   let html = '<div class="overflow-auto"><table class="data-table"><thead><tr><th>名称</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">見通し差異</th><th class="num">実績差異</th><th class="num">構成比</th><th>バー</th></tr></thead><tbody>';
 
   data.forEach((d, i) => {
+    const dispName = d[nameField] || d.name || d.period || '';
     const pctPlan = totalPlan > 0 ? (d.plan / totalPlan * 100) : 0;
     const varF = d.plan > 0 ? ((d.forecast - d.plan) / d.plan * 100) : 0;
     const varA = d.plan > 0 ? ((d.actual - d.plan) / d.plan * 100) : 0;
     html += `<tr>
-      <td class="font-medium"><span class="inline-block w-3 h-3 rounded-sm mr-2" style="background:${PIE_COLORS[i % PIE_COLORS.length]}"></span>${d.name}</td>
+      <td class="font-medium"><span class="inline-block w-3 h-3 rounded-sm mr-2" style="background:${PIE_COLORS[i % PIE_COLORS.length]}"></span>${dispName}</td>
       <td class="num">${fmt(d.plan)}</td>
       <td class="num">${fmt(d.forecast)}</td>
       <td class="num">${fmt(d.actual)}</td>
@@ -655,15 +752,19 @@ async function loadAnalysisTab(tab) {
   container.innerHTML = html;
 
   // Charts
-  const labels = { system: 'システム別', category: 'カテゴリ別', domain: 'ドメイン別' };
   document.getElementById('analysisChartTitle').textContent = labels[tab] + ' 比較';
   document.getElementById('analysisPieTitle').textContent = labels[tab] + ' 構成比（計画）';
+
+  const chartLabels = data.map(d => {
+    const n = d[nameField] || d.name || d.period || '';
+    return n.length > 12 ? n.substring(0, 12) + '..' : n;
+  });
 
   if (state.charts.analysis) state.charts.analysis.destroy();
   state.charts.analysis = new Chart(document.getElementById('analysisChart'), {
     type: 'bar',
     data: {
-      labels: data.map(d => d.name.length > 10 ? d.name.substring(0, 10) + '..' : d.name),
+      labels: chartLabels,
       datasets: [
         { label: '計画', data: data.map(d => d.plan), backgroundColor: COLORS.plan + '80', borderRadius: 3 },
         { label: '見通し', data: data.map(d => d.forecast), backgroundColor: COLORS.forecast + '80', borderRadius: 3 },
@@ -672,9 +773,11 @@ async function loadAnalysisTab(tab) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      indexAxis: 'y',
-      scales: { x: { ticks: { callback: v => fmt(v) } } },
-      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+      indexAxis: data.length > 5 ? 'y' : 'x',
+      scales: {
+        [data.length > 5 ? 'x' : 'y']: { ticks: { callback: v => fmt(v) } }
+      },
+      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
     }
   });
 
@@ -682,14 +785,14 @@ async function loadAnalysisTab(tab) {
   state.charts.analysisPie = new Chart(document.getElementById('analysisPieChart'), {
     type: 'doughnut',
     data: {
-      labels: data.slice(0, 10).map(d => d.name),
+      labels: data.slice(0, 10).map(d => d[nameField] || d.name || d.period || ''),
       datasets: [{ data: data.slice(0, 10).map(d => d.plan), backgroundColor: PIE_COLORS }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 千円` } }
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円` } }
       }
     }
   });
@@ -697,29 +800,28 @@ async function loadAnalysisTab(tab) {
 
 async function renderCrossTab(container) {
   const result = await api('/analysis/cross-tab');
-  const { data, systems, categories } = result;
+  const { data, systems, periods } = result;
 
-  if (systems.length === 0 || categories.length === 0) {
+  if (systems.length === 0 || periods.length === 0) {
     container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">クロス集計データがありません</p>';
     return;
   }
 
-  // Show cross-tab for plan values
-  let html = '<div class="overflow-auto"><table class="data-table"><thead><tr><th>システム \\ カテゴリ</th>';
-  categories.forEach(c => { html += `<th class="num">${c.length > 8 ? c.substring(0, 8) + '..' : c}</th>`; });
+  let html = '<div class="overflow-auto"><table class="data-table"><thead><tr><th>システム \\ 期</th>';
+  periods.forEach(p => { html += `<th class="num">第${p}期</th>`; });
   html += '<th class="num" style="background:#e0e7ff;font-weight:700">合計</th></tr></thead><tbody>';
 
   const colTotals = {};
-  categories.forEach(c => { colTotals[c] = 0; });
+  periods.forEach(p => { colTotals[p] = 0; });
   let grandTotal = 0;
 
   systems.forEach(sys => {
     html += `<tr><td class="font-medium">${sys}</td>`;
     let rowTotal = 0;
-    categories.forEach(cat => {
-      const val = (data[sys] && data[sys][cat]) ? data[sys][cat].plan : 0;
+    periods.forEach(p => {
+      const val = (data[sys] && data[sys][p]) ? data[sys][p].plan : 0;
       rowTotal += val;
-      colTotals[cat] += val;
+      colTotals[p] += val;
       html += `<td class="num ${val > 0 ? '' : 'text-gray-300'}">${val > 0 ? fmt(val) : '-'}</td>`;
     });
     grandTotal += rowTotal;
@@ -727,16 +829,16 @@ async function renderCrossTab(container) {
   });
 
   html += '<tr style="background:#f8fafc;font-weight:700"><td>合計</td>';
-  categories.forEach(cat => { html += `<td class="num">${fmt(colTotals[cat])}</td>`; });
+  periods.forEach(p => { html += `<td class="num">${fmt(colTotals[p])}</td>`; });
   html += `<td class="num" style="background:#dbeafe">${fmt(grandTotal)}</td></tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
 
   document.getElementById('analysisChartTitle').textContent = 'クロス集計（計画・積み上げ）';
   if (state.charts.analysis) state.charts.analysis.destroy();
-  const datasets = categories.slice(0, 8).map((cat, i) => ({
-    label: cat.length > 8 ? cat.substring(0, 8) + '..' : cat,
-    data: systems.map(sys => (data[sys] && data[sys][cat]) ? data[sys][cat].plan : 0),
+  const datasets = periods.map((p, i) => ({
+    label: `第${p}期`,
+    data: systems.map(sys => (data[sys] && data[sys][p]) ? data[sys][p].plan : 0),
     backgroundColor: PIE_COLORS[i % PIE_COLORS.length] + '80',
     borderColor: PIE_COLORS[i % PIE_COLORS.length],
     borderWidth: 1,
@@ -747,13 +849,12 @@ async function renderCrossTab(container) {
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => fmt(v) } } },
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
     }
   });
 }
 
 async function renderSystemDetailTab(container) {
-  // Get system list
   const statusData = await api('/status');
   const systems = statusData.systems || [];
 
@@ -793,35 +894,58 @@ async function loadSystemDetail() {
       <div class="bg-amber-50 rounded-lg p-3"><p class="text-[10px] text-amber-500">見通し <span class="${varianceClass(varF)}">${pct(varF)}</span></p><p class="text-lg font-bold text-amber-700">${fmt(d.totalForecast)}</p></div>
       <div class="bg-green-50 rounded-lg p-3"><p class="text-[10px] text-green-500">実績 <span class="${varianceClass(varA)}">${pct(varA)}</span></p><p class="text-lg font-bold text-green-700">${fmt(d.totalActual)}</p></div>
     </div>
-    <div class="overflow-auto"><table class="data-table"><thead><tr><th>カテゴリ</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">差異</th></tr></thead><tbody>
   `;
-  (d.byCategory || []).forEach(c => {
-    const v = c.plan > 0 ? ((c.actual - c.plan) / c.plan * 100) : 0;
-    html += `<tr><td class="font-medium">${c.name}</td><td class="num">${fmt(c.plan)}</td><td class="num">${fmt(c.forecast)}</td><td class="num">${fmt(c.actual)}</td><td class="num ${varianceClass(v)}">${varianceIcon(v)} ${pct(v)}</td></tr>`;
-  });
-  html += '</tbody></table></div>';
+
+  // By period table
+  if (d.byPeriod && d.byPeriod.length > 0) {
+    html += '<h4 class="text-[12px] font-semibold text-gray-700 mb-2">期別内訳</h4>';
+    html += '<div class="overflow-auto mb-4"><table class="data-table"><thead><tr><th>期</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">差異</th></tr></thead><tbody>';
+    (d.byPeriod || []).forEach(p => {
+      const v = p.plan > 0 ? ((p.actual - p.plan) / p.plan * 100) : 0;
+      html += `<tr><td class="font-medium">${p.label || '第'+p.period+'期'}</td><td class="num">${fmt(p.plan)}</td><td class="num">${fmt(p.forecast)}</td><td class="num">${fmt(p.actual)}</td><td class="num ${varianceClass(v)}">${varianceIcon(v)} ${pct(v)}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Items table
+  if (d.items && d.items.length > 0) {
+    html += '<h4 class="text-[12px] font-semibold text-gray-700 mb-2">費目一覧</h4>';
+    html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>管理番号</th><th>案件名</th><th>期</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">差異</th></tr></thead><tbody>';
+    d.items.forEach(item => {
+      const v = item.totalPlan > 0 ? ((item.totalActual - item.totalPlan) / item.totalPlan * 100) : 0;
+      html += `<tr><td class="text-[11px]">${item.management_no}</td><td class="text-[11px]">${item.project_name || '-'}</td><td class="text-[11px]">${item.fiscal_period_label || ''}</td><td class="num">${fmt(item.totalPlan)}</td><td class="num">${fmt(item.totalForecast)}</td><td class="num">${fmt(item.totalActual)}</td><td class="num ${varianceClass(v)}">${varianceIcon(v)} ${pct(v)}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
   body.innerHTML = html;
 
   // Monthly trend chart for this system
   document.getElementById('analysisChartTitle').textContent = `${system} 月別推移`;
   if (state.charts.analysis) state.charts.analysis.destroy();
   const mbt = d.monthlyByType;
-  state.charts.analysis = new Chart(document.getElementById('analysisChart'), {
-    type: 'line',
-    data: {
-      labels: FY_MONTHS.map(m => monthName(m)),
-      datasets: [
-        { label: '計画', data: FY_MONTHS.map(m => mbt.plan[m] || 0), borderColor: COLORS.plan, borderWidth: 2, fill: false, pointRadius: 3, tension: 0.3 },
-        { label: '見通し', data: FY_MONTHS.map(m => mbt.forecast[m] || 0), borderColor: COLORS.forecast, borderWidth: 2, borderDash: [5,3], fill: false, pointRadius: 3, tension: 0.3 },
-        { label: '実績', data: FY_MONTHS.map(m => mbt.actual[m] || 0), borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 4, tension: 0.3 },
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
-      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 千円` } } }
-    }
-  });
+  const sysYMs = d.sortedYMs || [];
+  if (sysYMs.length > 0) {
+    state.charts.analysis = new Chart(document.getElementById('analysisChart'), {
+      type: 'line',
+      data: {
+        labels: sysYMs.map(ym => fmtYM(ym)),
+        datasets: [
+          { label: '計画', data: sysYMs.map(ym => mbt[ym] ? mbt[ym].plan : 0), borderColor: COLORS.plan, borderWidth: 2, fill: false, pointRadius: 3, tension: 0.3 },
+          { label: '見通し', data: sysYMs.map(ym => mbt[ym] ? mbt[ym].forecast : 0), borderColor: COLORS.forecast, borderWidth: 2, borderDash: [5,3], fill: false, pointRadius: 3, tension: 0.3 },
+          { label: '実績', data: sysYMs.map(ym => mbt[ym] ? mbt[ym].actual : 0), borderColor: COLORS.actual, backgroundColor: COLORS.actualBg, borderWidth: 2.5, fill: true, pointRadius: 4, tension: 0.3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => fmt(v) } },
+          x: { ticks: { maxRotation: 45, font: { size: 10 } } }
+        },
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+      }
+    });
+  }
 }
 
 // === Variance Page ===
@@ -874,18 +998,19 @@ async function renderVariance() {
         <h3 class="text-sm font-semibold text-red-700 mb-3"><i class="fas fa-exclamation-circle mr-1.5"></i>予算超過一覧（${overruns.length}件）</h3>
         <div class="overflow-auto">
           <table class="data-table">
-            <thead><tr><th>システム</th><th>カテゴリ</th><th>費目</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">超過額</th><th class="num">超過率</th></tr></thead>
+            <thead><tr><th>管理番号</th><th>システム</th><th>案件名</th><th>部門</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">超過額</th><th class="num">超過率</th></tr></thead>
             <tbody>
               ${overruns.map(v => {
                 const overAmt = v.actual - v.plan;
                 return `<tr>
-                  <td class="font-medium">${v.system_name}</td>
-                  <td>${v.expense_category}</td>
-                  <td>${v.expense_item}</td>
+                  <td class="font-medium text-[11px]">${v.management_no}</td>
+                  <td>${v.system_name}</td>
+                  <td class="text-[11px]">${v.project_name || '-'}</td>
+                  <td class="text-[11px]">${v.department_name || '-'}</td>
                   <td class="num">${fmt(v.plan)}</td>
                   <td class="num">${fmt(v.forecast)}</td>
                   <td class="num font-semibold">${fmt(v.actual)}</td>
-                  <td class="num overrun">${fmt(overAmt)}</td>
+                  <td class="num overrun">${fmtMoney(overAmt)}</td>
                   <td class="num overrun">${pct(v.variance_actual)}</td>
                 </tr>`;
               }).join('')}
@@ -899,16 +1024,17 @@ async function renderVariance() {
         <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-list mr-1.5 text-gray-500"></i>全費目差異一覧</h3>
         <div class="overflow-auto max-h-[50vh]">
           <table class="data-table">
-            <thead><tr><th>システム</th><th>カテゴリ</th><th>費目</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">見通し差異</th><th class="num">実績差異</th><th>ステータス</th></tr></thead>
+            <thead><tr><th>管理番号</th><th>システム</th><th>期</th><th>案件名</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">見通し差異</th><th class="num">実績差異</th><th>ステータス</th></tr></thead>
             <tbody>
               ${data.map(v => {
                 let statusBadge = '<span class="badge bg-gray-100 text-gray-500">予算内</span>';
                 if (v.overrun_actual) statusBadge = '<span class="badge bg-red-100 text-red-700">超過</span>';
                 else if (v.variance_actual < -2) statusBadge = '<span class="badge bg-green-100 text-green-700">節約</span>';
                 return `<tr>
-                  <td class="font-medium">${v.system_name}</td>
-                  <td>${v.expense_category}</td>
-                  <td>${v.expense_item}</td>
+                  <td class="font-medium text-[11px]">${v.management_no}</td>
+                  <td>${v.system_name}</td>
+                  <td class="text-[11px]">${v.fiscal_period_label || ''}</td>
+                  <td class="text-[11px]">${v.project_name || '-'}</td>
                   <td class="num">${fmt(v.plan)}</td>
                   <td class="num">${fmt(v.forecast)}</td>
                   <td class="num">${fmt(v.actual)}</td>
@@ -924,33 +1050,34 @@ async function renderVariance() {
     </div>`;
 
   // Variance chart
-  const chartData = data.slice(0, 20);
-  state.charts.variance = new Chart(document.getElementById('varianceChart'), {
-    type: 'bar',
-    data: {
-      labels: chartData.map(d => `${d.system_name.substring(0, 6)}/${d.expense_item.substring(0, 6)}`),
-      datasets: [{
-        label: '実績差異率(%)',
-        data: chartData.map(d => d.variance_actual),
-        backgroundColor: chartData.map(d => d.variance_actual > 0 ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)'),
-        borderColor: chartData.map(d => d.variance_actual > 0 ? '#ef4444' : '#22c55e'),
-        borderWidth: 1,
-        borderRadius: 3,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        y: { ticks: { callback: v => v + '%' } },
-        x: { ticks: { font: { size: 10 }, maxRotation: 45 } }
+  const chartData = data.filter(d => d.totalPlan > 0 || d.variance_actual !== 0).slice(0, 20);
+  if (chartData.length > 0) {
+    state.charts.variance = new Chart(document.getElementById('varianceChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.map(d => `${d.system_name.substring(0, 6)}/${d.management_no.substring(0, 8)}`),
+        datasets: [{
+          label: '実績差異率(%)',
+          data: chartData.map(d => d.variance_actual),
+          backgroundColor: chartData.map(d => d.variance_actual > 0 ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)'),
+          borderColor: chartData.map(d => d.variance_actual > 0 ? '#ef4444' : '#22c55e'),
+          borderWidth: 1,
+          borderRadius: 3,
+        }]
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => `差異: ${ctx.raw > 0 ? '+' : ''}${ctx.raw.toFixed(1)}%` } },
-        annotation: { annotations: { zeroLine: { type: 'line', yMin: 0, yMax: 0, borderColor: '#94a3b8', borderWidth: 1, borderDash: [3,3] } } }
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { ticks: { callback: v => v + '%' } },
+          x: { ticks: { font: { size: 9 }, maxRotation: 45 } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `差異: ${ctx.raw > 0 ? '+' : ''}${ctx.raw.toFixed(1)}%` } }
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 // === Items Page ===
@@ -958,10 +1085,9 @@ async function renderItems() {
   const mc = document.getElementById('mainContent');
   const statusData = await api('/status');
   const systems = statusData.systems || [];
-  const categories = statusData.categories || [];
-
-  const systemOpts = systems.map(s => `<option value="${s}">${s}</option>`).join('');
-  const catOpts = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+  const classifications = statusData.classifications || [];
+  const departments = statusData.departments || [];
+  const periods = statusData.periods || [];
 
   mc.innerHTML = `
     <div class="fade-in space-y-4">
@@ -974,13 +1100,25 @@ async function renderItems() {
           <div class="flex items-center gap-1.5">
             <label class="text-[12px] text-gray-500">システム:</label>
             <select id="filterSystem" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${systemOpts}
+              <option value="">全て</option>${systems.map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
           </div>
           <div class="flex items-center gap-1.5">
-            <label class="text-[12px] text-gray-500">カテゴリ:</label>
-            <select id="filterCategory" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${catOpts}
+            <label class="text-[12px] text-gray-500">分類:</label>
+            <select id="filterClassification" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
+              <option value="">全て</option>${classifications.map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <label class="text-[12px] text-gray-500">部門:</label>
+            <select id="filterDepartment" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
+              <option value="">全て</option>${departments.map(d => `<option value="${d}">${d}</option>`).join('')}
+            </select>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <label class="text-[12px] text-gray-500">期:</label>
+            <select id="filterPeriod" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
+              <option value="">全て</option>${periods.map(p => `<option value="${p}">第${p}期</option>`).join('')}
             </select>
           </div>
           <div class="flex items-center gap-1.5">
@@ -1007,16 +1145,21 @@ function debounceLoadItems() {
 async function loadItems() {
   const container = document.getElementById('itemsContent');
   const system = document.getElementById('filterSystem')?.value || '';
-  const category = document.getElementById('filterCategory')?.value || '';
+  const classification = document.getElementById('filterClassification')?.value || '';
+  const department = document.getElementById('filterDepartment')?.value || '';
+  const period = document.getElementById('filterPeriod')?.value || '';
   const search = document.getElementById('filterSearch')?.value || '';
 
   let url = '/items?';
   if (system) url += 'system=' + encodeURIComponent(system) + '&';
-  if (category) url += 'category=' + encodeURIComponent(category) + '&';
+  if (classification) url += 'classification=' + encodeURIComponent(classification) + '&';
+  if (department) url += 'department=' + encodeURIComponent(department) + '&';
+  if (period) url += 'period=' + encodeURIComponent(period) + '&';
   if (search) url += 'search=' + encodeURIComponent(search) + '&';
 
   const result = await api(url);
   const items = result.items || [];
+  const sortedYMs = result.sortedYMs || [];
   document.getElementById('itemCount').textContent = `${items.length} 費目`;
 
   if (items.length === 0) {
@@ -1024,42 +1167,51 @@ async function loadItems() {
     return;
   }
 
+  // Determine relevant year_months for display (limit to avoid overflow)
+  const displayYMs = sortedYMs.slice(0, 24); // max 24 months
+
   let html = '<table class="data-table" id="itemsTable"><thead><tr>';
-  html += '<th>システム</th><th>ドメイン</th><th>カテゴリ</th><th>費目</th>';
-  FY_MONTHS.forEach(m => html += `<th class="num">${monthName(m)}</th>`);
+  html += '<th>管理番号</th><th>システム</th><th>期</th><th>案件名</th><th>部門</th>';
+  displayYMs.forEach(ym => html += `<th class="num text-[10px]">${fmtYM(ym)}</th>`);
   html += '<th class="num" style="background:#dbeafe">計画計</th><th class="num" style="background:#fef3c7">見通し計</th><th class="num" style="background:#dcfce7">実績計</th><th class="num">差異</th>';
   html += '</tr></thead><tbody>';
 
   const displayItems = items.slice(0, 200);
   displayItems.forEach(item => {
-    const var_a = item.plan.annual > 0 ? ((item.actual.annual - item.plan.annual) / item.plan.annual * 100) : 0;
+    const var_a = item.totalPlan > 0 ? ((item.totalActual - item.totalPlan) / item.totalPlan * 100) : 0;
     html += '<tr>';
-    html += `<td class="font-medium text-[11px]">${item.system_name}</td>`;
-    html += `<td class="text-[11px] text-gray-400">${item.domain}</td>`;
-    html += `<td class="text-[11px]">${item.expense_category}</td>`;
-    html += `<td class="text-[11px]">${item.expense_item}</td>`;
-    FY_MONTHS.forEach(m => {
-      const plan = item.plan.months[m] || 0;
-      const actual = item.actual.months[m] || 0;
+    html += `<td class="font-medium text-[10px]">${item.management_no}/${item.item_no}</td>`;
+    html += `<td class="text-[10px]">${item.system_name}</td>`;
+    html += `<td class="text-[10px]">${item.fiscal_period || ''}</td>`;
+    html += `<td class="text-[10px]">${item.project_name || '-'}</td>`;
+    html += `<td class="text-[10px] text-gray-400">${item.department_name || '-'}</td>`;
+    displayYMs.forEach(ym => {
+      const m = item.monthly[ym];
+      const plan = m ? m.plan : 0;
+      const actual = m ? m.actual : 0;
       const isOver = actual > plan && plan > 0;
-      html += `<td class="num text-[11px] ${isOver ? 'overrun' : ''}" title="計画:${fmt(plan)} 実績:${fmt(actual)}">${fmt(actual || plan)}</td>`;
+      const displayVal = actual || plan;
+      html += `<td class="num text-[10px] ${isOver ? 'overrun' : ''}" title="計画:${fmt(plan)} 実績:${fmt(actual)}">${displayVal > 0 ? fmt(displayVal) : ''}</td>`;
     });
-    html += `<td class="num font-semibold text-[11px]" style="background:#eff6ff">${fmt(item.plan.annual)}</td>`;
-    html += `<td class="num font-semibold text-[11px]" style="background:#fefce8">${fmt(item.forecast.annual)}</td>`;
-    html += `<td class="num font-semibold text-[11px]" style="background:#f0fdf4">${fmt(item.actual.annual)}</td>`;
-    html += `<td class="num text-[11px] ${varianceClass(var_a)}">${pct(var_a)}</td>`;
+    html += `<td class="num font-semibold text-[10px]" style="background:#eff6ff">${fmt(item.totalPlan)}</td>`;
+    html += `<td class="num font-semibold text-[10px]" style="background:#fefce8">${fmt(item.totalForecast)}</td>`;
+    html += `<td class="num font-semibold text-[10px]" style="background:#f0fdf4">${fmt(item.totalActual)}</td>`;
+    html += `<td class="num text-[10px] ${varianceClass(var_a)}">${pct(var_a)}</td>`;
     html += '</tr>';
   });
 
-  // Totals
-  html += '<tr style="background:#f8fafc;font-weight:700"><td colspan="4">合計</td>';
-  FY_MONTHS.forEach(m => {
-    const total = displayItems.reduce((s, i) => s + (i.actual.months[m] || i.plan.months[m] || 0), 0);
-    html += `<td class="num">${fmt(total)}</td>`;
+  // Totals row
+  html += '<tr style="background:#f8fafc;font-weight:700"><td colspan="5">合計</td>';
+  displayYMs.forEach(ym => {
+    const total = displayItems.reduce((s, i) => {
+      const m = i.monthly[ym];
+      return s + (m ? (m.actual || m.plan) : 0);
+    }, 0);
+    html += `<td class="num">${total > 0 ? fmt(total) : ''}</td>`;
   });
-  const totalPlan = displayItems.reduce((s, i) => s + i.plan.annual, 0);
-  const totalForecast = displayItems.reduce((s, i) => s + i.forecast.annual, 0);
-  const totalActual = displayItems.reduce((s, i) => s + i.actual.annual, 0);
+  const totalPlan = displayItems.reduce((s, i) => s + i.totalPlan, 0);
+  const totalForecast = displayItems.reduce((s, i) => s + i.totalForecast, 0);
+  const totalActual = displayItems.reduce((s, i) => s + i.totalActual, 0);
   html += `<td class="num" style="background:#dbeafe">${fmt(totalPlan)}</td>`;
   html += `<td class="num" style="background:#fef3c7">${fmt(totalForecast)}</td>`;
   html += `<td class="num" style="background:#dcfce7">${fmt(totalActual)}</td>`;
@@ -1083,7 +1235,7 @@ function exportItemsCSV() {
     });
     csv += cells.join(',') + '\n';
   });
-  const blob = new Blob([csv], { type: 'text-csv;charset=utf-8' });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'budget_items_export.csv';
