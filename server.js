@@ -544,9 +544,42 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
+// =============================================
+// Auto-load sample CSVs on startup
+// =============================================
+function autoLoadSampleData() {
+  try {
+    const masterPath = path.join(__dirname, 'public', 'static', 'sample_budget_master.csv');
+    const detailPath = path.join(__dirname, 'public', 'static', 'sample_budget_detail.csv');
+
+    if (fs.existsSync(masterPath)) {
+      const text = fs.readFileSync(masterPath, 'utf-8').replace(/^\uFEFF/, '');
+      store.master = parseCSV(text);
+      store.masterFileName = 'sample_budget_master.csv';
+      console.log(`  [Auto-load] budget_master: ${store.master.length} rows`);
+    }
+    if (fs.existsSync(detailPath)) {
+      const text = fs.readFileSync(detailPath, 'utf-8').replace(/^\uFEFF/, '');
+      store.detail = parseCSV(text);
+      store.detailFileName = 'sample_budget_detail.csv';
+      console.log(`  [Auto-load] budget_detail: ${store.detail.length} rows`);
+    }
+
+    if (store.master || store.detail) {
+      store.uploadedAt = new Date().toISOString();
+      const items = buildUnifiedData();
+      const agg = items ? getAggregations(items) : null;
+      console.log(`  [Auto-load] ${items ? items.length : 0} items, ${agg ? agg.systems.length : 0} systems, ${agg ? agg.categories.length : 0} categories`);
+    }
+  } catch (e) {
+    console.error('  [Auto-load] Failed:', e.message);
+  }
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Budget CSV Viewer`);
   console.log(`  Local:   http://localhost:${PORT}`);
   console.log(`  Network: http://0.0.0.0:${PORT}`);
-  console.log(`  Status:  Ready for CSV upload (budget_master / budget_detail)\n`);
+  autoLoadSampleData();
+  console.log(`  Status:  Ready\n`);
 });
