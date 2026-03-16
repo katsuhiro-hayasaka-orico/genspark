@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Excel Budget Viewer</title>
+  <title>予算管理ダッシュボード</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -39,14 +39,16 @@
     .data-table td { border-bottom: 1px solid #f1f5f9; padding: 6px 10px; color: #334155; }
     .data-table tr:hover td { background: #f8fafc; }
     .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .tab-btn { padding: 6px 14px; font-size: 12px; font-weight: 500; color: #64748b; background: transparent; border: none; cursor: pointer; transition: all 0.15s; }
-    .tab-btn:hover { color: #2563eb; }
-    .tab-btn.active { color: #2563eb; background: #eff6ff; border-radius: 6px; }
+    .tab-btn { padding: 6px 14px; font-size: 12px; font-weight: 500; color: #64748b; background: transparent; border: none; cursor: pointer; transition: all 0.15s; border-radius: 6px; }
+    .tab-btn:hover { color: #2563eb; background: #f1f5f9; }
+    .tab-btn.active { color: #2563eb; background: #eff6ff; font-weight: 600; }
     .btn-primary { background: #2563eb; color: white; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; }
     .btn-primary:hover { background: #1d4ed8; }
     .btn-secondary { background: white; color: #475569; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid #e2e8f0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; }
     .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
     .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+    .overrun { color: #dc2626; font-weight: 600; }
+    .underrun { color: #16a34a; font-weight: 600; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
@@ -65,23 +67,23 @@
           <i class="fas fa-chart-pie text-white text-sm"></i>
         </div>
         <div>
-          <h1 class="text-[14px] font-bold text-gray-800">Excel Budget Viewer</h1>
-          <p class="text-[10px] text-gray-400">ローカル可視化ツール</p>
+          <h1 class="text-[14px] font-bold text-gray-800">予算管理ダッシュボード</h1>
+          <p class="text-[10px] text-gray-400">CSV可視化ツール v3.0</p>
         </div>
       </div>
     </div>
     <nav class="p-3 space-y-1">
       <div class="sidebar-item active" data-page="upload" onclick="navigateTo('upload')">
-        <i class="fas fa-cloud-upload-alt w-5 text-center"></i><span>ファイルアップロード</span>
+        <i class="fas fa-cloud-upload-alt w-5 text-center"></i><span>CSVアップロード</span>
       </div>
       <div class="sidebar-item disabled" data-page="dashboard" onclick="navigateTo('dashboard')" id="navDashboard">
         <i class="fas fa-gauge-high w-5 text-center"></i><span>ダッシュボード</span>
       </div>
-      <div class="sidebar-item disabled" data-page="sheets" onclick="navigateTo('sheets')" id="navSheets">
-        <i class="fas fa-table w-5 text-center"></i><span>シートデータ</span>
-      </div>
       <div class="sidebar-item disabled" data-page="analysis" onclick="navigateTo('analysis')" id="navAnalysis">
         <i class="fas fa-chart-column w-5 text-center"></i><span>分析・比較</span>
+      </div>
+      <div class="sidebar-item disabled" data-page="variance" onclick="navigateTo('variance')" id="navVariance">
+        <i class="fas fa-triangle-exclamation w-5 text-center"></i><span>予算差異</span>
       </div>
       <div class="sidebar-item disabled" data-page="items" onclick="navigateTo('items')" id="navItems">
         <i class="fas fa-list-ol w-5 text-center"></i><span>明細一覧</span>
@@ -106,12 +108,12 @@
           <div id="breadcrumb" class="text-[12px] text-gray-500">
             <span class="text-gray-400">ホーム</span>
             <i class="fas fa-chevron-right text-[10px] mx-1.5 text-gray-300"></i>
-            <span class="text-gray-700 font-medium">ファイルアップロード</span>
+            <span class="text-gray-700 font-medium">CSVアップロード</span>
           </div>
         </div>
         <div class="flex items-center gap-2">
           <span id="statusBadge" class="badge bg-gray-100 text-gray-500">データなし</span>
-          <button onclick="refreshData()" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
+          <button onclick="refreshData()" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 text-sm" title="再読込">
             <i class="fas fa-sync-alt"></i>
           </button>
         </div>
@@ -120,17 +122,11 @@
 
     <!-- Content -->
     <main id="mainContent" class="p-4 md:p-6 max-w-7xl mx-auto">
-      <!-- Initial upload page rendered by JS -->
     </main>
   </div>
 
   <!-- Toast Container -->
   <div id="toastContainer" class="fixed top-16 right-4 z-50 space-y-2"></div>
-
-  <!-- Modal Container -->
-  <div id="modalContainer" class="fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
-  </div>
 
   <script src="/static/app.js"></script>
 </body>

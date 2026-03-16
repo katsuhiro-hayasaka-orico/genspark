@@ -1,6 +1,5 @@
 const express = require('express');
 const multer = require('multer');
-const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
 
@@ -10,11 +9,11 @@ const PORT = process.env.PORT || 3000;
 // --- Multer setup (memory storage, no disk persistence) ---
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'].includes(ext)) cb(null, true);
-    else cb(new Error('対応形式: .xlsx, .xls, .xlsm, .xlsb, .csv'));
+    if (ext === '.csv') cb(null, true);
+    else cb(new Error('CSV形式のみ対応しています (.csv)'));
   }
 });
 
@@ -25,526 +24,502 @@ app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 // In-memory data store
 // =============================================
 let store = {
-  fileName: null,
+  master: null,   // parsed budget_master rows
+  detail: null,   // parsed budget_detail rows
   uploadedAt: null,
-  fileSize: 0,
-  sheets: {},       // raw sheet data keyed by sheet name
-  parsed: null,     // parsed budget structure
+  masterFileName: null,
+  detailFileName: null,
 };
 
 // =============================================
-// Excel parsing logic
+// CSV Parsing (no external dependency)
 // =============================================
-function parseExcel(buffer, originalName) {
-  const opts = { type: 'buffer', cellDates: true, cellNF: true, cellStyles: false };
-  // CSV handling
-  if (originalName.toLowerCase().endsWith('.csv')) {
-    opts.type = 'string';
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return [];
+
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const values = parseCSVLine(line);
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h.trim()] = (values[idx] || '').trim();
+    });
+    rows.push(row);
   }
-  const wb = XLSX.read(buffer, opts);
-  const sheets = {};
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-    sheets[name] = {
-      name,
-      json,
-      range: ws['!ref'] || '',
-      rowCount: json.length,
-      colCount: json.length > 0 ? Math.max(...json.map(r => r.length)) : 0,
-      merges: (ws['!merges'] || []).map(m => ({
-        s: { r: m.s.r, c: m.s.c },
-        e: { r: m.e.r, c: m.e.c }
-      }))
-    };
-  }
-  return { sheetNames: wb.SheetNames, sheets };
+  return rows;
 }
 
-// Detect if a value is numeric
-function toNum(v) {
-  if (v === null || v === undefined || v === '') return null;
-  if (typeof v === 'number') return v;
-  const s = String(v).replace(/,/g, '').replace(/\s/g, '').replace(/^[\u00A5\uFFE5\\$]/,'');
-  const n = parseFloat(s);
-  return isNaN(n) ? null : n;
-}
-
-// Detect month patterns in header cells
-function detectMonthColumns(row) {
-  const monthCols = {};
-  for (let c = 0; c < row.length; c++) {
-    const cell = String(row[c] || '').trim();
-    // Japanese month patterns: 4月, 5月 ... 3月
-    const mMatch = cell.match(/^(\d{1,2})\s*月$/);
-    if (mMatch) {
-      const m = parseInt(mMatch[1]);
-      if (m >= 1 && m <= 12) monthCols[m] = c;
-      continue;
-    }
-    // Year-month: 2025/4, 2025-04 etc.
-    const ymMatch = cell.match(/(?:20\d{2})[\/\-](\d{1,2})/);
-    if (ymMatch) {
-      const m = parseInt(ymMatch[1]);
-      if (m >= 1 && m <= 12) monthCols[m] = c;
-      continue;
-    }
-    // English short months
-    const enMonths = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
-    const lower = cell.toLowerCase().replace(/\./g,'');
-    for (const [en, num] of Object.entries(enMonths)) {
-      if (lower === en || lower.startsWith(en)) { monthCols[num] = c; break; }
-    }
-    // Quarter patterns
-    if (/^[QqＱ][1-4]$/.test(cell)) monthCols['q_' + cell] = c;
-    // Annual/Total patterns
-    if (/^(合計|年間|年度計|累計|Total|Annual|通期|計)$/i.test(cell)) monthCols['annual'] = c;
-    // Half-year
-    if (/^(上期|下期|[HhＨ][12]|前期|後期|1H|2H)/.test(cell)) monthCols['half_' + cell] = c;
-  }
-  return monthCols;
-}
-
-// Auto-parse budget structure from sheets
-function autoParseBudget(sheets) {
-  const result = {
-    systems: [],
-    categories: [],
-    items: [],
-    monthlyTotals: [],
-    categoryTotals: [],
-    systemTotals: [],
-    sheetAnalysis: {},
-    raw: [],
-  };
-
-  for (const [sheetName, sheet] of Object.entries(sheets)) {
-    const rows = sheet.json;
-    if (!rows || rows.length < 2) continue;
-
-    // Try to find header row with month columns
-    let headerRowIdx = -1;
-    let monthCols = {};
-    let labelCols = [];
-    let annualCol = -1;
-
-    for (let r = 0; r < Math.min(rows.length, 30); r++) {
-      const row = rows[r];
-      if (!row || row.length === 0) continue;
-      const detected = detectMonthColumns(row);
-      const numericMonths = Object.keys(detected).filter(k => !isNaN(parseInt(k)));
-      if (numericMonths.length >= 3) {
-        headerRowIdx = r;
-        monthCols = {};
-        for (const k of numericMonths) monthCols[parseInt(k)] = detected[parseInt(k)];
-        if (detected['annual'] !== undefined) annualCol = detected['annual'];
-        // Label columns: everything before first month column
-        const firstMonthCol = Math.min(...Object.values(monthCols));
-        for (let c = 0; c < firstMonthCol; c++) labelCols.push(c);
-        break;
-      }
-    }
-
-    const sheetAnalysisEntry = {
-      name: sheetName,
-      headerRow: headerRowIdx,
-      monthColumns: Object.keys(monthCols).length,
-      labelColumns: labelCols.length,
-      dataRows: 0,
-      totalValue: 0,
-      type: headerRowIdx >= 0 ? 'structured' : 'generic'
-    };
-
-    if (headerRowIdx < 0) {
-      // Generic table - store raw data with auto-detection of numeric columns
-      const headerRow = rows[0] || [];
-      const numericColIndices = [];
-      
-      // Check rows 1-5 to identify numeric columns
-      for (let c = 0; c < (headerRow.length || 0); c++) {
-        let numCount = 0;
-        for (let r = 1; r < Math.min(rows.length, 6); r++) {
-          if (rows[r] && toNum(rows[r][c]) !== null) numCount++;
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
         }
-        if (numCount >= Math.min(rows.length - 1, 3)) numericColIndices.push(c);
-      }
-
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r];
-        if (!row || row.every(c => c === '' || c === null || c === undefined)) continue;
-        
-        // Build labels from non-numeric columns
-        const labelValues = [];
-        for (let c = 0; c < row.length; c++) {
-          if (!numericColIndices.includes(c) && row[c] !== '' && row[c] !== null) {
-            labelValues.push(String(row[c]).trim());
-          }
-        }
-        if (labelValues.length === 0 && row.length > 0) labelValues.push(String(row[0] || '').trim());
-
-        // Sum numeric values for annual
-        let annual = 0;
-        const months = {};
-        numericColIndices.forEach((ci, idx) => {
-          const v = toNum(row[ci]);
-          if (v !== null) {
-            months[idx + 1] = v;
-            annual += v;
-          }
-        });
-
-        if (annual === 0 && labelValues.join('').length === 0) continue;
-
-        result.items.push({
-          sheet: sheetName,
-          system: sheetName,
-          category: labelValues[0] || '',
-          item: labelValues.slice(1).join(' ') || labelValues[0] || '',
-          months,
-          annual,
-          labels: labelValues,
-          type: 'generic'
-        });
-        sheetAnalysisEntry.dataRows++;
-        sheetAnalysisEntry.totalValue += annual;
-      }
-      
-      result.sheetAnalysis[sheetName] = sheetAnalysisEntry;
-      continue;
-    }
-
-    // Parse structured data rows
-    let currentGroup = '';
-    for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r];
-      if (!row || row.length === 0) continue;
-      if (row.every(c => c === '' || c === null || c === undefined)) continue;
-
-      // Extract labels
-      const labels = labelCols.map(c => String(row[c] || '').trim());
-      const nonEmptyLabels = labels.filter(Boolean);
-
-      // Track group headers (rows with label but no numeric data)
-      const hasNumericData = Object.values(monthCols).some(ci => toNum(row[ci]) !== null);
-
-      // Skip total/subtotal rows
-      const fullText = labels.join('').toLowerCase();
-      if (/合計|小計|total|subtotal|計$/.test(fullText) && !/科目|項目/.test(fullText)) continue;
-
-      if (nonEmptyLabels.length > 0 && !hasNumericData) {
-        // This might be a group header
-        currentGroup = nonEmptyLabels[0];
-        continue;
-      }
-
-      if (!hasNumericData) continue;
-
-      // Extract monthly values
-      const months = {};
-      let annual = 0;
-      for (const [monthNum, colIdx] of Object.entries(monthCols)) {
-        const val = toNum(row[colIdx]);
-        if (val !== null) {
-          months[parseInt(monthNum)] = val;
-          annual += val;
-        }
-      }
-
-      // Also check the annual column
-      if (annualCol >= 0) {
-        const annualVal = toNum(row[annualCol]);
-        if (annualVal !== null && Math.abs(annualVal) > Math.abs(annual)) {
-          annual = annualVal;
-        }
-      }
-
-      if (annual === 0 && Object.keys(months).length === 0) continue;
-
-      // Determine system / category / item from labels
-      let system = '', category = '', itemName = '';
-      if (labelCols.length >= 3) {
-        system = labels[0] || currentGroup || sheetName;
-        category = labels[1] || '';
-        itemName = labels[2] || labels[1] || '';
-      } else if (labelCols.length === 2) {
-        system = labels[0] || currentGroup || sheetName;
-        itemName = labels[1] || labels[0] || '';
-        category = currentGroup || sheetName;
-      } else if (labelCols.length === 1) {
-        itemName = labels[0] || '';
-        system = currentGroup || sheetName;
-        category = sheetName;
       } else {
-        itemName = sheetName;
-        system = sheetName;
-        category = sheetName;
+        current += ch;
       }
-
-      // Use currentGroup if system is empty
-      if (!system && currentGroup) system = currentGroup;
-
-      result.items.push({
-        sheet: sheetName,
-        system: system || sheetName,
-        category,
-        item: itemName,
-        months,
-        annual,
-        labels: nonEmptyLabels,
-        type: 'structured'
-      });
-
-      sheetAnalysisEntry.dataRows++;
-      sheetAnalysisEntry.totalValue += annual;
-
-      // Collect unique values
-      if (system && !result.systems.includes(system)) result.systems.push(system);
-      if (category && !result.categories.includes(category)) result.categories.push(category);
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        result.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
     }
-
-    result.sheetAnalysis[sheetName] = sheetAnalysisEntry;
   }
-
-  // Also collect systems/categories from generic items
-  for (const item of result.items) {
-    if (item.system && !result.systems.includes(item.system)) result.systems.push(item.system);
-    if (item.category && !result.categories.includes(item.category)) result.categories.push(item.category);
-  }
-
-  // Aggregate totals
-  aggregateTotals(result);
-
+  result.push(current);
   return result;
 }
 
-function aggregateTotals(result) {
-  const monthAgg = {};
-  const catAgg = {};
-  const sysAgg = {};
+// =============================================
+// Data Processing Helpers
+// =============================================
+function toNum(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
 
-  for (const item of result.items) {
-    for (const [m, v] of Object.entries(item.months)) {
-      const mk = parseInt(m);
-      if (!monthAgg[mk]) monthAgg[mk] = 0;
-      monthAgg[mk] += v;
+// Fiscal year month order: 4,5,6,7,8,9,10,11,12,1,2,3
+const FY_MONTHS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
+const MONTH_NAMES = { 4:'4月', 5:'5月', 6:'6月', 7:'7月', 8:'8月', 9:'9月', 10:'10月', 11:'11月', 12:'12月', 1:'1月', 2:'2月', 3:'3月' };
+
+// Merge master + detail to build unified items
+function buildUnifiedData() {
+  if (!store.master && !store.detail) return null;
+
+  const masterMap = {};
+  if (store.master) {
+    for (const row of store.master) {
+      const key = `${row.system_code}|${row.expense_category}|${row.expense_item}|${row.budget_type}`;
+      masterMap[key] = row;
     }
-    const cat = item.category || item.item || 'その他';
-    if (!catAgg[cat]) catAgg[cat] = 0;
-    catAgg[cat] += item.annual;
-
-    const sys = item.system || item.sheet;
-    if (!sysAgg[sys]) sysAgg[sys] = 0;
-    sysAgg[sys] += item.annual;
   }
 
-  result.monthlyTotals = Object.entries(monthAgg)
-    .map(([m, v]) => ({ month: parseInt(m), value: v }))
-    .sort((a, b) => {
-      // Fiscal year sort: 4,5,...,12,1,2,3
-      const fa = a.month >= 4 ? a.month - 4 : a.month + 8;
-      const fb = b.month >= 4 ? b.month - 4 : b.month + 8;
-      return fa - fb;
-    });
+  // Build items from detail (monthly data)
+  const items = [];
+  const itemIndex = {};
 
-  result.categoryTotals = Object.entries(catAgg)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
+  if (store.detail) {
+    for (const row of store.detail) {
+      const baseKey = `${row.system_code}|${row.expense_category}|${row.expense_item}`;
+      const btype = row.budget_type || 'plan';
 
-  result.systemTotals = Object.entries(sysAgg)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
+      if (!itemIndex[baseKey]) {
+        // Look up master info
+        const masterKey = `${row.system_code}|${row.expense_category}|${row.expense_item}|${btype}`;
+        const masterRow = masterMap[masterKey] || {};
+        itemIndex[baseKey] = {
+          fiscal_year: row.fiscal_year || masterRow.fiscal_year || '',
+          system_code: row.system_code || '',
+          system_name: masterRow.system_name || row.system_code || '',
+          domain: masterRow.domain || '',
+          expense_category: row.expense_category || '',
+          expense_item: row.expense_item || '',
+          remarks: masterRow.remarks || '',
+          plan: { months: {}, annual: 0 },
+          forecast: { months: {}, annual: 0 },
+          actual: { months: {}, annual: 0 },
+        };
+        items.push(itemIndex[baseKey]);
+      }
+
+      const item = itemIndex[baseKey];
+
+      // Fill monthly values
+      const monthData = {};
+      let annual = 0;
+      for (const m of FY_MONTHS) {
+        const colName = `month_${m}`;
+        const val = toNum(row[colName]);
+        monthData[m] = val;
+        annual += val;
+      }
+
+      if (btype === 'plan' || btype === 'forecast' || btype === 'actual') {
+        item[btype].months = monthData;
+        item[btype].annual = annual;
+      }
+
+      // Also update master info if found
+      const mkey = `${row.system_code}|${row.expense_category}|${row.expense_item}|${btype}`;
+      if (masterMap[mkey]) {
+        item.system_name = masterMap[mkey].system_name || item.system_name;
+        item.domain = masterMap[mkey].domain || item.domain;
+        item.remarks = masterMap[mkey].remarks || item.remarks;
+      }
+    }
+  }
+
+  // If only master is uploaded (no detail), build items from master annual_total
+  if (store.master && !store.detail) {
+    for (const row of store.master) {
+      const baseKey = `${row.system_code}|${row.expense_category}|${row.expense_item}`;
+      const btype = row.budget_type || 'plan';
+
+      if (!itemIndex[baseKey]) {
+        itemIndex[baseKey] = {
+          fiscal_year: row.fiscal_year || '',
+          system_code: row.system_code || '',
+          system_name: row.system_name || row.system_code || '',
+          domain: row.domain || '',
+          expense_category: row.expense_category || '',
+          expense_item: row.expense_item || '',
+          remarks: row.remarks || '',
+          plan: { months: {}, annual: 0 },
+          forecast: { months: {}, annual: 0 },
+          actual: { months: {}, annual: 0 },
+        };
+        items.push(itemIndex[baseKey]);
+      }
+
+      const item = itemIndex[baseKey];
+      const annualTotal = toNum(row.annual_total);
+      item[btype].annual = annualTotal;
+      // Distribute evenly for monthly approximation
+      for (const m of FY_MONTHS) {
+        item[btype].months[m] = Math.round(annualTotal / 12);
+      }
+    }
+  }
+
+  return items;
+}
+
+function getAggregations(items) {
+  if (!items || items.length === 0) return null;
+
+  // Systems list
+  const systems = [...new Set(items.map(i => i.system_name))].filter(Boolean);
+  const domains = [...new Set(items.map(i => i.domain))].filter(Boolean);
+  const categories = [...new Set(items.map(i => i.expense_category))].filter(Boolean);
+
+  // KPI
+  const totalPlan = items.reduce((s, i) => s + i.plan.annual, 0);
+  const totalForecast = items.reduce((s, i) => s + i.forecast.annual, 0);
+  const totalActual = items.reduce((s, i) => s + i.actual.annual, 0);
+
+  // Monthly aggregation by type
+  const monthlyByType = { plan: {}, forecast: {}, actual: {} };
+  for (const btype of ['plan', 'forecast', 'actual']) {
+    for (const m of FY_MONTHS) {
+      monthlyByType[btype][m] = items.reduce((s, i) => s + (i[btype].months[m] || 0), 0);
+    }
+  }
+
+  // By system
+  const bySystem = {};
+  for (const item of items) {
+    const key = item.system_name || item.system_code;
+    if (!bySystem[key]) bySystem[key] = { name: key, plan: 0, forecast: 0, actual: 0 };
+    bySystem[key].plan += item.plan.annual;
+    bySystem[key].forecast += item.forecast.annual;
+    bySystem[key].actual += item.actual.annual;
+  }
+
+  // By category
+  const byCategory = {};
+  for (const item of items) {
+    const key = item.expense_category;
+    if (!byCategory[key]) byCategory[key] = { name: key, plan: 0, forecast: 0, actual: 0 };
+    byCategory[key].plan += item.plan.annual;
+    byCategory[key].forecast += item.forecast.annual;
+    byCategory[key].actual += item.actual.annual;
+  }
+
+  // By domain
+  const byDomain = {};
+  for (const item of items) {
+    const key = item.domain || 'その他';
+    if (!byDomain[key]) byDomain[key] = { name: key, plan: 0, forecast: 0, actual: 0 };
+    byDomain[key].plan += item.plan.annual;
+    byDomain[key].forecast += item.forecast.annual;
+    byDomain[key].actual += item.actual.annual;
+  }
+
+  // Budget variance (overruns/shortfalls)
+  const variances = items.map(item => {
+    const planAnnual = item.plan.annual;
+    const forecastAnnual = item.forecast.annual;
+    const actualAnnual = item.actual.annual;
+    const varianceForecast = planAnnual > 0 ? ((forecastAnnual - planAnnual) / planAnnual * 100) : 0;
+    const varianceActual = planAnnual > 0 ? ((actualAnnual - planAnnual) / planAnnual * 100) : 0;
+    return {
+      system_name: item.system_name,
+      expense_category: item.expense_category,
+      expense_item: item.expense_item,
+      plan: planAnnual,
+      forecast: forecastAnnual,
+      actual: actualAnnual,
+      variance_forecast: Math.round(varianceForecast * 10) / 10,
+      variance_actual: Math.round(varianceActual * 10) / 10,
+      overrun_forecast: forecastAnnual > planAnnual,
+      overrun_actual: actualAnnual > planAnnual,
+    };
+  });
+
+  // Cross-tab: system x category
+  const crossTab = {};
+  for (const item of items) {
+    const sys = item.system_name || item.system_code;
+    const cat = item.expense_category;
+    if (!crossTab[sys]) crossTab[sys] = {};
+    if (!crossTab[sys][cat]) crossTab[sys][cat] = { plan: 0, forecast: 0, actual: 0 };
+    crossTab[sys][cat].plan += item.plan.annual;
+    crossTab[sys][cat].forecast += item.forecast.annual;
+    crossTab[sys][cat].actual += item.actual.annual;
+  }
+
+  return {
+    systems,
+    domains,
+    categories,
+    totalPlan,
+    totalForecast,
+    totalActual,
+    monthlyByType,
+    bySystem: Object.values(bySystem).sort((a, b) => b.plan - a.plan),
+    byCategory: Object.values(byCategory).sort((a, b) => b.plan - a.plan),
+    byDomain: Object.values(byDomain).sort((a, b) => b.plan - a.plan),
+    variances: variances.sort((a, b) => Math.abs(b.variance_actual) - Math.abs(a.variance_actual)),
+    crossTab,
+    itemCount: items.length,
+  };
 }
 
 // =============================================
 // API Routes
 // =============================================
 
-// Upload Excel
-app.post('/api/upload', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'ファイルが選択されていません' });
-
+// Upload CSV files (budget_master and/or budget_detail)
+app.post('/api/upload', upload.fields([
+  { name: 'budget_master', maxCount: 1 },
+  { name: 'budget_detail', maxCount: 1 }
+]), (req, res) => {
   try {
-    const { sheetNames, sheets } = parseExcel(req.file.buffer, req.file.originalname);
-    const parsed = autoParseBudget(sheets);
+    let masterCount = 0, detailCount = 0;
 
-    store = {
-      fileName: req.file.originalname,
-      uploadedAt: new Date().toISOString(),
-      fileSize: req.file.size,
-      sheets,
-      parsed,
-    };
+    if (req.files['budget_master'] && req.files['budget_master'][0]) {
+      const buf = req.files['budget_master'][0].buffer;
+      const text = buf.toString('utf-8').replace(/^\uFEFF/, ''); // strip BOM
+      store.master = parseCSV(text);
+      store.masterFileName = req.files['budget_master'][0].originalname;
+      masterCount = store.master.length;
+    }
+
+    if (req.files['budget_detail'] && req.files['budget_detail'][0]) {
+      const buf = req.files['budget_detail'][0].buffer;
+      const text = buf.toString('utf-8').replace(/^\uFEFF/, '');
+      store.detail = parseCSV(text);
+      store.detailFileName = req.files['budget_detail'][0].originalname;
+      detailCount = store.detail.length;
+    }
+
+    if (!store.master && !store.detail) {
+      return res.status(400).json({ error: 'budget_master または budget_detail の少なくとも1つをアップロードしてください' });
+    }
+
+    store.uploadedAt = new Date().toISOString();
+
+    // Build unified data
+    const items = buildUnifiedData();
+    const agg = getAggregations(items);
 
     res.json({
       message: 'アップロード完了',
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-      sheetNames,
-      rowCount: parsed.items.length,
-      systems: parsed.systems.length,
-      categories: parsed.categories.length,
-      sheetAnalysis: parsed.sheetAnalysis,
+      masterFileName: store.masterFileName,
+      detailFileName: store.detailFileName,
+      masterRows: masterCount,
+      detailRows: detailCount,
+      itemCount: items ? items.length : 0,
+      systemCount: agg ? agg.systems.length : 0,
+      categoryCount: agg ? agg.categories.length : 0,
     });
   } catch (e) {
     console.error('Upload error:', e);
-    res.status(500).json({ error: 'Excel解析エラー: ' + e.message });
+    res.status(500).json({ error: 'CSV解析エラー: ' + e.message });
   }
 });
 
 // Status
 app.get('/api/status', (_, res) => {
+  const items = buildUnifiedData();
+  const agg = items ? getAggregations(items) : null;
   res.json({
-    hasData: !!store.parsed,
-    fileName: store.fileName,
+    hasData: !!(store.master || store.detail),
+    masterFileName: store.masterFileName,
+    detailFileName: store.detailFileName,
     uploadedAt: store.uploadedAt,
-    fileSize: store.fileSize,
-    itemCount: store.parsed ? store.parsed.items.length : 0,
-    systemCount: store.parsed ? store.parsed.systems.length : 0,
-    categoryCount: store.parsed ? store.parsed.categories.length : 0,
-    sheetNames: store.sheets ? Object.keys(store.sheets) : [],
+    itemCount: items ? items.length : 0,
+    systemCount: agg ? agg.systems.length : 0,
+    categoryCount: agg ? agg.categories.length : 0,
+    systems: agg ? agg.systems : [],
+    categories: agg ? agg.categories : [],
+    domains: agg ? agg.domains : [],
   });
 });
 
 // Dashboard summary
 app.get('/api/dashboard/summary', (_, res) => {
-  if (!store.parsed) return res.json({ kpi: null });
-  const p = store.parsed;
-  const totalAnnual = p.items.reduce((s, i) => s + i.annual, 0);
-  const maxMonth = p.monthlyTotals.length > 0 ? Math.max(...p.monthlyTotals.map(m => m.value)) : 0;
-  const avgMonth = p.monthlyTotals.length > 0 ? totalAnnual / p.monthlyTotals.length : 0;
+  const items = buildUnifiedData();
+  if (!items || items.length === 0) return res.json({ kpi: null });
+  const agg = getAggregations(items);
 
   res.json({
-    fileName: store.fileName,
+    masterFileName: store.masterFileName,
+    detailFileName: store.detailFileName,
     kpi: {
-      totalAnnual,
-      itemCount: p.items.length,
-      systemCount: p.systems.length,
-      categoryCount: p.categories.length,
-      sheetCount: Object.keys(store.sheets).length,
-      maxMonthValue: maxMonth,
-      avgMonthValue: avgMonth,
+      totalPlan: agg.totalPlan,
+      totalForecast: agg.totalForecast,
+      totalActual: agg.totalActual,
+      itemCount: agg.itemCount,
+      systemCount: agg.systems.length,
+      categoryCount: agg.categories.length,
+      domainCount: agg.domains.length,
+      varianceForecastPct: agg.totalPlan > 0 ? Math.round((agg.totalForecast - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
+      varianceActualPct: agg.totalPlan > 0 ? Math.round((agg.totalActual - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
     },
-    monthlyTotals: p.monthlyTotals,
-    categoryTotals: p.categoryTotals,
-    systemTotals: p.systemTotals,
-    sheetAnalysis: p.sheetAnalysis,
+    monthlyByType: agg.monthlyByType,
+    bySystem: agg.bySystem,
+    byCategory: agg.byCategory,
+    byDomain: agg.byDomain,
+    overrunItems: agg.variances.filter(v => v.overrun_actual || v.overrun_forecast).slice(0, 10),
   });
 });
 
-// Sheet list
-app.get('/api/sheets', (_, res) => {
-  if (!store.sheets) return res.json({ sheets: [] });
-  const sheets = Object.values(store.sheets).map(s => ({
-    name: s.name,
-    rows: s.rowCount,
-    cols: s.colCount,
-    range: s.range,
-  }));
-  res.json({ sheets });
-});
-
-// Sheet data (raw)
-app.get('/api/sheets/:name', (req, res) => {
-  const name = decodeURIComponent(req.params.name);
-  if (!store.sheets || !store.sheets[name]) return res.status(404).json({ error: 'シートが見つかりません' });
-  const s = store.sheets[name];
-  // Limit to first 500 rows for performance
-  const limitedJson = s.json.slice(0, 500);
-  res.json({
-    name: s.name,
-    json: limitedJson,
-    range: s.range,
-    totalRows: s.rowCount,
-    totalCols: s.colCount,
-    truncated: s.json.length > 500,
-    merges: s.merges || [],
-  });
-});
-
-// Items (parsed rows with filtering)
+// Items list with filters
 app.get('/api/items', (req, res) => {
-  if (!store.parsed) return res.json({ items: [], total: 0 });
-  let items = store.parsed.items;
-  const { system, category, sheet, search } = req.query;
-  if (system) items = items.filter(i => i.system === system);
-  if (category) items = items.filter(i => i.category === category);
-  if (sheet) items = items.filter(i => i.sheet === sheet);
+  const items = buildUnifiedData();
+  if (!items) return res.json({ items: [], total: 0 });
+
+  let filtered = items;
+  const { system, category, domain, search } = req.query;
+  if (system) filtered = filtered.filter(i => i.system_name === system || i.system_code === system);
+  if (category) filtered = filtered.filter(i => i.expense_category === category);
+  if (domain) filtered = filtered.filter(i => i.domain === domain);
   if (search) {
     const q = search.toLowerCase();
-    items = items.filter(i =>
-      (i.system || '').toLowerCase().includes(q) ||
-      (i.category || '').toLowerCase().includes(q) ||
-      (i.item || '').toLowerCase().includes(q) ||
-      (i.labels || []).some(l => l.toLowerCase().includes(q))
+    filtered = filtered.filter(i =>
+      (i.system_name || '').toLowerCase().includes(q) ||
+      (i.expense_category || '').toLowerCase().includes(q) ||
+      (i.expense_item || '').toLowerCase().includes(q) ||
+      (i.domain || '').toLowerCase().includes(q)
     );
   }
-  res.json({ items, total: items.length });
+  res.json({ items: filtered, total: filtered.length });
 });
 
 // Analysis: by system
 app.get('/api/analysis/by-system', (_, res) => {
-  if (!store.parsed) return res.json({ data: [] });
-  res.json({ data: store.parsed.systemTotals });
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: [] });
+  const agg = getAggregations(items);
+  res.json({ data: agg.bySystem });
 });
 
 // Analysis: by category
 app.get('/api/analysis/by-category', (_, res) => {
-  if (!store.parsed) return res.json({ data: [] });
-  res.json({ data: store.parsed.categoryTotals });
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: [] });
+  const agg = getAggregations(items);
+  res.json({ data: agg.byCategory });
 });
 
-// Analysis: by month
-app.get('/api/analysis/by-month', (_, res) => {
-  if (!store.parsed) return res.json({ data: [] });
-  res.json({ data: store.parsed.monthlyTotals });
+// Analysis: by domain
+app.get('/api/analysis/by-domain', (_, res) => {
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: [] });
+  const agg = getAggregations(items);
+  res.json({ data: agg.byDomain });
 });
 
-// Analysis: by sheet
-app.get('/api/analysis/by-sheet', (_, res) => {
-  if (!store.parsed) return res.json({ data: [] });
-  const sheetAgg = {};
-  for (const item of store.parsed.items) {
-    if (!sheetAgg[item.sheet]) sheetAgg[item.sheet] = { name: item.sheet, value: 0, count: 0 };
-    sheetAgg[item.sheet].value += item.annual;
-    sheetAgg[item.sheet].count++;
-  }
-  res.json({ data: Object.values(sheetAgg).sort((a, b) => b.value - a.value) });
+// Analysis: monthly time-series
+app.get('/api/analysis/monthly', (_, res) => {
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: null });
+  const agg = getAggregations(items);
+  res.json({ data: agg.monthlyByType });
 });
 
-// Cross-tab: system x category
+// Analysis: variances (overruns/shortfalls)
+app.get('/api/analysis/variances', (_, res) => {
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: [] });
+  const agg = getAggregations(items);
+  res.json({ data: agg.variances });
+});
+
+// Analysis: cross-tab (system x category)
 app.get('/api/analysis/cross-tab', (_, res) => {
-  if (!store.parsed) return res.json({ data: {}, systems: [], categories: [] });
-  const p = store.parsed;
-  const matrix = {};
-  const catSet = new Set();
-  for (const item of p.items) {
-    const sys = item.system || item.sheet;
-    const cat = item.category || item.item || 'その他';
-    catSet.add(cat);
-    if (!matrix[sys]) matrix[sys] = {};
-    if (!matrix[sys][cat]) matrix[sys][cat] = 0;
-    matrix[sys][cat] += item.annual;
-  }
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: {}, systems: [], categories: [] });
+  const agg = getAggregations(items);
   res.json({
-    data: matrix,
-    systems: p.systems,
-    categories: [...catSet]
+    data: agg.crossTab,
+    systems: agg.systems,
+    categories: agg.categories,
   });
 });
 
-// Top items ranking
-app.get('/api/analysis/top-items', (req, res) => {
-  if (!store.parsed) return res.json({ data: [] });
-  const limit = parseInt(req.query.limit) || 20;
-  const sorted = [...store.parsed.items]
-    .sort((a, b) => Math.abs(b.annual) - Math.abs(a.annual))
-    .slice(0, limit);
-  res.json({ data: sorted });
+// Analysis: system detail (monthly breakdown per system)
+app.get('/api/analysis/system-detail', (req, res) => {
+  const items = buildUnifiedData();
+  if (!items) return res.json({ data: null });
+  const { system } = req.query;
+  if (!system) return res.json({ data: null });
+
+  const sysItems = items.filter(i => i.system_name === system || i.system_code === system);
+  if (sysItems.length === 0) return res.json({ data: null });
+
+  // Aggregate monthly for this system
+  const monthlyByType = { plan: {}, forecast: {}, actual: {} };
+  for (const btype of ['plan', 'forecast', 'actual']) {
+    for (const m of FY_MONTHS) {
+      monthlyByType[btype][m] = sysItems.reduce((s, i) => s + (i[btype].months[m] || 0), 0);
+    }
+  }
+
+  // Categories within this system
+  const byCategory = {};
+  for (const item of sysItems) {
+    const cat = item.expense_category;
+    if (!byCategory[cat]) byCategory[cat] = { name: cat, plan: 0, forecast: 0, actual: 0 };
+    byCategory[cat].plan += item.plan.annual;
+    byCategory[cat].forecast += item.forecast.annual;
+    byCategory[cat].actual += item.actual.annual;
+  }
+
+  res.json({
+    data: {
+      system,
+      itemCount: sysItems.length,
+      totalPlan: sysItems.reduce((s, i) => s + i.plan.annual, 0),
+      totalForecast: sysItems.reduce((s, i) => s + i.forecast.annual, 0),
+      totalActual: sysItems.reduce((s, i) => s + i.actual.annual, 0),
+      monthlyByType,
+      byCategory: Object.values(byCategory).sort((a, b) => b.plan - a.plan),
+      items: sysItems,
+    }
+  });
 });
 
 // Clear data
 app.post('/api/clear', (_, res) => {
-  store = { fileName: null, uploadedAt: null, fileSize: 0, sheets: {}, parsed: null };
+  store = { master: null, detail: null, uploadedAt: null, masterFileName: null, detailFileName: null };
   res.json({ message: 'データをクリアしました' });
 });
 
@@ -570,8 +545,8 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  Budget Excel Viewer`);
+  console.log(`\n  Budget CSV Viewer`);
   console.log(`  Local:   http://localhost:${PORT}`);
   console.log(`  Network: http://0.0.0.0:${PORT}`);
-  console.log(`  Status:  Ready for Excel upload\n`);
+  console.log(`  Status:  Ready for CSV upload (budget_master / budget_detail)\n`);
 });

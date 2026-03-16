@@ -1,15 +1,14 @@
 {
-  "name": "budget-excel-viewer",
-  "version": "2.1.0",
+  "name": "budget-csv-viewer",
+  "version": "3.0.0",
   "private": true,
-  "description": "Excel-based budget visualization dashboard (local, no cloud dependencies)",
+  "description": "CSV-based budget visualization dashboard (plan/forecast/actual comparison, local-only)",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
     "express": "^4.21.0",
-    "multer": "^1.4.5-lts.1",
-    "xlsx": "^0.18.5"
+    "multer": "^1.4.5-lts.1"
   }
 }
