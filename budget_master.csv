@@ -1,0 +1,3 @@
+period,management_no,item_no,budget_category,new_project_no,project_name,department_name,owner_name,ringi_no,payee_name,contract_no,contract_amount,monthly_amount,payment_category,fixed_variable_type,prepaid_months,auto_renew_flag,contract_start,contract_end,system_no,system_name,asp_management_no,reserve_field,remark_half1,remark_half2,expense_item_code,system_code,expense_item_name,system_classification_name
+60,EC0001-S01,1,区分01,60-101,基幹サーバ保守,情報システム部,山田太郎,RG-0001,NTTデータ,CN-00001,12153045,1012754,月払,固定,－,有,44377,46203,SYS01,基幹システム,,,,前期保守,EC0001,S01,サーバ保守費,基幹系
+60,EC0002-S02,1,区分02,60-102,CRM改修,営業企画部,佐藤花子,RG-0002,NEC,CN-00002,8400000,700000,月払,変動,－,無,44377,46203,SYS02,営業支援システム,,,,案件対応,EC0002,S02,アプリ改修費,チャネル系
