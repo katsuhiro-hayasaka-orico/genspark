@@ -1,0 +1,7 @@
+expense_item_id,system_id,system_name,expense_category_name,expense_item_name,tax_type
+1001,SYS-001,勘定系,クラウド,AWS利用料,課税
+1002,SYS-001,勘定系,保守,ベンダー保守費,課税
+2001,SYS-002,情報系,ソフトウェア,BIライセンス,課税
+2002,SYS-002,情報系,人件費,運用要員,非課税
+3001,SYS-003,共通基盤,ネットワーク,回線費用,課税
+3002,SYS-003,共通基盤,開発,機能改修費,課税
