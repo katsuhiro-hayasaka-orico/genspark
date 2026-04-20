@@ -3,66 +3,57 @@
 ## Project Overview
 - **Name**: budget-csv-viewer
 - **Version**: 3.0.0
-- **Goal**: CSVファイル（budget_master / budget_detail）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予算データを可視化するローカル専用Webアプリ
+- **Goal**: CSVファイル（budget_master / budget_detail）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予算データを可視化するローカル専用アプリ
 - **Features**: 完全ビジュアライゼーション専用（データ入力機能なし）
 
-## URLs
-- **Application**: https://3000-ia3opus0iq67dxs4c1h6v-cbeee0f9.sandbox.novita.ai
-- **Health Check**: /api/health
+## Tech Stack
+- **Backend**: Node.js + Express
+- **CSV解析**: 自前パーサー（外部ライブラリ不使用）
+- **ファイル受信**: multer（メモリストレージ）
+- **Frontend**: Vanilla JS SPA + Tailwind CSS (CDN) + Chart.js + Font Awesome
+- **Desktop Shell**: Electron
+- **Packaging**: electron-builder（Windows: NSIS installer / portable exe）
 
-## 実装済み機能
+## セキュリティ方針（Electron）
+- Express は `127.0.0.1` のみにバインド（外部から到達不可）
+- Electron `BrowserWindow` は `nodeIntegration=false` / `contextIsolation=true` / `sandbox=true`
+- `preload` は最小限の `desktop.platform` のみ公開
+- Electron終了時に Express 子プロセスへ `SIGTERM` を送り、タイムアウト時は `SIGKILL` で確実停止
 
-### 1. CSVアップロード
-- budget_master.csv（マスタ情報: システム名、ドメイン、費目、年間合計）
-- budget_detail.csv（月別明細: 4月〜3月の12ヶ月分金額）
-- ドラッグ＆ドロップ / ファイル選択対応
-- サンプルCSVダウンロード機能
-
-### 2. ダッシュボード
-- KPIカード: 計画合計 / 見通し合計 / 実績合計 / 分類数（対計画差異率付き）
-- 月別推移チャート（計画 vs 見通し vs 実績 折れ線グラフ）
-- システム別 計画/見通し/実績 横棒グラフ
-- カテゴリ別構成 ドーナツチャート
-- 累積推移チャート（計画/見通し/実績 各累計）
-- ドメイン別内訳チャート
-- 予算超過アラートテーブル
-
-### 3. 分析・比較
-- システム別 / カテゴリ別 / ドメイン別 集計テーブル + チャート
-- クロス集計（システム × カテゴリ マトリクス）
-- システム詳細（個別システムの月別推移・カテゴリ内訳）
-
-### 4. 予算差異分析
-- 全費目の差異一覧（見通し差異 / 実績差異 %表示）
-- 超過 / 節約 / 予算内 ステータスバッジ
-- 実績差異率バーチャート（赤: 超過、緑: 節約）
-- 予算超過一覧テーブル（超過額・超過率）
-
-### 5. 明細一覧
-- 全費目の月別詳細テーブル
-- システム / カテゴリ / キーワード フィルター
-- CSV出力機能
-- 超過セルのハイライト表示
-
-## CSVフォーマット
-
-### budget_master ヘッダー
-```
-fiscal_year, system_code, system_name, domain, expense_category, expense_item, budget_type, annual_total, remarks
+## 開発起動（従来のNodeサーバ）
+```bash
+npm install
+npm run dev
+# http://127.0.0.1:3000
 ```
 
-### budget_detail ヘッダー
-```
-fiscal_year, system_code, expense_category, expense_item, budget_type, month_4, month_5, month_6, month_7, month_8, month_9, month_10, month_11, month_12, month_1, month_2, month_3
+## Electron起動（ローカル実行）
+```bash
+npm install
+npm run electron
 ```
 
-### budget_type 値
-- `plan`: 計画値
-- `forecast`: 見通し値
-- `actual`: 実績値
+## Windows配布物の作り方
+```bash
+npm install
+npm run dist
+```
+
+生成物は `dist/` に出力されます。
+- インストーラ: `Budget CSV Viewer-<version>-<arch>.exe`（NSIS）
+- ポータブル版: `Budget CSV Viewer-<version>-<arch>.exe`（portable）
+
+## 利用者の起動方法（配布後）
+1. 配布された `.exe` をダブルクリック
+2. アプリ起動時に内部でローカルExpressサーバが自動起動
+3. 画面からCSVをアップロードし、集計・可視化を利用
+4. ウィンドウを閉じると内部サーバも自動停止（バックグラウンド残留なし）
+
+## トラブルシュート（Windows配布版）
+- `A JavaScript error occurred in the main process` / `Error: spawn ... ENOENT` が出る場合は、旧ビルドの実行ファイルを使っている可能性があります。  
+  本バージョンでは `child_process.fork` を使わず、Electronメインプロセス内でExpressを直接起動する方式に変更済みです。
 
 ## API エンドポイント
-
 | Method | Path | 説明 |
 |--------|------|------|
 | POST | /api/upload | CSV アップロード（budget_master / budget_detail） |
@@ -78,33 +69,3 @@ fiscal_year, system_code, expense_category, expense_item, budget_type, month_4, 
 | GET | /api/analysis/system-detail | システム詳細（?system= 必須） |
 | POST | /api/clear | データクリア |
 | GET | /api/health | ヘルスチェック |
-
-## Tech Stack
-- **Backend**: Node.js + Express
-- **CSV解析**: 自前パーサー（外部ライブラリ不使用）
-- **ファイル受信**: multer（メモリストレージ）
-- **Frontend**: Vanilla JS SPA + Tailwind CSS (CDN) + Chart.js + Font Awesome
-- **ビルドツール**: なし（node server.js で即時起動）
-
-## セキュリティ
-- 完全ローカル動作（外部サービス通信なし）
-- ディスク保存なし（メモリ保持のみ）
-- サーバー再起動でデータ自動消去
-- Cloudflare / Wrangler 依存なし
-
-## 起動方法
-```bash
-npm install
-node server.js
-# http://localhost:3000 でアクセス
-```
-
-## データモデル
-- 金額単位: 千円
-- 会計年度: 4月始まり（month_4 = 4月, month_3 = 3月）
-- 3種類の予算タイプ: plan（計画）, forecast（見通し）, actual（実績）
-
-## Deployment
-- **Platform**: ローカル Node.js サーバー
-- **Status**: Active
-- **Last Updated**: 2026-03-16
