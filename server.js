@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || '127.0.0.1';
 
 // --- Multer setup (memory storage, no disk persistence) ---
 const upload = multer({
@@ -819,10 +820,26 @@ function autoLoadSampleData() {
   }
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`\n  Budget CSV Viewer v4.0`);
-  console.log(`  Local:   http://localhost:${PORT}`);
-  console.log(`  Network: http://0.0.0.0:${PORT}`);
+  console.log(`  Local:   http://${HOST}:${PORT}`);
   autoLoadSampleData();
   console.log(`  Status:  Ready\n`);
 });
+
+
+function shutdown(signal) {
+  console.log(`\n  [Server] Received ${signal}. Shutting down...`);
+  server.close(() => {
+    console.log('  [Server] Closed cleanly.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('  [Server] Force shutdown after timeout.');
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
