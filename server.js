@@ -39,12 +39,13 @@ function parseCSV(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (lines.length < 2) return [];
 
-  const headers = parseCSVLine(lines[0]);
+  const delimiter = detectDelimiter(lines[0]);
+  const headers = parseCSVLine(lines[0], delimiter);
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    const values = parseCSVLine(line);
+    const values = parseCSVLine(line, delimiter);
     const row = {};
     headers.forEach((h, idx) => {
       row[h.trim()] = (values[idx] || '').trim();
@@ -54,7 +55,13 @@ function parseCSV(text) {
   return rows;
 }
 
-function parseCSVLine(line) {
+function detectDelimiter(headerLine) {
+  const commaCount = (headerLine.match(/,/g) || []).length;
+  const tabCount = (headerLine.match(/\t/g) || []).length;
+  return tabCount > commaCount ? '\t' : ',';
+}
+
+function parseCSVLine(line, delimiter = ',') {
   const result = [];
   let current = '';
   let inQuotes = false;
@@ -74,7 +81,7 @@ function parseCSVLine(line) {
     } else {
       if (ch === '"') {
         inQuotes = true;
-      } else if (ch === ',') {
+      } else if (ch === delimiter) {
         result.push(current);
         current = '';
       } else {
@@ -84,6 +91,70 @@ function parseCSVLine(line) {
   }
   result.push(current);
   return result;
+}
+
+function parseUnifiedBudgetLayout(rows) {
+  const master = [];
+  const detail = [];
+  if (!rows || rows.length === 0) return { master, detail };
+
+  const monthPattern = /^(\d+)期(\d{1,2})月(計画|見込)$/;
+
+  for (const row of rows) {
+    const managementNo = row['管理番号'] || row['管理番号（統合）'] || '';
+    const itemNo = row['項番'] || '1';
+    if (!managementNo) continue;
+
+    master.push({
+      period: row['期'] || '',
+      management_no: managementNo,
+      item_no: itemNo,
+      budget_category: row['予算区分'] || row['経費区分'] || '',
+      project_name: row['案件名'] || '',
+      department_name: row['部署名'] || '',
+      owner_name: row['担当者'] || '',
+      payee_name: row['支払先'] || '',
+      contract_no: row['契約番号'] || '',
+      contract_amount: row['契約金額'] || '0',
+      monthly_amount: row['月額'] || '0',
+      payment_category: row['支払区分'] || '',
+      fixed_variable_type: row['固定変動'] || '',
+      system_code: row['経費事象コード'] || '',
+      system_name: row['システム名'] || '',
+      expense_item_code: row['経費事象コード'] || '',
+      expense_item_name: row['経費事象名'] || '',
+      system_classification_name: row['システム分類名'] || '',
+    });
+
+    for (const [key, rawAmount] of Object.entries(row)) {
+      const match = key.match(monthPattern);
+      if (!match) continue;
+      const period = match[1];
+      const month = Number(match[2]);
+      const typeLabel = match[3];
+      const valueType = typeLabel === '計画' ? 'plan' : 'forecast';
+      const amountText = String(rawAmount || '').trim();
+      if (!amountText) continue;
+
+      const fiscalYear = 2024 + (Number(period) - 60);
+      if (!Number.isFinite(fiscalYear) || month < 1 || month > 12) continue;
+      const calendarYear = month <= 3 ? fiscalYear + 1 : fiscalYear;
+      const ym = `${calendarYear}${String(month).padStart(2, '0')}`;
+
+      detail.push({
+        management_no: managementNo,
+        item_no: itemNo,
+        expense_item_code: row['経費事象コード'] || '',
+        system_code: row['経費事象コード'] || '',
+        fiscal_period: String(period),
+        target_year_month: ym,
+        value_type: valueType,
+        amount: amountText,
+      });
+    }
+  }
+
+  return { master, detail };
 }
 
 // =============================================
@@ -502,34 +573,20 @@ function getAggregations(data) {
 // API Routes
 // =============================================
 
-// Upload CSV files (budget_master and/or budget_detail)
-app.post('/api/upload', upload.fields([
-  { name: 'budget_master', maxCount: 1 },
-  { name: 'budget_detail', maxCount: 1 }
-]), (req, res) => {
+// Upload unified CSV file
+app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
   try {
-    let masterCount = 0, detailCount = 0;
-
-    if (req.files['budget_master'] && req.files['budget_master'][0]) {
-      const buf = req.files['budget_master'][0].buffer;
-      const text = buf.toString('utf-8').replace(/^\uFEFF/, '');
-      store.master = parseCSV(text);
-      store.masterFileName = req.files['budget_master'][0].originalname;
-      masterCount = store.master.length;
+    if (!req.file) {
+      return res.status(400).json({ error: '統合CSVファイル（budget_csv）をアップロードしてください' });
     }
 
-    if (req.files['budget_detail'] && req.files['budget_detail'][0]) {
-      const buf = req.files['budget_detail'][0].buffer;
-      const text = buf.toString('utf-8').replace(/^\uFEFF/, '');
-      store.detail = parseCSV(text);
-      store.detailFileName = req.files['budget_detail'][0].originalname;
-      detailCount = store.detail.length;
-    }
-
-    if (!store.master && !store.detail) {
-      return res.status(400).json({ error: 'budget_master または budget_detail の少なくとも1つをアップロードしてください' });
-    }
-
+    const text = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
+    const parsedRows = parseCSV(text);
+    const converted = parseUnifiedBudgetLayout(parsedRows);
+    store.master = converted.master;
+    store.detail = converted.detail;
+    store.masterFileName = req.file.originalname;
+    store.detailFileName = null;
     store.uploadedAt = new Date().toISOString();
 
     const data = buildUnifiedData();
@@ -539,8 +596,8 @@ app.post('/api/upload', upload.fields([
       message: 'アップロード完了',
       masterFileName: store.masterFileName,
       detailFileName: store.detailFileName,
-      masterRows: masterCount,
-      detailRows: detailCount,
+      masterRows: store.master ? store.master.length : 0,
+      detailRows: store.detail ? store.detail.length : 0,
       itemCount: data ? data.items.length : 0,
       systemCount: agg ? agg.systemNames.length : 0,
       periodCount: agg ? agg.periods.length : 0,
