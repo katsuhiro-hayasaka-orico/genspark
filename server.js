@@ -25,11 +25,10 @@ app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 // In-memory data store
 // =============================================
 let store = {
-  master: null,       // parsed budget_master rows
-  detail: null,       // parsed budget_detail rows
+  master: null,       // normalized master-like rows derived from unified CSV
+  detail: null,       // normalized detail-like rows derived from unified CSV
   uploadedAt: null,
-  masterFileName: null,
-  detailFileName: null,
+  csvFileName: null,
 };
 
 // =============================================
@@ -585,8 +584,7 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
     const converted = parseUnifiedBudgetLayout(parsedRows);
     store.master = converted.master;
     store.detail = converted.detail;
-    store.masterFileName = req.file.originalname;
-    store.detailFileName = null;
+    store.csvFileName = req.file.originalname;
     store.uploadedAt = new Date().toISOString();
 
     const data = buildUnifiedData();
@@ -594,8 +592,7 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
 
     res.json({
       message: 'アップロード完了',
-      masterFileName: store.masterFileName,
-      detailFileName: store.detailFileName,
+      csvFileName: store.csvFileName,
       masterRows: store.master ? store.master.length : 0,
       detailRows: store.detail ? store.detail.length : 0,
       itemCount: data ? data.items.length : 0,
@@ -615,8 +612,7 @@ app.get('/api/status', (_, res) => {
   const agg = data ? getAggregations(data) : null;
   res.json({
     hasData: !!(store.master || store.detail),
-    masterFileName: store.masterFileName,
-    detailFileName: store.detailFileName,
+    csvFileName: store.csvFileName,
     uploadedAt: store.uploadedAt,
     itemCount: data ? data.items.length : 0,
     systemCount: agg ? agg.systemNames.length : 0,
@@ -639,8 +635,7 @@ app.get('/api/dashboard/summary', (_, res) => {
   const agg = getAggregations(data);
 
   res.json({
-    masterFileName: store.masterFileName,
-    detailFileName: store.detailFileName,
+    csvFileName: store.csvFileName,
     kpi: {
       totalPlan: agg.totalPlan,
       totalForecast: agg.totalForecast,
@@ -820,7 +815,7 @@ app.get('/api/analysis/system-detail', (req, res) => {
 
 // Clear data
 app.post('/api/clear', (_, res) => {
-  store = { master: null, detail: null, uploadedAt: null, masterFileName: null, detailFileName: null };
+  store = { master: null, detail: null, uploadedAt: null, csvFileName: null };
   res.json({ message: 'データをクリアしました' });
 });
 
@@ -850,20 +845,16 @@ app.use((err, req, res, next) => {
 // =============================================
 function autoLoadSampleData() {
   try {
-    const masterPath = path.join(__dirname, 'public', 'static', 'sample_budget_master.csv');
-    const detailPath = path.join(__dirname, 'public', 'static', 'sample_budget_detail.csv');
+    const unifiedPath = path.join(__dirname, 'public', 'static', 'sample_budget_unified.csv');
 
-    if (fs.existsSync(masterPath)) {
-      const text = fs.readFileSync(masterPath, 'utf-8').replace(/^\uFEFF/, '');
-      store.master = parseCSV(text);
-      store.masterFileName = 'sample_budget_master.csv';
-      console.log(`  [Auto-load] budget_master: ${store.master.length} rows`);
-    }
-    if (fs.existsSync(detailPath)) {
-      const text = fs.readFileSync(detailPath, 'utf-8').replace(/^\uFEFF/, '');
-      store.detail = parseCSV(text);
-      store.detailFileName = 'sample_budget_detail.csv';
-      console.log(`  [Auto-load] budget_detail: ${store.detail.length} rows`);
+    if (fs.existsSync(unifiedPath)) {
+      const text = fs.readFileSync(unifiedPath, 'utf-8').replace(/^\uFEFF/, '');
+      const parsedRows = parseCSV(text);
+      const converted = parseUnifiedBudgetLayout(parsedRows);
+      store.master = converted.master;
+      store.detail = converted.detail;
+      store.csvFileName = 'sample_budget_unified.csv';
+      console.log(`  [Auto-load] unified: ${parsedRows.length} rows`);
     }
 
     if (store.master || store.detail) {

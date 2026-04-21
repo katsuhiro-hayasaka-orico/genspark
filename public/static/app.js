@@ -7,8 +7,7 @@
 const state = {
   currentPage: 'upload',
   hasData: false,
-  masterFileName: null,
-  detailFileName: null,
+  csvFileName: null,
   charts: {},
 };
 
@@ -138,8 +137,7 @@ function updateSidebarInfo() {
     return;
   }
   let info = '';
-  if (state.masterFileName) info += `<p class="truncate" title="${state.masterFileName}"><i class="fas fa-file-csv text-blue-500 mr-1"></i>${state.masterFileName}</p>`;
-  if (state.detailFileName) info += `<p class="truncate" title="${state.detailFileName}"><i class="fas fa-file-csv text-green-500 mr-1"></i>${state.detailFileName}</p>`;
+  if (state.csvFileName) info += `<p class="truncate" title="${state.csvFileName}"><i class="fas fa-file-csv text-blue-500 mr-1"></i>${state.csvFileName}</p>`;
   el.innerHTML = info;
 }
 
@@ -218,7 +216,7 @@ function renderUpload() {
             </div>
             <div>
               <p class="text-sm font-semibold text-gray-800">データ読込済</p>
-              <p class="text-[11px] text-gray-400">${state.masterFileName || ''} ${state.detailFileName ? '/ ' + state.detailFileName : ''}</p>
+              <p class="text-[11px] text-gray-400">${state.csvFileName || ''}</p>
             </div>
           </div>
           <div class="flex gap-2">
@@ -231,7 +229,7 @@ function renderUpload() {
       <div class="bg-amber-50 rounded-xl p-4 border border-amber-200">
         <h3 class="text-sm font-semibold text-amber-800 mb-2"><i class="fas fa-download mr-1.5"></i>サンプルCSVファイル</h3>
         <div class="flex flex-wrap gap-2">
-          <a href="/static/sample_budget_master.csv" download class="btn-secondary text-[12px] bg-white">
+          <a href="/static/sample_budget_unified.csv" download class="btn-secondary text-[12px] bg-white">
             <i class="fas fa-file-csv text-blue-500"></i>統合レイアウトCSV（例）
           </a>
         </div>
@@ -296,8 +294,7 @@ async function submitUpload() {
     if (!res.ok) throw new Error(data.error || 'アップロード失敗');
 
     state.hasData = true;
-    state.masterFileName = data.masterFileName;
-    state.detailFileName = data.detailFileName;
+    state.csvFileName = data.csvFileName || data.masterFileName || null;
     selectedCsvFile = null;
 
     enableNav();
@@ -315,8 +312,7 @@ async function submitUpload() {
 async function clearData() {
   await fetch('/api/clear', { method: 'POST' });
   state.hasData = false;
-  state.masterFileName = null;
-  state.detailFileName = null;
+  state.csvFileName = null;
   disableNav();
   updateSidebarInfo();
   updateStatusBadge();
@@ -340,8 +336,7 @@ async function renderDashboard() {
       <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-gauge-high mr-2 text-blue-600"></i>ダッシュボード</h2>
         <div class="flex items-center gap-2 text-[11px] text-gray-400">
-          ${summary.masterFileName ? `<span><i class="fas fa-file-csv text-blue-400 mr-1"></i>${summary.masterFileName}</span>` : ''}
-          ${summary.detailFileName ? `<span><i class="fas fa-file-csv text-green-400 mr-1"></i>${summary.detailFileName}</span>` : ''}
+          ${summary.csvFileName ? `<span><i class="fas fa-file-csv text-blue-400 mr-1"></i>${summary.csvFileName}</span>` : ''}
         </div>
       </div>
 
@@ -1208,8 +1203,7 @@ async function initApp() {
     const status = await api('/status');
     if (status.hasData) {
       state.hasData = true;
-      state.masterFileName = status.masterFileName;
-      state.detailFileName = status.detailFileName;
+      state.csvFileName = status.csvFileName || status.masterFileName || null;
       enableNav();
       updateSidebarInfo();
       updateStatusBadge();
