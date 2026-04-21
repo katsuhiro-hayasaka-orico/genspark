@@ -49,6 +49,10 @@ npm run dist
 3. 画面からCSVをアップロードし、集計・可視化を利用
 4. ウィンドウを閉じると内部サーバも自動停止（バックグラウンド残留なし）
 
+## トラブルシュート（Windows配布版）
+- `A JavaScript error occurred in the main process` / `Error: spawn ... ENOENT` が出る場合は、旧ビルドの実行ファイルを使っている可能性があります。  
+  本バージョンでは `child_process.fork` を使わず、Electronメインプロセス内でExpressを直接起動する方式に変更済みです。
+
 ## API エンドポイント
 | Method | Path | 説明 |
 |--------|------|------|
