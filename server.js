@@ -868,26 +868,55 @@ function autoLoadSampleData() {
   }
 }
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`\n  Budget CSV Viewer v4.0`);
-  console.log(`  Local:   http://${HOST}:${PORT}`);
-  autoLoadSampleData();
-  console.log(`  Status:  Ready\n`);
-});
+let server = null;
 
+function startServer({ host = HOST, port = PORT } = {}) {
+  if (server) return server;
 
-function shutdown(signal) {
-  console.log(`\n  [Server] Received ${signal}. Shutting down...`);
-  server.close(() => {
-    console.log('  [Server] Closed cleanly.');
-    process.exit(0);
+  server = app.listen(port, host, () => {
+    console.log(`\n  Budget CSV Viewer v4.0`);
+    console.log(`  Local:   http://${host}:${port}`);
+    autoLoadSampleData();
+    console.log(`  Status:  Ready\n`);
   });
 
-  setTimeout(() => {
-    console.error('  [Server] Force shutdown after timeout.');
-    process.exit(1);
-  }, 5000).unref();
+  return server;
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+function stopServer({ timeoutMs = 5000 } = {}) {
+  if (!server) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const currentServer = server;
+    server = null;
+
+    const timer = setTimeout(() => {
+      console.error('  [Server] Force shutdown after timeout.');
+      resolve();
+    }, timeoutMs);
+
+    currentServer.close(() => {
+      clearTimeout(timer);
+      console.log('  [Server] Closed cleanly.');
+      resolve();
+    });
+  });
+}
+
+async function shutdown(signal) {
+  console.log(`\n  [Server] Received ${signal}. Shutting down...`);
+  await stopServer();
+  process.exit(0);
+}
+
+if (require.main === module) {
+  startServer();
+  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('SIGINT', () => { void shutdown('SIGINT'); });
+}
+
+module.exports = {
+  app,
+  startServer,
+  stopServer,
+};
