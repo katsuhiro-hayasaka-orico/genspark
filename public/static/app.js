@@ -182,42 +182,24 @@ function renderUpload() {
           <i class="fas fa-file-csv text-white text-2xl"></i>
         </div>
         <h2 class="text-2xl font-bold text-gray-800">予算CSVをアップロード</h2>
-        <p class="text-gray-500 text-sm mt-2">budget_master.csv と budget_detail.csv をアップロードしてください</p>
+        <p class="text-gray-500 text-sm mt-2">統合レイアウトのCSV 1ファイルをアップロードしてください</p>
       </div>
 
       <div class="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
         <div>
           <label class="block text-sm font-semibold text-gray-700 mb-2">
-            <i class="fas fa-database text-blue-500 mr-1.5"></i>budget_master（契約マスタ情報）
+            <i class="fas fa-database text-blue-500 mr-1.5"></i>統合予算CSV
           </label>
-          <div class="upload-zone rounded-xl p-6 text-center cursor-pointer" id="masterZone"
+          <div class="upload-zone rounded-xl p-6 text-center cursor-pointer" id="csvZone"
                ondragover="event.preventDefault(); this.classList.add('dragover')"
                ondragleave="this.classList.remove('dragover')"
-               ondrop="handleMasterDrop(event)"
-               onclick="document.getElementById('masterInput').click()">
-            <input type="file" id="masterInput" accept=".csv" class="hidden" onchange="handleMasterSelect(this)">
-            <div id="masterContent">
+               ondrop="handleCsvDrop(event)"
+               onclick="document.getElementById('csvInput').click()">
+            <input type="file" id="csvInput" accept=".csv" class="hidden" onchange="handleCsvSelect(this)">
+            <div id="csvContent">
               <i class="fas fa-file-csv text-2xl text-blue-300 mb-2"></i>
               <p class="text-gray-500 text-sm">ドロップまたは<span class="text-blue-500 underline">選択</span></p>
-              <p class="text-gray-300 text-[10px] mt-1">period, management_no, item_no, budget_category, ...</p>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-2">
-            <i class="fas fa-table text-green-500 mr-1.5"></i>budget_detail（月別金額明細）
-          </label>
-          <div class="upload-zone rounded-xl p-6 text-center cursor-pointer" id="detailZone"
-               ondragover="event.preventDefault(); this.classList.add('dragover')"
-               ondragleave="this.classList.remove('dragover')"
-               ondrop="handleDetailDrop(event)"
-               onclick="document.getElementById('detailInput').click()">
-            <input type="file" id="detailInput" accept=".csv" class="hidden" onchange="handleDetailSelect(this)">
-            <div id="detailContent">
-              <i class="fas fa-file-csv text-2xl text-green-300 mb-2"></i>
-              <p class="text-gray-500 text-sm">ドロップまたは<span class="text-green-500 underline">選択</span></p>
-              <p class="text-gray-300 text-[10px] mt-1">management_no, item_no, fiscal_period, target_year_month, value_type, amount</p>
+              <p class="text-gray-300 text-[10px] mt-1">管理番号（統合）, 経費区分, 経費事象コード, ..., 65期4月計画, 65期4月見込, ...</p>
             </div>
           </div>
         </div>
@@ -250,10 +232,7 @@ function renderUpload() {
         <h3 class="text-sm font-semibold text-amber-800 mb-2"><i class="fas fa-download mr-1.5"></i>サンプルCSVファイル</h3>
         <div class="flex flex-wrap gap-2">
           <a href="/static/sample_budget_master.csv" download class="btn-secondary text-[12px] bg-white">
-            <i class="fas fa-file-csv text-blue-500"></i>budget_master.csv
-          </a>
-          <a href="/static/sample_budget_detail.csv" download class="btn-secondary text-[12px] bg-white">
-            <i class="fas fa-file-csv text-green-500"></i>budget_detail.csv
+            <i class="fas fa-file-csv text-blue-500"></i>統合レイアウトCSV（例）
           </a>
         </div>
         <p class="text-[11px] text-amber-700 mt-2">複数期・複数システムの計画/見通し/実績サンプルデータ</p>
@@ -263,14 +242,10 @@ function renderUpload() {
         <h3 class="text-sm font-semibold text-blue-800 mb-2"><i class="fas fa-info-circle mr-1.5"></i>CSVフォーマット</h3>
         <div class="space-y-2">
           <div>
-            <p class="text-[12px] font-medium text-blue-700">budget_master ヘッダー:</p>
-            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1 break-all">period, management_no, item_no, budget_category, project_name, department_name, owner_name, payee_name, contract_no, contract_amount, monthly_amount, payment_category, fixed_variable_type, system_code, system_name, expense_item_name, system_classification_name ...</code>
+            <p class="text-[12px] font-medium text-blue-700">統合CSV ヘッダー（抜粋）:</p>
+            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1 break-all">管理番号（統合）, 経費区分, 経費事象コード, 経費事象名, システム分類名, 期, 管理番号, 項番, 予算区分, 案件名, 部署名, 担当者, ... , 65期4月計画, 65期4月見込, ...</code>
           </div>
-          <div>
-            <p class="text-[12px] font-medium text-blue-700">budget_detail ヘッダー:</p>
-            <code class="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded block mt-1 break-all">management_no, item_no, expense_item_code, system_code, fiscal_period, target_year_month, value_type, amount</code>
-          </div>
-          <p class="text-[11px] text-blue-600">value_type: plan（計画）/ forecast（見通し）/ actual（実績）</p>
+          <p class="text-[11px] text-blue-600">月次列は「XX期Y月計画」「XX期Y月見込」を自動解析して可視化します。</p>
         </div>
       </div>
 
@@ -286,39 +261,25 @@ function renderUpload() {
 }
 
 // File selection state
-let selectedMasterFile = null;
-let selectedDetailFile = null;
+let selectedCsvFile = null;
 
-function handleMasterDrop(e) {
+function handleCsvDrop(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('dragover');
-  if (e.dataTransfer.files.length > 0) setMasterFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length > 0) setCsvFile(e.dataTransfer.files[0]);
 }
-function handleMasterSelect(input) { if (input.files.length > 0) setMasterFile(input.files[0]); }
-function handleDetailDrop(e) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('dragover');
-  if (e.dataTransfer.files.length > 0) setDetailFile(e.dataTransfer.files[0]);
-}
-function handleDetailSelect(input) { if (input.files.length > 0) setDetailFile(input.files[0]); }
+function handleCsvSelect(input) { if (input.files.length > 0) setCsvFile(input.files[0]); }
 
-function setMasterFile(file) {
-  selectedMasterFile = file;
-  const el = document.getElementById('masterContent');
+function setCsvFile(file) {
+  selectedCsvFile = file;
+  const el = document.getElementById('csvContent');
   el.innerHTML = `<i class="fas fa-check-circle text-blue-500 text-xl mb-1"></i><p class="text-blue-700 text-sm font-medium">${file.name}</p><p class="text-gray-400 text-[11px]">${(file.size / 1024).toFixed(1)} KB</p>`;
-  updateUploadBtn();
-}
-
-function setDetailFile(file) {
-  selectedDetailFile = file;
-  const el = document.getElementById('detailContent');
-  el.innerHTML = `<i class="fas fa-check-circle text-green-500 text-xl mb-1"></i><p class="text-green-700 text-sm font-medium">${file.name}</p><p class="text-gray-400 text-[11px]">${(file.size / 1024).toFixed(1)} KB</p>`;
   updateUploadBtn();
 }
 
 function updateUploadBtn() {
   const btn = document.getElementById('uploadBtn');
-  if (btn) btn.disabled = !(selectedMasterFile || selectedDetailFile);
+  if (btn) btn.disabled = !selectedCsvFile;
 }
 
 async function submitUpload() {
@@ -327,8 +288,7 @@ async function submitUpload() {
   btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>解析中...';
 
   const formData = new FormData();
-  if (selectedMasterFile) formData.append('budget_master', selectedMasterFile);
-  if (selectedDetailFile) formData.append('budget_detail', selectedDetailFile);
+  if (selectedCsvFile) formData.append('budget_csv', selectedCsvFile);
 
   try {
     const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -338,8 +298,7 @@ async function submitUpload() {
     state.hasData = true;
     state.masterFileName = data.masterFileName;
     state.detailFileName = data.detailFileName;
-    selectedMasterFile = null;
-    selectedDetailFile = null;
+    selectedCsvFile = null;
 
     enableNav();
     updateSidebarInfo();
