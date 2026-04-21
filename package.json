@@ -8,7 +8,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "electron": "electron .",
-    "dist": "electron-builder --win nsis portable"
+    "dist": "electron-builder --win nsis portable",
+    "check:external": "node scripts/check-external-refs.js public electron"
   },
   "dependencies": {
     "express": "^4.21.0",

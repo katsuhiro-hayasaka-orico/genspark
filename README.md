@@ -10,7 +10,7 @@
 - **Backend**: Node.js + Express
 - **CSV解析**: 自前パーサー（外部ライブラリ不使用）
 - **ファイル受信**: multer（メモリストレージ）
-- **Frontend**: Vanilla JS SPA + Tailwind CSS (CDN) + Chart.js + Font Awesome
+- **Frontend**: Vanilla JS SPA + ローカル同梱CSS（Tailwind相当ユーティリティ） + ローカル同梱アイコン + Chart.js
 - **Desktop Shell**: Electron
 - **Packaging**: electron-builder（Windows: NSIS installer / portable exe）
 
@@ -37,11 +37,20 @@ npm run electron
 ```bash
 npm install
 npm run dist
+npm run check:external
 ```
 
 生成物は `dist/` に出力されます。
 - インストーラ: `Budget CSV Viewer-<version>-<arch>.exe`（NSIS）
 - ポータブル版: `Budget CSV Viewer-<version>-<arch>.exe`（portable）
+
+## オフライン動作保証（外部依存なし）
+- `public/index.html` は外部CDN参照を行わず、ローカル配信ファイルのみを参照します。
+- `npm run check:external` は `public/` と `electron/` 配下の `http://` / `https://` を機械検査し、外部参照混入を防ぎます（`localhost/127.0.0.1` は除外）。
+
+## 同梱物一覧（vendor/assets 相当）
+- `public/static/vendor/chart.umd.min.js` : Chart.js (ローカル同梱)
+- `public/static/vendor/offline-ui.css` : Tailwind相当ユーティリティ + アイコン代替スタイル（ローカル同梱）
 
 ## 利用者の起動方法（配布後）
 1. 配布された `.exe` をダブルクリック

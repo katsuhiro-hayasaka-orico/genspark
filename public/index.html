@@ -4,24 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>予算管理ダッシュボード</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css" rel="stylesheet">
+  <link href="/static/vendor/offline-ui.css" rel="stylesheet">
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
-            accent: { 50:'#f5f3ff',100:'#ede9fe',200:'#ddd6fe',300:'#c4b5fd',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed',700:'#6d28d9' }
-          }
-        }
-      }
-    }
-  </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap');
-    * { font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif; }
+    * { font-family: 'Noto Sans JP', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', -apple-system, BlinkMacSystemFont, sans-serif; }
     body { background: #f1f5f9; }
     .fade-in { animation: fadeIn 0.3s ease-out; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -98,9 +84,7 @@
     </nav>
   </aside>
 
-  <!-- Main -->
   <div class="lg:ml-60">
-    <!-- Top Bar -->
     <header class="sticky top-0 bg-white/80 backdrop-blur-lg border-b border-gray-100 z-20 no-print">
       <div class="flex items-center justify-between px-4 h-12">
         <div class="flex items-center gap-3">
@@ -120,12 +104,10 @@
       </div>
     </header>
 
-    <!-- Content -->
     <main id="mainContent" class="p-4 md:p-6 max-w-7xl mx-auto">
     </main>
   </div>
 
-  <!-- Toast Container -->
   <div id="toastContainer" class="fixed top-16 right-4 z-50 space-y-2"></div>
 
   <script src="/static/app.js"></script>
