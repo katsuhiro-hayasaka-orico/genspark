@@ -3,7 +3,7 @@
 ## Project Overview
 - **Name**: budget-csv-viewer
 - **Version**: 3.0.0
-- **Goal**: CSVファイル（budget_master / budget_detail）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予算データを可視化するローカル専用アプリ
+- **Goal**: 統合レイアウトCSVファイル（1ファイル）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予算データを可視化するローカル専用アプリ
 - **Features**: 完全ビジュアライゼーション専用（データ入力機能なし）
 
 ## Tech Stack
@@ -52,7 +52,7 @@ npm run dist
 ## API エンドポイント
 | Method | Path | 説明 |
 |--------|------|------|
-| POST | /api/upload | CSV アップロード（budget_master / budget_detail） |
+| POST | /api/upload | 統合CSVアップロード（budget_csv） |
 | GET | /api/status | データ読込状態 |
 | GET | /api/dashboard/summary | ダッシュボード要約（KPI・月別・システム別・カテゴリ別・超過アラート） |
 | GET | /api/items | 明細一覧（?system=, ?category=, ?domain=, ?search= フィルタ） |
