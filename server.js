@@ -310,8 +310,11 @@ function buildUnifiedData() {
 
           // System info
           system_code: syscode,
-          system_name: sysInfo.name || masterRow.system_name || syscode,
-          system_classification: sysInfo.classification || masterRow.system_classification_name || '',
+          // NOTE:
+          // 同一 system_code に複数分類がぶら下がるケースがあるため、
+          // 代表化済みsysInfoよりも「行自身の値」を優先して保持する。
+          system_name: masterRow.system_name || sysInfo.name || syscode,
+          system_classification: masterRow.system_classification_name || sysInfo.classification || '',
           expense_item_code: row.expense_item_code || masterRow.expense_item_code || '',
           expense_item_name: sysInfo.expense_item_name || masterRow.expense_item_name || '',
 
@@ -366,8 +369,11 @@ function buildUnifiedData() {
         payment_category: row.payment_category || '',
         fixed_variable_type: row.fixed_variable_type || '',
         system_code: syscode,
-        system_name: sysInfo.name || row.system_name || syscode,
-        system_classification: sysInfo.classification || row.system_classification_name || '',
+        // NOTE:
+        // 同一 system_code 内で分類が混在するケースに備え、
+        // 代表値ではなく行自身のシステム名/分類を優先する。
+        system_name: row.system_name || sysInfo.name || syscode,
+        system_classification: row.system_classification_name || sysInfo.classification || '',
         expense_item_code: row.expense_item_code || '',
         expense_item_name: sysInfo.expense_item_name || row.expense_item_name || '',
         monthly: {},
