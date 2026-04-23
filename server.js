@@ -27,6 +27,7 @@ app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 let store = {
   master: null,       // normalized master-like rows derived from unified CSV
   detail: null,       // normalized detail-like rows derived from unified CSV
+  rawRows: null,      // parsed unified CSV rows (as-is view for items screen)
   uploadedAt: null,
   csvFileName: null,
   varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
@@ -138,7 +139,7 @@ function parseUnifiedBudgetLayout(rows) {
       const amountText = String(rawAmount || '').trim();
       if (!amountText) continue;
 
-      const fiscalYear = 2024 + (Number(period) - 60);
+      const fiscalYear = 1960 + Number(period);
       if (!Number.isFinite(fiscalYear) || month < 1 || month > 12) continue;
       const calendarYear = month <= 3 ? fiscalYear + 1 : fiscalYear;
       const ym = `${calendarYear}${String(month).padStart(2, '0')}`;
@@ -188,10 +189,9 @@ function fmtYM(ym) {
 // Derive fiscal_period label from period number
 function periodLabel(p) {
   const n = toNum(p);
-  // period 60 = FY2024 (Apr 2024 - Mar 2025)
-  // period 61 = FY2025, period 62 = FY2026, etc.
+  // period 65 = FY2025, period 66 = FY2026, ... period 70 = FY2030
   if (n >= 60 && n <= 99) {
-    const baseYear = 2024 + (n - 60);
+    const baseYear = 1960 + n;
     return `第${n}期 (FY${baseYear})`;
   }
   return `第${n}期`;
@@ -199,7 +199,7 @@ function periodLabel(p) {
 
 function periodFY(p) {
   const n = toNum(p);
-  if (n >= 60 && n <= 99) return 2024 + (n - 60);
+  if (n >= 60 && n <= 99) return 1960 + n;
   return n;
 }
 
@@ -635,6 +635,7 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
     const text = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
     const parsedRows = parseCSV(text);
     const converted = parseUnifiedBudgetLayout(parsedRows);
+    store.rawRows = parsedRows;
     store.master = converted.master;
     store.detail = converted.detail;
     store.csvFileName = req.file.originalname;
@@ -942,6 +943,63 @@ app.get('/api/analysis/system-detail', (req, res) => {
   });
 });
 
+// Analysis: classification detail (monthly breakdown per classification)
+app.get('/api/analysis/classification-detail', (req, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ data: null });
+  const { classification } = req.query;
+  if (!classification) return res.json({ data: null });
+
+  const clsItems = data.items.filter(i => (i.system_classification || 'その他') === classification);
+  if (clsItems.length === 0) return res.json({ data: null });
+
+  const monthlyByType = {};
+  for (const ym of data.sortedYMs) {
+    monthlyByType[ym] = { plan: 0, forecast: 0, actual: 0 };
+    for (const item of clsItems) {
+      if (item.monthly[ym]) {
+        monthlyByType[ym].plan += item.monthly[ym].plan;
+        monthlyByType[ym].forecast += item.monthly[ym].forecast;
+        monthlyByType[ym].actual += item.monthly[ym].actual;
+      }
+    }
+  }
+
+  const byPeriod = {};
+  for (const item of clsItems) {
+    const p = item.fiscal_period || '不明';
+    if (!byPeriod[p]) byPeriod[p] = { period: p, label: item.fiscal_period_label, plan: 0, forecast: 0, actual: 0 };
+    byPeriod[p].plan += item.totalPlan;
+    byPeriod[p].forecast += item.totalForecast;
+    byPeriod[p].actual += item.totalActual;
+  }
+
+  res.json({
+    data: {
+      classification,
+      itemCount: clsItems.length,
+      totalPlan: clsItems.reduce((s, i) => s + i.totalPlan, 0),
+      totalForecast: clsItems.reduce((s, i) => s + i.totalForecast, 0),
+      totalActual: clsItems.reduce((s, i) => s + i.totalActual, 0),
+      monthlyByType,
+      sortedYMs: data.sortedYMs,
+      byPeriod: Object.values(byPeriod).sort((a, b) => a.period - b.period),
+      items: clsItems,
+    }
+  });
+});
+
+// Raw CSV rows for near-original view
+app.get('/api/raw-rows', (req, res) => {
+  const rows = store.rawRows || [];
+  const q = String(req.query.search || '').toLowerCase().trim();
+  const filtered = q
+    ? rows.filter((r) => Object.values(r || {}).some((v) => String(v || '').toLowerCase().includes(q)))
+    : rows;
+  const headers = filtered.length > 0 ? Object.keys(filtered[0]) : (rows[0] ? Object.keys(rows[0]) : []);
+  res.json({ headers, rows: filtered, total: filtered.length });
+});
+
 // Analysis: vendor detail
 app.get('/api/analysis/vendor-detail', (req, res) => {
   const data = buildUnifiedData();
@@ -1142,6 +1200,7 @@ app.post('/api/clear', (_, res) => {
   store = {
     master: null,
     detail: null,
+    rawRows: null,
     uploadedAt: null,
     csvFileName: null,
     varianceReasons: {},
@@ -1183,6 +1242,7 @@ function autoLoadSampleData() {
       const text = fs.readFileSync(unifiedPath, 'utf-8').replace(/^\uFEFF/, '');
       const parsedRows = parseCSV(text);
       const converted = parseUnifiedBudgetLayout(parsedRows);
+      store.rawRows = parsedRows;
       store.master = converted.master;
       store.detail = converted.detail;
       store.csvFileName = 'sample_budget_unified.csv';
