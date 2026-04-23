@@ -10,6 +10,7 @@ const state = {
   csvFileName: null,
   charts: {},
 };
+const MONEY_UNIT = '千円';
 
 // === Utility Functions ===
 function fmt(n) {
@@ -336,6 +337,7 @@ async function renderDashboard() {
       <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-gauge-high mr-2 text-blue-600"></i>ダッシュボード</h2>
         <div class="flex items-center gap-2 text-[11px] text-gray-400">
+          <span class="badge bg-slate-100 text-slate-600">単位: ${MONEY_UNIT}</span>
           ${summary.csvFileName ? `<span><i class="fas fa-file-csv text-blue-400 mr-1"></i>${summary.csvFileName}</span>` : ''}
         </div>
       </div>
@@ -348,7 +350,7 @@ async function renderDashboard() {
             <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center"><i class="fas fa-bullseye text-blue-500 text-xs"></i></div>
           </div>
           <p class="text-xl font-bold text-gray-800">${fmt(k.totalPlan)}</p>
-          <p class="text-[10px] text-gray-400 mt-1">円 / ${k.itemCount}費目 / ${k.periodCount}期</p>
+          <p class="text-[10px] text-gray-400 mt-1">${MONEY_UNIT} / ${k.itemCount}費目 / ${k.periodCount}期</p>
         </div>
         <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover">
           <div class="flex items-center justify-between mb-2">
@@ -377,6 +379,25 @@ async function renderDashboard() {
           </div>
           <p class="text-xl font-bold text-gray-800">${k.systemCount}</p>
           <p class="text-[10px] text-gray-400 mt-1">システム / ${k.classificationCount}分類 / ${k.departmentCount}部門</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-2"><i class="fas fa-building mr-1.5 text-indigo-500"></i>ベンダーランキング（計画）</h3>
+          <div class="space-y-2">
+            ${(summary.byVendor || []).slice(0, 5).map((v, i) => `
+              <div class="flex items-center justify-between text-[12px]">
+                <span>${i + 1}. ${v.name}</span>
+                <span class="font-semibold">${fmt(v.plan)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-2"><i class="fas fa-arrow-right-arrow-left mr-1.5 text-emerald-500"></i>前年差サマリー（実績）</h3>
+          <p class="text-[12px] text-gray-500">全期間前年差</p>
+          <p class="text-2xl font-bold ${k.yoyActualDelta > 0 ? 'text-red-600' : 'text-green-600'}">${fmtMoney(k.yoyActualDelta)} ${MONEY_UNIT}</p>
         </div>
       </div>
 
@@ -467,7 +488,7 @@ async function renderDashboard() {
           y: { beginAtZero: true, ticks: { callback: v => fmt(v) } },
           x: { ticks: { maxRotation: 45, font: { size: 10 } } }
         },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -489,7 +510,7 @@ async function renderDashboard() {
         responsive: true, maintainAspectRatio: false,
         indexAxis: 'y',
         scales: { x: { ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -507,7 +528,7 @@ async function renderDashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12, padding: 8 } },
-          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円` } }
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } }
         }
       }
     });
@@ -538,7 +559,7 @@ async function renderDashboard() {
           y: { ticks: { callback: v => fmt(v) } },
           x: { ticks: { maxRotation: 45, font: { size: 9 } } }
         },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -559,7 +580,7 @@ async function renderDashboard() {
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: { y: { ticks: { callback: v => fmt(v) } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -580,7 +601,7 @@ async function renderDashboard() {
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: { y: { ticks: { callback: v => fmt(v) } }, x: { ticks: { font: { size: 10 } } } },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -598,7 +619,7 @@ async function renderDashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
-          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円 (${((ctx.raw / fvData.reduce((s,d)=>s+d.plan,0))*100).toFixed(1)}%)` } }
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} ${MONEY_UNIT} (${((ctx.raw / fvData.reduce((s,d)=>s+d.plan,0))*100).toFixed(1)}%)` } }
         }
       }
     });
@@ -611,17 +632,22 @@ async function renderAnalysis() {
 
   mc.innerHTML = `
     <div class="fade-in space-y-4">
-      <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-chart-column mr-2 text-blue-600"></i>分析・比較</h2>
+      <div class="flex items-center gap-2 flex-wrap">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-chart-bar mr-2 text-blue-600"></i>分析・比較</h2>
+        <span class="badge bg-slate-100 text-slate-600">単位: ${MONEY_UNIT}</span>
+      </div>
 
       <div class="bg-white rounded-xl border border-gray-100 p-4">
-        <div class="flex flex-wrap gap-1 mb-4">
-          <button onclick="loadAnalysisTab('system')" id="anaTabSystem" class="tab-btn active">システム別</button>
+        <div class="flex flex-nowrap overflow-x-auto gap-1 mb-4 pb-1">
+          <button onclick="loadAnalysisTab('system')" id="anaTabSystem" class="tab-btn active whitespace-nowrap">経費事象名別</button>
           <button onclick="loadAnalysisTab('classification')" id="anaTabClassification" class="tab-btn">分類別</button>
           <button onclick="loadAnalysisTab('department')" id="anaTabDepartment" class="tab-btn">部門別</button>
+          <button onclick="loadAnalysisTab('vendor')" id="anaTabVendor" class="tab-btn">ベンダー別</button>
           <button onclick="loadAnalysisTab('period')" id="anaTabPeriod" class="tab-btn">期別</button>
           <button onclick="loadAnalysisTab('expenseItem')" id="anaTabExpenseItem" class="tab-btn">費目別</button>
+          <button onclick="loadAnalysisTab('yoy')" id="anaTabYoy" class="tab-btn">前年差</button>
           <button onclick="loadAnalysisTab('cross')" id="anaTabCross" class="tab-btn">クロス集計</button>
-          <button onclick="loadAnalysisTab('systemDetail')" id="anaTabSystemDetail" class="tab-btn">システム詳細</button>
+          <button onclick="loadAnalysisTab('systemDetail')" id="anaTabSystemDetail" class="tab-btn">分類詳細</button>
         </div>
         <div id="analysisTableContent"><p class="text-gray-400 text-sm p-4">読み込み中...</p></div>
       </div>
@@ -652,18 +678,21 @@ async function loadAnalysisTab(tab) {
 
   if (tab === 'cross') { await renderCrossTab(container); return; }
   if (tab === 'systemDetail') { await renderSystemDetailTab(container); return; }
+  if (tab === 'yoy') { await renderYoYTab(container); return; }
 
   const endpoints = {
-    system: '/analysis/by-system',
+    system: '/analysis/by-expense-item',
     classification: '/analysis/by-classification',
     department: '/analysis/by-department',
+    vendor: '/analysis/by-vendor',
     period: '/analysis/by-period',
     expenseItem: '/analysis/by-expense-item',
   };
   const labels = {
-    system: 'システム別',
+    system: '経費事象名別',
     classification: '分類別',
     department: '部門別',
+    vendor: 'ベンダー別',
     period: '期別',
     expenseItem: '費目別',
   };
@@ -731,7 +760,7 @@ async function loadAnalysisTab(tab) {
       scales: {
         [data.length > 5 ? 'x' : 'y']: { ticks: { callback: v => fmt(v) } }
       },
-      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
     }
   });
 
@@ -746,9 +775,74 @@ async function loadAnalysisTab(tab) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円` } }
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } }
       }
     }
+  });
+}
+
+async function renderYoYTab(container) {
+  const groupBy = 'system';
+  const result = await api('/analysis/yoy?groupBy=' + groupBy);
+  const monthly = result.monthly || {};
+  const grouped = result.grouped || [];
+  const rows = Object.values(monthly).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">前年差データがありません</p>';
+    return;
+  }
+
+  let html = '<div class="space-y-4">';
+  html += '<div><h4 class="text-[12px] font-semibold text-gray-700 mb-2">月別 前年同月比（実績）</h4>';
+  html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>年月</th><th class="num">当年実績</th><th class="num">前年実績</th><th class="num">前年差</th><th class="num">前年比</th></tr></thead><tbody>';
+  rows.forEach((r) => {
+    html += `<tr>
+      <td class="font-medium">${fmtYM(r.yearMonth)}</td>
+      <td class="num">${fmt(r.actual)}</td>
+      <td class="num">${fmt(r.prevActual)}</td>
+      <td class="num ${r.deltaActual > 0 ? 'overrun' : r.deltaActual < 0 ? 'underrun' : ''}">${fmtMoney(r.deltaActual)}</td>
+      <td class="num ${varianceClass(r.deltaActualPct)}">${pct(r.deltaActualPct)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div></div>';
+
+  html += '<div><h4 class="text-[12px] font-semibold text-gray-700 mb-2">システム別 前年差（実績）</h4>';
+  html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>システム</th><th class="num">当年実績</th><th class="num">前年実績</th><th class="num">前年差</th><th class="num">前年比</th></tr></thead><tbody>';
+  grouped.slice(0, 20).forEach((g) => {
+    html += `<tr><td>${g.name}</td><td class="num">${fmt(g.currentActual)}</td><td class="num">${fmt(g.previousActual)}</td><td class="num ${g.deltaActual > 0 ? 'overrun' : g.deltaActual < 0 ? 'underrun' : ''}">${fmtMoney(g.deltaActual)}</td><td class="num ${varianceClass(g.deltaActualPct)}">${pct(g.deltaActualPct)}</td></tr>`;
+  });
+  html += '</tbody></table></div></div>';
+  html += '</div>';
+  container.innerHTML = html;
+
+  document.getElementById('analysisChartTitle').textContent = '月別 前年同月差（実績）';
+  if (state.charts.analysis) state.charts.analysis.destroy();
+  state.charts.analysis = new Chart(document.getElementById('analysisChart'), {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => fmtYM(r.yearMonth)),
+      datasets: [{
+        label: '前年差（実績）',
+        data: rows.map(r => r.deltaActual),
+        backgroundColor: rows.map(r => r.deltaActual > 0 ? 'rgba(239,68,68,0.55)' : 'rgba(34,197,94,0.55)'),
+        borderRadius: 3,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } } }
+  });
+
+  document.getElementById('analysisPieTitle').textContent = '部門別 前年比（実績）';
+  const dep = await api('/analysis/yoy?groupBy=department');
+  const depData = (dep.grouped || []).slice(0, 10);
+  if (state.charts.analysisPie) state.charts.analysisPie.destroy();
+  state.charts.analysisPie = new Chart(document.getElementById('analysisPieChart'), {
+    type: 'doughnut',
+    data: {
+      labels: depData.map(d => d.name),
+      datasets: [{ data: depData.map(d => Math.abs(d.deltaActual)), backgroundColor: PIE_COLORS }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
   });
 }
 
@@ -803,25 +897,25 @@ async function renderCrossTab(container) {
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => fmt(v) } } },
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
     }
   });
 }
 
 async function renderSystemDetailTab(container) {
   const statusData = await api('/status');
-  const systems = statusData.systems || [];
+  const classifications = statusData.classifications || [];
 
-  if (systems.length === 0) {
-    container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">システムデータがありません</p>';
+  if (classifications.length === 0) {
+    container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">分類データがありません</p>';
     return;
   }
 
   container.innerHTML = `
     <div class="mb-4">
-      <label class="text-[12px] text-gray-500 mr-2">システム選択:</label>
+      <label class="text-[12px] text-gray-500 mr-2">分類選択:</label>
       <select id="systemDetailSelect" onchange="loadSystemDetail()" class="border rounded-md px-3 py-1.5 text-[13px]">
-        ${systems.map(s => `<option value="${s}">${s}</option>`).join('')}
+        ${classifications.map(s => `<option value="${s}">${s}</option>`).join('')}
       </select>
     </div>
     <div id="systemDetailBody">読み込み中...</div>
@@ -830,12 +924,12 @@ async function renderSystemDetailTab(container) {
 }
 
 async function loadSystemDetail() {
-  const system = document.getElementById('systemDetailSelect')?.value;
-  if (!system) return;
+  const classification = document.getElementById('systemDetailSelect')?.value;
+  if (!classification) return;
   const body = document.getElementById('systemDetailBody');
   body.innerHTML = '<p class="text-gray-400 text-sm"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</p>';
 
-  const result = await api('/analysis/system-detail?system=' + encodeURIComponent(system));
+  const result = await api('/analysis/classification-detail?classification=' + encodeURIComponent(classification));
   if (!result.data) { body.innerHTML = '<p class="text-gray-400">データなし</p>'; return; }
 
   const d = result.data;
@@ -875,7 +969,7 @@ async function loadSystemDetail() {
   body.innerHTML = html;
 
   // Monthly trend chart for this system
-  document.getElementById('analysisChartTitle').textContent = `${system} 月別推移`;
+  document.getElementById('analysisChartTitle').textContent = `${classification} 月別推移`;
   if (state.charts.analysis) state.charts.analysis.destroy();
   const mbt = d.monthlyByType;
   const sysYMs = d.sortedYMs || [];
@@ -896,7 +990,7 @@ async function loadSystemDetail() {
           y: { beginAtZero: true, ticks: { callback: v => fmt(v) } },
           x: { ticks: { maxRotation: 45, font: { size: 10 } } }
         },
-        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} 円` } } }
+        plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)} ${MONEY_UNIT}` } } }
       }
     });
   }
@@ -906,6 +1000,11 @@ async function loadSystemDetail() {
 async function renderVariance() {
   const mc = document.getElementById('mainContent');
   const result = await api('/analysis/variances');
+  const reasonSummary = await api('/variance-reasons/summary');
+  const initiativeSummary = await api('/initiatives/summary');
+  const initiatives = await api('/initiatives');
+  const renewals = await api('/contracts/renewals?withinMonths=3');
+  const reviewCandidates = await api('/contracts/review-candidates');
   const data = result.data || [];
 
   if (data.length === 0) {
@@ -918,7 +1017,10 @@ async function renderVariance() {
 
   mc.innerHTML = `
     <div class="fade-in space-y-5">
-      <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-triangle-exclamation mr-2 text-red-500"></i>予算差異分析</h2>
+      <div class="flex items-center gap-2 flex-wrap">
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-triangle-exclamation mr-2 text-red-500"></i>予算差異分析</h2>
+        <span class="badge bg-slate-100 text-slate-600">単位: ${MONEY_UNIT}</span>
+      </div>
 
       <!-- Summary Cards -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -937,6 +1039,46 @@ async function renderVariance() {
         <div class="bg-blue-50 rounded-xl p-4 border border-blue-100 card-hover">
           <p class="text-[11px] text-blue-500 mb-1">予算内項目</p>
           <p class="text-2xl font-bold text-blue-700">${data.length - overruns.length - underruns.length}</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-orange-100 p-4">
+          <h3 class="text-sm font-semibold text-orange-700 mb-2"><i class="fas fa-comment-dots mr-1.5"></i>差額理由管理</h3>
+          <p class="text-[12px] text-gray-600 mb-3">未登録件数: <span class="font-semibold text-red-600">${reasonSummary.missingCount}</span> / 対象 ${reasonSummary.totalTargets} 件</p>
+          <div class="flex flex-wrap gap-2 text-[11px] mb-3">
+            ${(reasonSummary.byCategory || []).slice(0, 5).map(c => `<span class="badge bg-orange-50 text-orange-700">${c.category}: ${c.count}</span>`).join('')}
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <input id="reasonManagementNo" class="border rounded px-2 py-1 text-[12px]" placeholder="管理番号">
+            <input id="reasonItemNo" class="border rounded px-2 py-1 text-[12px]" placeholder="項番">
+            <input id="reasonPeriod" class="border rounded px-2 py-1 text-[12px]" placeholder="期 (例:65)">
+            <input id="reasonYm" class="border rounded px-2 py-1 text-[12px]" placeholder="対象月 (YYYYMM)">
+            <input id="reasonCategory" class="border rounded px-2 py-1 text-[12px]" placeholder="理由カテゴリ">
+            <input id="reasonFactor" class="border rounded px-2 py-1 text-[12px]" placeholder="要因区分">
+          </div>
+          <textarea id="reasonComment" class="border rounded px-2 py-1 text-[12px] w-full mb-2" rows="2" placeholder="コメント"></textarea>
+          <button onclick="saveVarianceReason()" class="btn-primary text-[12px]"><i class="fas fa-save"></i>差額理由を保存</button>
+        </div>
+
+        <div class="bg-white rounded-xl border border-blue-100 p-4">
+          <h3 class="text-sm font-semibold text-blue-700 mb-2"><i class="fas fa-screwdriver-wrench mr-1.5"></i>改善施策管理</h3>
+          <p class="text-[12px] text-gray-600 mb-2">施策 ${initiativeSummary.totalCount} 件 / 期限超過 <span class="text-red-600 font-semibold">${initiativeSummary.overdueCount}</span> 件</p>
+          <p class="text-[11px] text-gray-500 mb-3">想定削減 ${fmt(initiativeSummary.totalExpectedReduction)} ${MONEY_UNIT} / 実績削減 ${fmt(initiativeSummary.totalActualReduction)} ${MONEY_UNIT}</p>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <input id="initiativeManagementNo" class="border rounded px-2 py-1 text-[12px]" placeholder="管理番号">
+            <input id="initiativeItemNo" class="border rounded px-2 py-1 text-[12px]" placeholder="項番">
+            <input id="initiativePeriod" class="border rounded px-2 py-1 text-[12px]" placeholder="期">
+            <input id="initiativeTitle" class="border rounded px-2 py-1 text-[12px]" placeholder="施策名">
+            <input id="initiativeOwner" class="border rounded px-2 py-1 text-[12px]" placeholder="担当者">
+            <input id="initiativeDeadline" type="date" class="border rounded px-2 py-1 text-[12px]">
+            <input id="initiativeExpected" type="number" class="border rounded px-2 py-1 text-[12px]" placeholder="想定削減額">
+            <input id="initiativeActual" type="number" class="border rounded px-2 py-1 text-[12px]" placeholder="実績削減額">
+          </div>
+          <select id="initiativeStatus" class="border rounded px-2 py-1 text-[12px] mb-2">
+            <option>未着手</option><option>進行中</option><option>完了</option><option>保留</option>
+          </select>
+          <button onclick="saveInitiative()" class="btn-primary text-[12px]"><i class="fas fa-save"></i>改善施策を保存</button>
         </div>
       </div>
 
@@ -972,6 +1114,32 @@ async function renderVariance() {
           </table>
         </div>
       </div>` : '<div class="bg-green-50 rounded-xl p-4 border border-green-200 text-green-700"><i class="fas fa-check-circle mr-2"></i>予算超過項目はありません</div>'}
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-indigo-100 p-4">
+          <h3 class="text-sm font-semibold text-indigo-700 mb-3"><i class="fas fa-list-check mr-1.5"></i>改善施策一覧</h3>
+          <div class="overflow-auto max-h-56">
+            <table class="data-table">
+              <thead><tr><th>ID</th><th>施策</th><th>担当</th><th>期限</th><th>状態</th><th class="num">想定削減</th></tr></thead>
+              <tbody>
+                ${(initiatives.data || []).slice(0, 30).map(r => `<tr><td class="text-[10px]">${r.initiative_id}</td><td class="text-[11px]">${r.title}</td><td>${r.owner || '-'}</td><td>${r.deadline || '-'}</td><td>${r.status}</td><td class="num">${fmt(r.expected_reduction)}</td></tr>`).join('') || '<tr><td colspan="6" class="text-center text-gray-400">データなし</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border border-cyan-100 p-4">
+          <h3 class="text-sm font-semibold text-cyan-700 mb-3"><i class="fas fa-file-signature mr-1.5"></i>契約更新・見直し候補</h3>
+          <p class="text-[11px] text-gray-500 mb-2">更新月が近い契約: ${(renewals.data || []).length} 件 / 見直し候補: ${(reviewCandidates.data || []).length} 件</p>
+          <div class="overflow-auto max-h-56">
+            <table class="data-table">
+              <thead><tr><th>契約番号</th><th>ベンダー</th><th>更新月</th><th>判断</th><th class="num">ベンダー差異</th></tr></thead>
+              <tbody>
+                ${(reviewCandidates.data || []).slice(0, 30).map(c => `<tr><td class="text-[11px]">${c.contract_no}</td><td>${c.vendor_name}</td><td>${fmtYM(c.renewal_month)}</td><td>${c.decision_status}</td><td class="num ${varianceClass(c.vendor_variance_pct)}">${pct(c.vendor_variance_pct)}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center text-gray-400">データなし</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <!-- Full Variance Table -->
       <div class="bg-white rounded-xl border border-gray-100 p-4">
@@ -1037,47 +1205,21 @@ async function renderVariance() {
 // === Items Page ===
 async function renderItems() {
   const mc = document.getElementById('mainContent');
-  const statusData = await api('/status');
-  const systems = statusData.systems || [];
-  const classifications = statusData.classifications || [];
-  const departments = statusData.departments || [];
-  const periods = statusData.periods || [];
 
   mc.innerHTML = `
     <div class="fade-in space-y-4">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-list-ol mr-2 text-blue-600"></i>明細一覧</h2>
-        <button onclick="exportItemsCSV()" class="btn-secondary text-[12px]"><i class="fas fa-download mr-1"></i>CSV出力</button>
+        <div class="flex items-center gap-2">
+          <span class="badge bg-slate-100 text-slate-600">単位: ${MONEY_UNIT}</span>
+          <button onclick="exportItemsCSV()" class="btn-secondary text-[12px]"><i class="fas fa-download mr-1"></i>CSV出力</button>
+        </div>
       </div>
       <div class="bg-white rounded-xl border border-gray-100 p-4">
         <div class="flex flex-wrap items-center gap-3 mb-4">
           <div class="flex items-center gap-1.5">
-            <label class="text-[12px] text-gray-500">システム:</label>
-            <select id="filterSystem" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${systems.map(s => `<option value="${s}">${s}</option>`).join('')}
-            </select>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <label class="text-[12px] text-gray-500">分類:</label>
-            <select id="filterClassification" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${classifications.map(c => `<option value="${c}">${c}</option>`).join('')}
-            </select>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <label class="text-[12px] text-gray-500">部門:</label>
-            <select id="filterDepartment" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${departments.map(d => `<option value="${d}">${d}</option>`).join('')}
-            </select>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <label class="text-[12px] text-gray-500">期:</label>
-            <select id="filterPeriod" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
-              <option value="">全て</option>${periods.map(p => `<option value="${p}">第${p}期</option>`).join('')}
-            </select>
-          </div>
-          <div class="flex items-center gap-1.5">
             <label class="text-[12px] text-gray-500">検索:</label>
-            <input id="filterSearch" oninput="debounceLoadItems()" class="border rounded-md px-2 py-1 text-[12px] w-40" placeholder="キーワード...">
+            <input id="filterSearch" oninput="debounceLoadItems()" class="border rounded-md px-2 py-1 text-[12px] w-64" placeholder="CSV全列横断で検索...">
           </div>
           <span id="itemCount" class="text-[11px] text-gray-400 ml-auto"></span>
         </div>
@@ -1098,81 +1240,39 @@ function debounceLoadItems() {
 
 async function loadItems() {
   const container = document.getElementById('itemsContent');
-  const system = document.getElementById('filterSystem')?.value || '';
-  const classification = document.getElementById('filterClassification')?.value || '';
-  const department = document.getElementById('filterDepartment')?.value || '';
-  const period = document.getElementById('filterPeriod')?.value || '';
   const search = document.getElementById('filterSearch')?.value || '';
 
-  let url = '/items?';
-  if (system) url += 'system=' + encodeURIComponent(system) + '&';
-  if (classification) url += 'classification=' + encodeURIComponent(classification) + '&';
-  if (department) url += 'department=' + encodeURIComponent(department) + '&';
-  if (period) url += 'period=' + encodeURIComponent(period) + '&';
+  let url = '/raw-rows?';
   if (search) url += 'search=' + encodeURIComponent(search) + '&';
 
   const result = await api(url);
-  const items = result.items || [];
-  const sortedYMs = result.sortedYMs || [];
-  document.getElementById('itemCount').textContent = `${items.length} 費目`;
+  const headers = result.headers || [];
+  const rows = result.rows || [];
+  document.getElementById('itemCount').textContent = `${rows.length} 行`;
 
-  if (items.length === 0) {
+  if (rows.length === 0 || headers.length === 0) {
     container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">該当するデータがありません</p>';
     return;
   }
 
-  // Determine relevant year_months for display (limit to avoid overflow)
-  const displayYMs = sortedYMs.slice(0, 24); // max 24 months
-
   let html = '<table class="data-table" id="itemsTable"><thead><tr>';
-  html += '<th>管理番号</th><th>システム</th><th>期</th><th>案件名</th><th>部門</th>';
-  displayYMs.forEach(ym => html += `<th class="num text-[10px]">${fmtYM(ym)}</th>`);
-  html += '<th class="num" style="background:#dbeafe">計画計</th><th class="num" style="background:#fef3c7">見通し計</th><th class="num" style="background:#dcfce7">実績計</th><th class="num">差異</th>';
+  headers.forEach((h) => { html += `<th class="text-[10px] whitespace-nowrap">${h}</th>`; });
   html += '</tr></thead><tbody>';
 
-  const displayItems = items.slice(0, 200);
-  displayItems.forEach(item => {
-    const var_a = item.totalPlan > 0 ? ((item.totalActual - item.totalPlan) / item.totalPlan * 100) : 0;
+  const displayRows = rows.slice(0, 500);
+  displayRows.forEach((row) => {
     html += '<tr>';
-    html += `<td class="font-medium text-[10px]">${item.management_no}/${item.item_no}</td>`;
-    html += `<td class="text-[10px]">${item.system_name}</td>`;
-    html += `<td class="text-[10px]">${item.fiscal_period || ''}</td>`;
-    html += `<td class="text-[10px]">${item.project_name || '-'}</td>`;
-    html += `<td class="text-[10px] text-gray-400">${item.department_name || '-'}</td>`;
-    displayYMs.forEach(ym => {
-      const m = item.monthly[ym];
-      const plan = m ? m.plan : 0;
-      const actual = m ? m.actual : 0;
-      const isOver = actual > plan && plan > 0;
-      const displayVal = actual || plan;
-      html += `<td class="num text-[10px] ${isOver ? 'overrun' : ''}" title="計画:${fmt(plan)} 実績:${fmt(actual)}">${displayVal > 0 ? fmt(displayVal) : ''}</td>`;
+    headers.forEach((h) => {
+      const val = row[h] ?? '';
+      const num = Number(String(val).replace(/,/g, ''));
+      const isNum = Number.isFinite(num) && String(val).trim() !== '' && /^-?[\d,.]+$/.test(String(val).trim());
+      html += `<td class="${isNum ? 'num' : ''} text-[10px] whitespace-nowrap">${val === '' ? '' : String(val)}</td>`;
     });
-    html += `<td class="num font-semibold text-[10px]" style="background:#eff6ff">${fmt(item.totalPlan)}</td>`;
-    html += `<td class="num font-semibold text-[10px]" style="background:#fefce8">${fmt(item.totalForecast)}</td>`;
-    html += `<td class="num font-semibold text-[10px]" style="background:#f0fdf4">${fmt(item.totalActual)}</td>`;
-    html += `<td class="num text-[10px] ${varianceClass(var_a)}">${pct(var_a)}</td>`;
     html += '</tr>';
   });
 
-  // Totals row
-  html += '<tr style="background:#f8fafc;font-weight:700"><td colspan="5">合計</td>';
-  displayYMs.forEach(ym => {
-    const total = displayItems.reduce((s, i) => {
-      const m = i.monthly[ym];
-      return s + (m ? (m.actual || m.plan) : 0);
-    }, 0);
-    html += `<td class="num">${total > 0 ? fmt(total) : ''}</td>`;
-  });
-  const totalPlan = displayItems.reduce((s, i) => s + i.totalPlan, 0);
-  const totalForecast = displayItems.reduce((s, i) => s + i.totalForecast, 0);
-  const totalActual = displayItems.reduce((s, i) => s + i.totalActual, 0);
-  html += `<td class="num" style="background:#dbeafe">${fmt(totalPlan)}</td>`;
-  html += `<td class="num" style="background:#fef3c7">${fmt(totalForecast)}</td>`;
-  html += `<td class="num" style="background:#dcfce7">${fmt(totalActual)}</td>`;
-  html += '<td></td></tr>';
-
   html += '</tbody></table>';
-  if (items.length > 200) html += `<p class="text-center text-gray-400 text-[11px] py-2">※ 表示は200件に制限（全${items.length}件）</p>`;
+  if (rows.length > 500) html += `<p class="text-center text-gray-400 text-[11px] py-2">※ 表示は500行に制限（全${rows.length}行）</p>`;
 
   container.innerHTML = html;
 }
@@ -1195,6 +1295,56 @@ function exportItemsCSV() {
   a.download = 'budget_items_export.csv';
   a.click();
   showToast('CSVをダウンロードしました');
+}
+
+async function saveVarianceReason() {
+  const payload = {
+    management_no: document.getElementById('reasonManagementNo')?.value?.trim(),
+    item_no: document.getElementById('reasonItemNo')?.value?.trim(),
+    fiscal_period: document.getElementById('reasonPeriod')?.value?.trim(),
+    target_year_month: document.getElementById('reasonYm')?.value?.trim(),
+    reason_category: document.getElementById('reasonCategory')?.value?.trim(),
+    factor_type: document.getElementById('reasonFactor')?.value?.trim(),
+    comment: document.getElementById('reasonComment')?.value?.trim(),
+  };
+  const res = await fetch('/api/variance-reasons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ error: '保存失敗' }));
+    showToast(e.error || '保存失敗', 'error');
+    return;
+  }
+  showToast('差額理由を保存しました');
+  await renderVariance();
+}
+
+async function saveInitiative() {
+  const payload = {
+    management_no: document.getElementById('initiativeManagementNo')?.value?.trim(),
+    item_no: document.getElementById('initiativeItemNo')?.value?.trim(),
+    fiscal_period: document.getElementById('initiativePeriod')?.value?.trim(),
+    title: document.getElementById('initiativeTitle')?.value?.trim(),
+    owner: document.getElementById('initiativeOwner')?.value?.trim(),
+    deadline: document.getElementById('initiativeDeadline')?.value,
+    status: document.getElementById('initiativeStatus')?.value,
+    expected_reduction: Number(document.getElementById('initiativeExpected')?.value || 0),
+    actual_reduction: Number(document.getElementById('initiativeActual')?.value || 0),
+  };
+  const res = await fetch('/api/initiatives', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ error: '保存失敗' }));
+    showToast(e.error || '保存失敗', 'error');
+    return;
+  }
+  showToast('改善施策を保存しました');
+  await renderVariance();
 }
 
 // === Initialization ===
