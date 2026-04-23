@@ -29,6 +29,9 @@ let store = {
   detail: null,       // normalized detail-like rows derived from unified CSV
   uploadedAt: null,
   csvFileName: null,
+  varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
+  initiatives: {},       // key: initiative_id
+  contracts: {},         // key: contract_id
 };
 
 // =============================================
@@ -200,6 +203,15 @@ function periodFY(p) {
   return n;
 }
 
+function makeItemKey(managementNo, itemNo, fiscalPeriod, targetYm = '') {
+  return `${managementNo || ''}|${itemNo || ''}|${fiscalPeriod || ''}|${targetYm || ''}`;
+}
+
+function getCurrentYYYYMM() {
+  const now = new Date();
+  return Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`);
+}
+
 // =============================================
 // Build unified data from new schema
 // =============================================
@@ -279,6 +291,7 @@ function buildUnifiedData() {
           management_no: mno,
           item_no: ino,
           fiscal_period: fp,
+          item_key: makeItemKey(mno, ino, fp),
           fiscal_period_label: periodLabel(fp),
           fiscal_year: periodFY(fp),
 
@@ -288,6 +301,7 @@ function buildUnifiedData() {
           department_name: masterRow.department_name || '',
           owner_name: masterRow.owner_name || '',
           payee_name: masterRow.payee_name || '',
+          vendor_name: masterRow.payee_name || '未設定ベンダー',
           contract_no: masterRow.contract_no || '',
           contract_amount: toNum(masterRow.contract_amount),
           monthly_amount: toNum(masterRow.monthly_amount),
@@ -337,6 +351,7 @@ function buildUnifiedData() {
         management_no: mno,
         item_no: ino,
         fiscal_period: fp,
+        item_key: makeItemKey(mno, ino, fp),
         fiscal_period_label: periodLabel(fp),
         fiscal_year: periodFY(fp),
         budget_category: row.budget_category || '',
@@ -344,6 +359,7 @@ function buildUnifiedData() {
         department_name: row.department_name || '',
         owner_name: row.owner_name || '',
         payee_name: row.payee_name || '',
+        vendor_name: row.payee_name || '未設定ベンダー',
         contract_no: row.contract_no || '',
         contract_amount: toNum(row.contract_amount),
         monthly_amount: toNum(row.monthly_amount),
@@ -457,6 +473,17 @@ function getAggregations(data) {
     byDepartment[key].itemCount++;
   }
 
+  // By vendor
+  const byVendor = {};
+  for (const item of items) {
+    const key = item.vendor_name || item.payee_name || '未設定ベンダー';
+    if (!byVendor[key]) byVendor[key] = { name: key, plan: 0, forecast: 0, actual: 0, itemCount: 0 };
+    byVendor[key].plan += item.totalPlan;
+    byVendor[key].forecast += item.totalForecast;
+    byVendor[key].actual += item.totalActual;
+    byVendor[key].itemCount++;
+  }
+
   // By period
   const byPeriod = {};
   for (const item of items) {
@@ -489,6 +516,30 @@ function getAggregations(data) {
     byFixedVariable[key].forecast += item.totalForecast;
     byFixedVariable[key].actual += item.totalActual;
     byFixedVariable[key].itemCount++;
+  }
+
+  // YoY monthly summary (actual/plan/forecast)
+  const yoyMonthly = {};
+  for (const ym of sortedYMs) {
+    const parsed = parseYM(ym);
+    if (!parsed) continue;
+    const prevYm = `${parsed.year - 1}${String(parsed.month).padStart(2, '0')}`;
+    const curr = monthlyByType[ym] || { plan: 0, forecast: 0, actual: 0 };
+    const prev = monthlyByType[prevYm] || { plan: 0, forecast: 0, actual: 0 };
+    yoyMonthly[ym] = {
+      yearMonth: ym,
+      prevYearMonth: prevYm,
+      plan: curr.plan,
+      forecast: curr.forecast,
+      actual: curr.actual,
+      prevPlan: prev.plan,
+      prevForecast: prev.forecast,
+      prevActual: prev.actual,
+      deltaPlan: curr.plan - prev.plan,
+      deltaForecast: curr.forecast - prev.forecast,
+      deltaActual: curr.actual - prev.actual,
+      deltaActualPct: prev.actual > 0 ? ((curr.actual - prev.actual) / prev.actual) * 100 : 0,
+    };
   }
 
   // Variance analysis per item
@@ -558,12 +609,14 @@ function getAggregations(data) {
     bySystem: Object.values(bySystem).sort((a, b) => b.plan - a.plan),
     byClassification: Object.values(byClassification).sort((a, b) => b.plan - a.plan),
     byDepartment: Object.values(byDepartment).sort((a, b) => b.plan - a.plan),
+    byVendor: Object.values(byVendor).sort((a, b) => b.plan - a.plan),
     byPeriod: Object.values(byPeriod).sort((a, b) => a.period - b.period),
     byExpenseItem: Object.values(byExpenseItem).sort((a, b) => b.plan - a.plan),
     byFixedVariable: Object.values(byFixedVariable).sort((a, b) => b.plan - a.plan),
     variances: variances.sort((a, b) => Math.abs(b.variance_actual) - Math.abs(a.variance_actual)),
     crossTabSysPeriod,
     crossTabSysClassification,
+    yoyMonthly,
     itemCount: items.length,
   };
 }
@@ -589,6 +642,24 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
 
     const data = buildUnifiedData();
     const agg = data ? getAggregations(data) : null;
+    store.contracts = {};
+    if (data) {
+      data.items.filter(i => i.contract_no).forEach((item) => {
+        const id = item.contract_no;
+        if (store.contracts[id]) return;
+        store.contracts[id] = {
+          contract_id: id,
+          contract_no: item.contract_no,
+          vendor_name: item.vendor_name || '未設定ベンダー',
+          system_name: item.system_name || '',
+          renewal_month: data.sortedYMs[0] || '',
+          decision_status: '未判断',
+          decision_note: '',
+          annual_amount: item.contract_amount || item.totalPlan || 0,
+          updated_at: new Date().toISOString(),
+        };
+      });
+    }
 
     res.json({
       message: 'アップロード完了',
@@ -622,6 +693,7 @@ app.get('/api/status', (_, res) => {
     systems: agg ? agg.systemNames : [],
     classifications: agg ? agg.classifications : [],
     departments: agg ? agg.departments : [],
+    vendors: agg ? agg.byVendor.map(v => v.name) : [],
     periods: agg ? agg.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
@@ -647,15 +719,18 @@ app.get('/api/dashboard/summary', (_, res) => {
       periodCount: agg.periods.length,
       varianceForecastPct: agg.totalPlan > 0 ? Math.round((agg.totalForecast - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
       varianceActualPct: agg.totalPlan > 0 ? Math.round((agg.totalActual - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
+      yoyActualDelta: Object.values(agg.yoyMonthly).reduce((s, r) => s + r.deltaActual, 0),
     },
     sortedYMs: data.sortedYMs,
     monthlyByType: agg.monthlyByType,
     bySystem: agg.bySystem,
     byClassification: agg.byClassification,
     byDepartment: agg.byDepartment,
+    byVendor: agg.byVendor,
     byPeriod: agg.byPeriod,
     byExpenseItem: agg.byExpenseItem,
     byFixedVariable: agg.byFixedVariable,
+    yoyMonthly: agg.yoyMonthly,
     overrunItems: agg.variances.filter(v => v.overrun_actual || v.overrun_forecast).slice(0, 15),
   });
 });
@@ -666,11 +741,12 @@ app.get('/api/items', (req, res) => {
   if (!data) return res.json({ items: [], total: 0 });
 
   let filtered = data.items;
-  const { system, classification, department, period, search } = req.query;
+  const { system, classification, department, period, vendor, search } = req.query;
   if (system) filtered = filtered.filter(i => i.system_name === system || i.system_code === system);
   if (classification) filtered = filtered.filter(i => i.system_classification === classification);
   if (department) filtered = filtered.filter(i => i.department_name === department);
   if (period) filtered = filtered.filter(i => i.fiscal_period === period);
+  if (vendor) filtered = filtered.filter(i => i.vendor_name === vendor || i.payee_name === vendor);
   if (search) {
     const q = search.toLowerCase();
     filtered = filtered.filter(i =>
@@ -679,6 +755,7 @@ app.get('/api/items', (req, res) => {
       (i.expense_item_name || '').toLowerCase().includes(q) ||
       (i.department_name || '').toLowerCase().includes(q) ||
       (i.payee_name || '').toLowerCase().includes(q) ||
+      (i.vendor_name || '').toLowerCase().includes(q) ||
       (i.management_no || '').toLowerCase().includes(q)
     );
   }
@@ -707,6 +784,14 @@ app.get('/api/analysis/by-department', (_, res) => {
   if (!data) return res.json({ data: [] });
   const agg = getAggregations(data);
   res.json({ data: agg.byDepartment });
+});
+
+// Analysis: by vendor
+app.get('/api/analysis/by-vendor', (_, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ data: [] });
+  const agg = getAggregations(data);
+  res.json({ data: agg.byVendor });
 });
 
 // Analysis: by period
@@ -739,6 +824,50 @@ app.get('/api/analysis/monthly', (_, res) => {
   if (!data) return res.json({ data: null, sortedYMs: [] });
   const agg = getAggregations(data);
   res.json({ data: agg.monthlyByType, sortedYMs: data.sortedYMs });
+});
+
+// Analysis: YoY (monthly / grouped)
+app.get('/api/analysis/yoy', (req, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ monthly: {}, grouped: [] });
+  const agg = getAggregations(data);
+  const groupBy = (req.query.groupBy || 'system').toString();
+
+  const groupedMap = {};
+  for (const item of data.items) {
+    const groupName =
+      groupBy === 'department'
+        ? (item.department_name || 'その他')
+        : (item.system_name || item.system_code || '不明');
+
+    if (!groupedMap[groupName]) {
+      groupedMap[groupName] = {
+        name: groupName,
+        currentActual: 0,
+        previousActual: 0,
+        deltaActual: 0,
+        deltaActualPct: 0,
+      };
+    }
+
+    for (const ym of Object.keys(item.monthly)) {
+      const parsed = parseYM(ym);
+      if (!parsed) continue;
+      const prevYm = `${parsed.year - 1}${String(parsed.month).padStart(2, '0')}`;
+      const currActual = item.monthly[ym]?.actual || 0;
+      const prevActual = item.monthly[prevYm]?.actual || 0;
+      groupedMap[groupName].currentActual += currActual;
+      groupedMap[groupName].previousActual += prevActual;
+    }
+  }
+
+  const grouped = Object.values(groupedMap).map((g) => {
+    g.deltaActual = g.currentActual - g.previousActual;
+    g.deltaActualPct = g.previousActual > 0 ? (g.deltaActual / g.previousActual) * 100 : 0;
+    return g;
+  }).sort((a, b) => Math.abs(b.deltaActual) - Math.abs(a.deltaActual));
+
+  res.json({ monthly: agg.yoyMonthly, grouped, groupBy });
 });
 
 // Analysis: variances (overruns/shortfalls)
@@ -813,9 +942,212 @@ app.get('/api/analysis/system-detail', (req, res) => {
   });
 });
 
+// Analysis: vendor detail
+app.get('/api/analysis/vendor-detail', (req, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ data: null });
+  const { vendor } = req.query;
+  if (!vendor) return res.json({ data: null });
+  const vendorItems = data.items.filter(i => i.vendor_name === vendor || i.payee_name === vendor);
+  if (vendorItems.length === 0) return res.json({ data: null });
+
+  const monthlyByType = {};
+  for (const ym of data.sortedYMs) {
+    monthlyByType[ym] = { plan: 0, forecast: 0, actual: 0 };
+    for (const item of vendorItems) {
+      if (item.monthly[ym]) {
+        monthlyByType[ym].plan += item.monthly[ym].plan;
+        monthlyByType[ym].forecast += item.monthly[ym].forecast;
+        monthlyByType[ym].actual += item.monthly[ym].actual;
+      }
+    }
+  }
+
+  res.json({
+    data: {
+      vendor,
+      itemCount: vendorItems.length,
+      totalPlan: vendorItems.reduce((s, i) => s + i.totalPlan, 0),
+      totalForecast: vendorItems.reduce((s, i) => s + i.totalForecast, 0),
+      totalActual: vendorItems.reduce((s, i) => s + i.totalActual, 0),
+      monthlyByType,
+      sortedYMs: data.sortedYMs,
+      items: vendorItems,
+    }
+  });
+});
+
+// Variance reason management
+app.get('/api/variance-reasons', (req, res) => {
+  const { management_no, item_no, fiscal_period, target_year_month } = req.query;
+  let rows = Object.values(store.varianceReasons || {});
+  if (management_no) rows = rows.filter(r => r.management_no === management_no);
+  if (item_no) rows = rows.filter(r => r.item_no === item_no);
+  if (fiscal_period) rows = rows.filter(r => r.fiscal_period === fiscal_period);
+  if (target_year_month) rows = rows.filter(r => r.target_year_month === target_year_month);
+  res.json({ data: rows.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)) });
+});
+
+app.post('/api/variance-reasons', (req, res) => {
+  const body = req.body || {};
+  if (!body.management_no || !body.item_no || !body.fiscal_period || !body.target_year_month) {
+    return res.status(400).json({ error: '管理番号・項番・期・月は必須です' });
+  }
+  const key = makeItemKey(body.management_no, body.item_no, body.fiscal_period, body.target_year_month);
+  store.varianceReasons[key] = {
+    key,
+    management_no: body.management_no,
+    item_no: body.item_no,
+    fiscal_period: body.fiscal_period,
+    target_year_month: body.target_year_month,
+    reason_category: body.reason_category || '未分類',
+    factor_type: body.factor_type || '未分類',
+    comment: body.comment || '',
+    updated_at: new Date().toISOString(),
+  };
+  res.json({ message: '差額理由を保存しました', data: store.varianceReasons[key] });
+});
+
+app.get('/api/variance-reasons/summary', (_, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ missingCount: 0, byCategory: [], totalTargets: 0, registeredCount: 0 });
+
+  const targets = data.items.filter(i => i.totalForecast > i.totalPlan || i.totalActual > i.totalPlan);
+  const reasons = Object.values(store.varianceReasons || {});
+  const itemKeys = new Set(targets.map(i => i.item_key));
+  const withReason = new Set(reasons.map(r => makeItemKey(r.management_no, r.item_no, r.fiscal_period)));
+  const registeredCount = [...withReason].filter(k => itemKeys.has(k)).length;
+  const byCategoryMap = {};
+  reasons.forEach((r) => {
+    const cat = r.reason_category || '未分類';
+    if (!byCategoryMap[cat]) byCategoryMap[cat] = { category: cat, count: 0 };
+    byCategoryMap[cat].count++;
+  });
+
+  res.json({
+    totalTargets: targets.length,
+    registeredCount,
+    missingCount: Math.max(targets.length - registeredCount, 0),
+    byCategory: Object.values(byCategoryMap).sort((a, b) => b.count - a.count),
+  });
+});
+
+// Improvement initiatives management
+app.get('/api/initiatives', (_, res) => {
+  const data = Object.values(store.initiatives || {}).sort((a, b) => (a.deadline || '') > (b.deadline || '') ? 1 : -1);
+  res.json({ data });
+});
+
+app.post('/api/initiatives', (req, res) => {
+  const body = req.body || {};
+  if (!body.management_no || !body.item_no || !body.fiscal_period) {
+    return res.status(400).json({ error: '管理番号・項番・期は必須です' });
+  }
+  const initiativeId = body.initiative_id || `ACT-${Date.now()}`;
+  store.initiatives[initiativeId] = {
+    initiative_id: initiativeId,
+    management_no: body.management_no,
+    item_no: body.item_no,
+    fiscal_period: body.fiscal_period,
+    title: body.title || '改善施策',
+    status: body.status || '未着手',
+    owner: body.owner || '',
+    deadline: body.deadline || '',
+    expected_reduction: toNum(body.expected_reduction),
+    actual_reduction: toNum(body.actual_reduction),
+    note: body.note || '',
+    updated_at: new Date().toISOString(),
+  };
+  res.json({ message: '改善施策を保存しました', data: store.initiatives[initiativeId] });
+});
+
+app.get('/api/initiatives/summary', (_, res) => {
+  const rows = Object.values(store.initiatives || {});
+  const today = new Date().toISOString().substring(0, 10);
+  const overdueCount = rows.filter(r => r.deadline && r.deadline < today && r.status !== '完了').length;
+  const byStatus = {};
+  rows.forEach((r) => {
+    const key = r.status || '未着手';
+    if (!byStatus[key]) byStatus[key] = { status: key, count: 0 };
+    byStatus[key].count++;
+  });
+  res.json({
+    totalCount: rows.length,
+    overdueCount,
+    totalExpectedReduction: rows.reduce((s, r) => s + toNum(r.expected_reduction), 0),
+    totalActualReduction: rows.reduce((s, r) => s + toNum(r.actual_reduction), 0),
+    byStatus: Object.values(byStatus).sort((a, b) => b.count - a.count),
+  });
+});
+
+// Contract renewal support
+app.get('/api/contracts', (_, res) => {
+  res.json({ data: Object.values(store.contracts || {}) });
+});
+
+app.post('/api/contracts', (req, res) => {
+  const body = req.body || {};
+  if (!body.contract_no) return res.status(400).json({ error: '契約番号は必須です' });
+  const id = body.contract_id || body.contract_no;
+  store.contracts[id] = {
+    contract_id: id,
+    contract_no: body.contract_no,
+    vendor_name: body.vendor_name || '未設定ベンダー',
+    system_name: body.system_name || '',
+    renewal_month: body.renewal_month || '',
+    decision_status: body.decision_status || '未判断',
+    decision_note: body.decision_note || '',
+    annual_amount: toNum(body.annual_amount),
+    updated_at: new Date().toISOString(),
+  };
+  res.json({ message: '契約情報を保存しました', data: store.contracts[id] });
+});
+
+app.get('/api/contracts/renewals', (req, res) => {
+  const withinMonths = Number(req.query.withinMonths || 3);
+  const currentYm = getCurrentYYYYMM();
+  const rows = Object.values(store.contracts || {}).filter((c) => {
+    const ym = Number(c.renewal_month);
+    if (!ym) return false;
+    const diff = (Math.floor(ym / 100) - Math.floor(currentYm / 100)) * 12 + (ym % 100) - (currentYm % 100);
+    return diff >= 0 && diff <= withinMonths;
+  }).sort((a, b) => (a.renewal_month || '').localeCompare(b.renewal_month || ''));
+  res.json({ data: rows, currentYm, withinMonths });
+});
+
+app.get('/api/contracts/review-candidates', (_, res) => {
+  const data = buildUnifiedData();
+  if (!data) return res.json({ data: [] });
+  const agg = getAggregations(data);
+  const vendorVariance = {};
+  agg.byVendor.forEach((v) => {
+    vendorVariance[v.name] = v.plan > 0 ? ((v.actual - v.plan) / v.plan) * 100 : 0;
+  });
+
+  const candidates = Object.values(store.contracts || {}).map((c) => {
+    const variancePct = vendorVariance[c.vendor_name] || 0;
+    const shouldReview = variancePct > 5 || c.decision_status === '要見直し';
+    return {
+      ...c,
+      vendor_variance_pct: Math.round(variancePct * 10) / 10,
+      should_review: shouldReview,
+    };
+  }).filter(c => c.should_review).sort((a, b) => b.vendor_variance_pct - a.vendor_variance_pct);
+
+  res.json({ data: candidates });
+});
+
 // Clear data
 app.post('/api/clear', (_, res) => {
-  store = { master: null, detail: null, uploadedAt: null, csvFileName: null };
+  store = {
+    master: null,
+    detail: null,
+    uploadedAt: null,
+    csvFileName: null,
+    varianceReasons: {},
+    initiatives: {},
+    contracts: {},
+  };
   res.json({ message: 'データをクリアしました' });
 });
 
@@ -861,6 +1193,25 @@ function autoLoadSampleData() {
       store.uploadedAt = new Date().toISOString();
       const data = buildUnifiedData();
       const agg = data ? getAggregations(data) : null;
+      if (data) {
+        const contractSeeds = data.items.filter(i => i.contract_no).slice(0, 20);
+        contractSeeds.forEach((item) => {
+          const id = item.contract_no;
+          if (store.contracts[id]) return;
+          const renewalMonth = data.sortedYMs.find((ym) => ym >= `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`) || data.sortedYMs[0] || '';
+          store.contracts[id] = {
+            contract_id: id,
+            contract_no: item.contract_no,
+            vendor_name: item.vendor_name || '未設定ベンダー',
+            system_name: item.system_name || '',
+            renewal_month: renewalMonth,
+            decision_status: '未判断',
+            decision_note: '',
+            annual_amount: item.contract_amount || item.totalPlan || 0,
+            updated_at: new Date().toISOString(),
+          };
+        });
+      }
       console.log(`  [Auto-load] ${data ? data.items.length : 0} items, ${agg ? agg.systemNames.length : 0} systems, ${agg ? agg.periods.length : 0} periods`);
     }
   } catch (e) {

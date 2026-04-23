@@ -380,6 +380,25 @@ async function renderDashboard() {
         </div>
       </div>
 
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-2"><i class="fas fa-building mr-1.5 text-indigo-500"></i>ベンダーランキング（計画）</h3>
+          <div class="space-y-2">
+            ${(summary.byVendor || []).slice(0, 5).map((v, i) => `
+              <div class="flex items-center justify-between text-[12px]">
+                <span>${i + 1}. ${v.name}</span>
+                <span class="font-semibold">${fmt(v.plan)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-4">
+          <h3 class="text-sm font-semibold text-gray-800 mb-2"><i class="fas fa-arrow-right-arrow-left mr-1.5 text-emerald-500"></i>前年差サマリー（実績）</h3>
+          <p class="text-[12px] text-gray-500">全期間前年差</p>
+          <p class="text-2xl font-bold ${k.yoyActualDelta > 0 ? 'text-red-600' : 'text-green-600'}">${fmtMoney(k.yoyActualDelta)} 円</p>
+        </div>
+      </div>
+
       <!-- Charts Row 1: Monthly Time-series -->
       <div class="bg-white rounded-xl border border-gray-100 p-4">
         <h3 class="text-sm font-semibold text-gray-800 mb-3"><i class="fas fa-chart-line mr-1.5 text-blue-500"></i>月別推移（計画 vs 見通し vs 実績）</h3>
@@ -618,8 +637,10 @@ async function renderAnalysis() {
           <button onclick="loadAnalysisTab('system')" id="anaTabSystem" class="tab-btn active">システム別</button>
           <button onclick="loadAnalysisTab('classification')" id="anaTabClassification" class="tab-btn">分類別</button>
           <button onclick="loadAnalysisTab('department')" id="anaTabDepartment" class="tab-btn">部門別</button>
+          <button onclick="loadAnalysisTab('vendor')" id="anaTabVendor" class="tab-btn">ベンダー別</button>
           <button onclick="loadAnalysisTab('period')" id="anaTabPeriod" class="tab-btn">期別</button>
           <button onclick="loadAnalysisTab('expenseItem')" id="anaTabExpenseItem" class="tab-btn">費目別</button>
+          <button onclick="loadAnalysisTab('yoy')" id="anaTabYoy" class="tab-btn">前年差</button>
           <button onclick="loadAnalysisTab('cross')" id="anaTabCross" class="tab-btn">クロス集計</button>
           <button onclick="loadAnalysisTab('systemDetail')" id="anaTabSystemDetail" class="tab-btn">システム詳細</button>
         </div>
@@ -652,11 +673,13 @@ async function loadAnalysisTab(tab) {
 
   if (tab === 'cross') { await renderCrossTab(container); return; }
   if (tab === 'systemDetail') { await renderSystemDetailTab(container); return; }
+  if (tab === 'yoy') { await renderYoYTab(container); return; }
 
   const endpoints = {
     system: '/analysis/by-system',
     classification: '/analysis/by-classification',
     department: '/analysis/by-department',
+    vendor: '/analysis/by-vendor',
     period: '/analysis/by-period',
     expenseItem: '/analysis/by-expense-item',
   };
@@ -664,6 +687,7 @@ async function loadAnalysisTab(tab) {
     system: 'システム別',
     classification: '分類別',
     department: '部門別',
+    vendor: 'ベンダー別',
     period: '期別',
     expenseItem: '費目別',
   };
@@ -749,6 +773,71 @@ async function loadAnalysisTab(tab) {
         tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)} 円` } }
       }
     }
+  });
+}
+
+async function renderYoYTab(container) {
+  const groupBy = 'system';
+  const result = await api('/analysis/yoy?groupBy=' + groupBy);
+  const monthly = result.monthly || {};
+  const grouped = result.grouped || [];
+  const rows = Object.values(monthly).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="text-gray-400 text-sm text-center p-8">前年差データがありません</p>';
+    return;
+  }
+
+  let html = '<div class="space-y-4">';
+  html += '<div><h4 class="text-[12px] font-semibold text-gray-700 mb-2">月別 前年同月比（実績）</h4>';
+  html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>年月</th><th class="num">当年実績</th><th class="num">前年実績</th><th class="num">前年差</th><th class="num">前年比</th></tr></thead><tbody>';
+  rows.forEach((r) => {
+    html += `<tr>
+      <td class="font-medium">${fmtYM(r.yearMonth)}</td>
+      <td class="num">${fmt(r.actual)}</td>
+      <td class="num">${fmt(r.prevActual)}</td>
+      <td class="num ${r.deltaActual > 0 ? 'overrun' : r.deltaActual < 0 ? 'underrun' : ''}">${fmtMoney(r.deltaActual)}</td>
+      <td class="num ${varianceClass(r.deltaActualPct)}">${pct(r.deltaActualPct)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div></div>';
+
+  html += '<div><h4 class="text-[12px] font-semibold text-gray-700 mb-2">システム別 前年差（実績）</h4>';
+  html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>システム</th><th class="num">当年実績</th><th class="num">前年実績</th><th class="num">前年差</th><th class="num">前年比</th></tr></thead><tbody>';
+  grouped.slice(0, 20).forEach((g) => {
+    html += `<tr><td>${g.name}</td><td class="num">${fmt(g.currentActual)}</td><td class="num">${fmt(g.previousActual)}</td><td class="num ${g.deltaActual > 0 ? 'overrun' : g.deltaActual < 0 ? 'underrun' : ''}">${fmtMoney(g.deltaActual)}</td><td class="num ${varianceClass(g.deltaActualPct)}">${pct(g.deltaActualPct)}</td></tr>`;
+  });
+  html += '</tbody></table></div></div>';
+  html += '</div>';
+  container.innerHTML = html;
+
+  document.getElementById('analysisChartTitle').textContent = '月別 前年同月差（実績）';
+  if (state.charts.analysis) state.charts.analysis.destroy();
+  state.charts.analysis = new Chart(document.getElementById('analysisChart'), {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => fmtYM(r.yearMonth)),
+      datasets: [{
+        label: '前年差（実績）',
+        data: rows.map(r => r.deltaActual),
+        backgroundColor: rows.map(r => r.deltaActual > 0 ? 'rgba(239,68,68,0.55)' : 'rgba(34,197,94,0.55)'),
+        borderRadius: 3,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => fmt(v) } } } }
+  });
+
+  document.getElementById('analysisPieTitle').textContent = '部門別 前年比（実績）';
+  const dep = await api('/analysis/yoy?groupBy=department');
+  const depData = (dep.grouped || []).slice(0, 10);
+  if (state.charts.analysisPie) state.charts.analysisPie.destroy();
+  state.charts.analysisPie = new Chart(document.getElementById('analysisPieChart'), {
+    type: 'doughnut',
+    data: {
+      labels: depData.map(d => d.name),
+      datasets: [{ data: depData.map(d => Math.abs(d.deltaActual)), backgroundColor: PIE_COLORS }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
   });
 }
 
@@ -906,6 +995,11 @@ async function loadSystemDetail() {
 async function renderVariance() {
   const mc = document.getElementById('mainContent');
   const result = await api('/analysis/variances');
+  const reasonSummary = await api('/variance-reasons/summary');
+  const initiativeSummary = await api('/initiatives/summary');
+  const initiatives = await api('/initiatives');
+  const renewals = await api('/contracts/renewals?withinMonths=3');
+  const reviewCandidates = await api('/contracts/review-candidates');
   const data = result.data || [];
 
   if (data.length === 0) {
@@ -937,6 +1031,46 @@ async function renderVariance() {
         <div class="bg-blue-50 rounded-xl p-4 border border-blue-100 card-hover">
           <p class="text-[11px] text-blue-500 mb-1">予算内項目</p>
           <p class="text-2xl font-bold text-blue-700">${data.length - overruns.length - underruns.length}</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-orange-100 p-4">
+          <h3 class="text-sm font-semibold text-orange-700 mb-2"><i class="fas fa-comment-dots mr-1.5"></i>差額理由管理</h3>
+          <p class="text-[12px] text-gray-600 mb-3">未登録件数: <span class="font-semibold text-red-600">${reasonSummary.missingCount}</span> / 対象 ${reasonSummary.totalTargets} 件</p>
+          <div class="flex flex-wrap gap-2 text-[11px] mb-3">
+            ${(reasonSummary.byCategory || []).slice(0, 5).map(c => `<span class="badge bg-orange-50 text-orange-700">${c.category}: ${c.count}</span>`).join('')}
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <input id="reasonManagementNo" class="border rounded px-2 py-1 text-[12px]" placeholder="管理番号">
+            <input id="reasonItemNo" class="border rounded px-2 py-1 text-[12px]" placeholder="項番">
+            <input id="reasonPeriod" class="border rounded px-2 py-1 text-[12px]" placeholder="期 (例:65)">
+            <input id="reasonYm" class="border rounded px-2 py-1 text-[12px]" placeholder="対象月 (YYYYMM)">
+            <input id="reasonCategory" class="border rounded px-2 py-1 text-[12px]" placeholder="理由カテゴリ">
+            <input id="reasonFactor" class="border rounded px-2 py-1 text-[12px]" placeholder="要因区分">
+          </div>
+          <textarea id="reasonComment" class="border rounded px-2 py-1 text-[12px] w-full mb-2" rows="2" placeholder="コメント"></textarea>
+          <button onclick="saveVarianceReason()" class="btn-primary text-[12px]"><i class="fas fa-save"></i>差額理由を保存</button>
+        </div>
+
+        <div class="bg-white rounded-xl border border-blue-100 p-4">
+          <h3 class="text-sm font-semibold text-blue-700 mb-2"><i class="fas fa-screwdriver-wrench mr-1.5"></i>改善施策管理</h3>
+          <p class="text-[12px] text-gray-600 mb-2">施策 ${initiativeSummary.totalCount} 件 / 期限超過 <span class="text-red-600 font-semibold">${initiativeSummary.overdueCount}</span> 件</p>
+          <p class="text-[11px] text-gray-500 mb-3">想定削減 ${fmt(initiativeSummary.totalExpectedReduction)} 円 / 実績削減 ${fmt(initiativeSummary.totalActualReduction)} 円</p>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <input id="initiativeManagementNo" class="border rounded px-2 py-1 text-[12px]" placeholder="管理番号">
+            <input id="initiativeItemNo" class="border rounded px-2 py-1 text-[12px]" placeholder="項番">
+            <input id="initiativePeriod" class="border rounded px-2 py-1 text-[12px]" placeholder="期">
+            <input id="initiativeTitle" class="border rounded px-2 py-1 text-[12px]" placeholder="施策名">
+            <input id="initiativeOwner" class="border rounded px-2 py-1 text-[12px]" placeholder="担当者">
+            <input id="initiativeDeadline" type="date" class="border rounded px-2 py-1 text-[12px]">
+            <input id="initiativeExpected" type="number" class="border rounded px-2 py-1 text-[12px]" placeholder="想定削減額">
+            <input id="initiativeActual" type="number" class="border rounded px-2 py-1 text-[12px]" placeholder="実績削減額">
+          </div>
+          <select id="initiativeStatus" class="border rounded px-2 py-1 text-[12px] mb-2">
+            <option>未着手</option><option>進行中</option><option>完了</option><option>保留</option>
+          </select>
+          <button onclick="saveInitiative()" class="btn-primary text-[12px]"><i class="fas fa-save"></i>改善施策を保存</button>
         </div>
       </div>
 
@@ -972,6 +1106,32 @@ async function renderVariance() {
           </table>
         </div>
       </div>` : '<div class="bg-green-50 rounded-xl p-4 border border-green-200 text-green-700"><i class="fas fa-check-circle mr-2"></i>予算超過項目はありません</div>'}
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-indigo-100 p-4">
+          <h3 class="text-sm font-semibold text-indigo-700 mb-3"><i class="fas fa-list-check mr-1.5"></i>改善施策一覧</h3>
+          <div class="overflow-auto max-h-56">
+            <table class="data-table">
+              <thead><tr><th>ID</th><th>施策</th><th>担当</th><th>期限</th><th>状態</th><th class="num">想定削減</th></tr></thead>
+              <tbody>
+                ${(initiatives.data || []).slice(0, 30).map(r => `<tr><td class="text-[10px]">${r.initiative_id}</td><td class="text-[11px]">${r.title}</td><td>${r.owner || '-'}</td><td>${r.deadline || '-'}</td><td>${r.status}</td><td class="num">${fmt(r.expected_reduction)}</td></tr>`).join('') || '<tr><td colspan="6" class="text-center text-gray-400">データなし</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border border-cyan-100 p-4">
+          <h3 class="text-sm font-semibold text-cyan-700 mb-3"><i class="fas fa-file-signature mr-1.5"></i>契約更新・見直し候補</h3>
+          <p class="text-[11px] text-gray-500 mb-2">更新月が近い契約: ${(renewals.data || []).length} 件 / 見直し候補: ${(reviewCandidates.data || []).length} 件</p>
+          <div class="overflow-auto max-h-56">
+            <table class="data-table">
+              <thead><tr><th>契約番号</th><th>ベンダー</th><th>更新月</th><th>判断</th><th class="num">ベンダー差異</th></tr></thead>
+              <tbody>
+                ${(reviewCandidates.data || []).slice(0, 30).map(c => `<tr><td class="text-[11px]">${c.contract_no}</td><td>${c.vendor_name}</td><td>${fmtYM(c.renewal_month)}</td><td>${c.decision_status}</td><td class="num ${varianceClass(c.vendor_variance_pct)}">${pct(c.vendor_variance_pct)}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center text-gray-400">データなし</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <!-- Full Variance Table -->
       <div class="bg-white rounded-xl border border-gray-100 p-4">
@@ -1041,6 +1201,7 @@ async function renderItems() {
   const systems = statusData.systems || [];
   const classifications = statusData.classifications || [];
   const departments = statusData.departments || [];
+  const vendors = statusData.vendors || [];
   const periods = statusData.periods || [];
 
   mc.innerHTML = `
@@ -1067,6 +1228,12 @@ async function renderItems() {
             <label class="text-[12px] text-gray-500">部門:</label>
             <select id="filterDepartment" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
               <option value="">全て</option>${departments.map(d => `<option value="${d}">${d}</option>`).join('')}
+            </select>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <label class="text-[12px] text-gray-500">ベンダー:</label>
+            <select id="filterVendor" onchange="loadItems()" class="border rounded-md px-2 py-1 text-[12px]">
+              <option value="">全て</option>${vendors.map(v => `<option value="${v}">${v}</option>`).join('')}
             </select>
           </div>
           <div class="flex items-center gap-1.5">
@@ -1101,6 +1268,7 @@ async function loadItems() {
   const system = document.getElementById('filterSystem')?.value || '';
   const classification = document.getElementById('filterClassification')?.value || '';
   const department = document.getElementById('filterDepartment')?.value || '';
+  const vendor = document.getElementById('filterVendor')?.value || '';
   const period = document.getElementById('filterPeriod')?.value || '';
   const search = document.getElementById('filterSearch')?.value || '';
 
@@ -1108,6 +1276,7 @@ async function loadItems() {
   if (system) url += 'system=' + encodeURIComponent(system) + '&';
   if (classification) url += 'classification=' + encodeURIComponent(classification) + '&';
   if (department) url += 'department=' + encodeURIComponent(department) + '&';
+  if (vendor) url += 'vendor=' + encodeURIComponent(vendor) + '&';
   if (period) url += 'period=' + encodeURIComponent(period) + '&';
   if (search) url += 'search=' + encodeURIComponent(search) + '&';
 
@@ -1125,7 +1294,7 @@ async function loadItems() {
   const displayYMs = sortedYMs.slice(0, 24); // max 24 months
 
   let html = '<table class="data-table" id="itemsTable"><thead><tr>';
-  html += '<th>管理番号</th><th>システム</th><th>期</th><th>案件名</th><th>部門</th>';
+  html += '<th>管理番号</th><th>システム</th><th>ベンダー</th><th>期</th><th>案件名</th><th>部門</th>';
   displayYMs.forEach(ym => html += `<th class="num text-[10px]">${fmtYM(ym)}</th>`);
   html += '<th class="num" style="background:#dbeafe">計画計</th><th class="num" style="background:#fef3c7">見通し計</th><th class="num" style="background:#dcfce7">実績計</th><th class="num">差異</th>';
   html += '</tr></thead><tbody>';
@@ -1136,6 +1305,7 @@ async function loadItems() {
     html += '<tr>';
     html += `<td class="font-medium text-[10px]">${item.management_no}/${item.item_no}</td>`;
     html += `<td class="text-[10px]">${item.system_name}</td>`;
+    html += `<td class="text-[10px]">${item.vendor_name || item.payee_name || '-'}</td>`;
     html += `<td class="text-[10px]">${item.fiscal_period || ''}</td>`;
     html += `<td class="text-[10px]">${item.project_name || '-'}</td>`;
     html += `<td class="text-[10px] text-gray-400">${item.department_name || '-'}</td>`;
@@ -1155,7 +1325,7 @@ async function loadItems() {
   });
 
   // Totals row
-  html += '<tr style="background:#f8fafc;font-weight:700"><td colspan="5">合計</td>';
+  html += '<tr style="background:#f8fafc;font-weight:700"><td colspan="6">合計</td>';
   displayYMs.forEach(ym => {
     const total = displayItems.reduce((s, i) => {
       const m = i.monthly[ym];
@@ -1195,6 +1365,56 @@ function exportItemsCSV() {
   a.download = 'budget_items_export.csv';
   a.click();
   showToast('CSVをダウンロードしました');
+}
+
+async function saveVarianceReason() {
+  const payload = {
+    management_no: document.getElementById('reasonManagementNo')?.value?.trim(),
+    item_no: document.getElementById('reasonItemNo')?.value?.trim(),
+    fiscal_period: document.getElementById('reasonPeriod')?.value?.trim(),
+    target_year_month: document.getElementById('reasonYm')?.value?.trim(),
+    reason_category: document.getElementById('reasonCategory')?.value?.trim(),
+    factor_type: document.getElementById('reasonFactor')?.value?.trim(),
+    comment: document.getElementById('reasonComment')?.value?.trim(),
+  };
+  const res = await fetch('/api/variance-reasons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ error: '保存失敗' }));
+    showToast(e.error || '保存失敗', 'error');
+    return;
+  }
+  showToast('差額理由を保存しました');
+  await renderVariance();
+}
+
+async function saveInitiative() {
+  const payload = {
+    management_no: document.getElementById('initiativeManagementNo')?.value?.trim(),
+    item_no: document.getElementById('initiativeItemNo')?.value?.trim(),
+    fiscal_period: document.getElementById('initiativePeriod')?.value?.trim(),
+    title: document.getElementById('initiativeTitle')?.value?.trim(),
+    owner: document.getElementById('initiativeOwner')?.value?.trim(),
+    deadline: document.getElementById('initiativeDeadline')?.value,
+    status: document.getElementById('initiativeStatus')?.value,
+    expected_reduction: Number(document.getElementById('initiativeExpected')?.value || 0),
+    actual_reduction: Number(document.getElementById('initiativeActual')?.value || 0),
+  };
+  const res = await fetch('/api/initiatives', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ error: '保存失敗' }));
+    showToast(e.error || '保存失敗', 'error');
+    return;
+  }
+  showToast('改善施策を保存しました');
+  await renderVariance();
 }
 
 // === Initialization ===
