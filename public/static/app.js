@@ -633,7 +633,7 @@ async function renderAnalysis() {
   mc.innerHTML = `
     <div class="fade-in space-y-4">
       <div class="flex items-center gap-2 flex-wrap">
-        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-chart-bar mr-2 text-blue-600"></i>分析・比較</h2>
+        <h2 class="text-lg font-bold text-gray-800"><i class="fas fa-chart-line mr-2 text-blue-600"></i>分析・比較</h2>
         <span class="badge bg-slate-100 text-slate-600">単位: ${MONEY_UNIT}</span>
       </div>
 
@@ -958,7 +958,7 @@ async function loadSystemDetail() {
   // Items table
   if (d.items && d.items.length > 0) {
     html += '<h4 class="text-[12px] font-semibold text-gray-700 mb-2">費目一覧</h4>';
-    html += '<div class="overflow-auto"><table class="data-table"><thead><tr><th>管理番号</th><th>案件名</th><th>期</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">差異</th></tr></thead><tbody>';
+    html += '<div class="overflow-auto max-h-[38vh] border border-gray-100 rounded-lg"><table class="data-table"><thead><tr><th>管理番号</th><th>案件名</th><th>期</th><th class="num">計画</th><th class="num">見通し</th><th class="num">実績</th><th class="num">差異</th></tr></thead><tbody>';
     d.items.forEach(item => {
       const v = item.totalPlan > 0 ? ((item.totalActual - item.totalPlan) / item.totalPlan * 100) : 0;
       html += `<tr><td class="text-[11px]">${item.management_no}</td><td class="text-[11px]">${item.project_name || '-'}</td><td class="text-[11px]">${item.fiscal_period_label || ''}</td><td class="num">${fmt(item.totalPlan)}</td><td class="num">${fmt(item.totalForecast)}</td><td class="num">${fmt(item.totalActual)}</td><td class="num ${varianceClass(v)}">${varianceIcon(v)} ${pct(v)}</td></tr>`;
