@@ -8,7 +8,7 @@
   <link href="/static/style.css" rel="stylesheet">
   <script src="/static/vendor/chart.umd.min.js"></script>
 </head>
-<body>
+<body data-theme="light">
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
@@ -21,9 +21,12 @@
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar-left">
-          <h2 id="pageTitle">データ取込</h2>
-          <span id="statusBadge" class="status">データなし</span>
+        <div class="topbar-row">
+          <div class="topbar-left">
+            <h2 id="pageTitle">データ取込</h2>
+            <span id="statusBadge" class="status">データなし</span>
+          </div>
+          <button id="themeToggle" class="theme-toggle" type="button">🌙 ダーク</button>
         </div>
         <div class="topbar-filters" id="globalFilters"></div>
       </header>
