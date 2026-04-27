@@ -68,5 +68,13 @@ button.primary { background: var(--primary); color: #fff; border-color: var(--pr
 .col-picker { display:flex; flex-wrap:wrap; gap:6px; }
 .col-chip { border:1px solid var(--line); border-radius:999px; padding:4px 9px; font-size:12px; cursor:pointer; background:var(--panel-soft); }
 .col-chip.active { border-color: var(--primary); color: var(--primary); font-weight: 700; }
+
+.panel { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.panel:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); }
+.table-wrap table tbody tr { transition: background .12s ease; }
+.table-wrap table tbody tr:hover { background: color-mix(in srgb, var(--primary) 9%, var(--panel)); cursor: pointer; }
+.kpi .value { letter-spacing: .2px; }
+button.primary { background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #8db6ff)); }
+button.primary:hover { filter: brightness(1.05); }
 @media (max-width: 1200px) { .grid-6 { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .sidebar { display:none; } .topbar-filters { grid-template-columns: repeat(2,1fr); } .grid-2 { grid-template-columns: 1fr; } }

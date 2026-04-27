@@ -241,7 +241,7 @@ function renderSummary() {
   const items = filteredItems();
   const s = recomputeSummary(items);
   const top = items.map(r => ({
-    name: r[getPerspectiveKey()] || r.project_name || r.management_no,
+    name: r.project_name || '(案件名未設定)',
     gap: Number(r.totalPlan || 0) - Number(r.totalActual || 0),
     row: r,
   })).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 10);
@@ -292,7 +292,8 @@ function renderTrend() {
   const labels = s.labels.slice(-state.ui.trendMonths);
   const series = s.series.slice(-state.ui.trendMonths);
   const rank = items.map(r => ({
-    name: r[getPerspectiveKey()] || r.project_name || r.management_no,
+    name: r.project_name || '(案件名未設定)',
+    management_no: r.management_no,
     yoy: Number(r.totalActual || 0) - Number(r.totalPlan || 0),
     mom: Number(r.totalForecast || 0) - Number(r.totalActual || 0),
   })).sort((a, b) => Math.abs(b.yoy) - Math.abs(a.yoy)).slice(0, 20);
@@ -306,7 +307,7 @@ function renderTrend() {
       <div style="height:320px"><canvas id="trendChart"></canvas></div>
     </div>
     <div class="panel"><h4>変動の大きい順ランキング（前年差・前月差）</h4><div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">前年差</th><th class="right">前月差</th></tr></thead><tbody>
-      ${rank.map(r => `<tr><td>${r.name}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
+      ${rank.map(r => `<tr data-mid="${r.management_no}"><td>${r.name}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 
   drawLine('trendChart', labels, [
@@ -317,6 +318,7 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
+  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
 }
 
 function aggregateBy(rows, key) {
@@ -356,9 +358,10 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
+  const palette = ['#4f46e5','#0ea5e9','#22c55e','#f59e0b','#ef4444','#8b5cf6','#14b8a6','#f97316','#e11d48','#64748b'];
   new Chart(document.getElementById('catPie'), {
     type: 'doughnut',
-    data: { labels: agg.slice(0, 10).map(v => v.key), datasets: [{ data: agg.slice(0, 10).map(v => v.comp) }] },
+    data: { labels: agg.slice(0, 10).map(v => v.key), datasets: [{ data: agg.slice(0, 10).map(v => v.comp), backgroundColor: palette.slice(0, Math.min(10, agg.length)), borderWidth: 1 }] },
     options: { maintainAspectRatio: false, responsive: true }
   });
 }
