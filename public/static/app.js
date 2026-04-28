@@ -378,8 +378,8 @@ function aggregateBy(rows, key) {
 }
 
 function renderCategory() {
-  const tabs = ['期間別', '費目別', 'システム別', '部門別', '固定費・変動費'];
-  const keyMap = { '期間別': 'fiscal_period', '費目別': 'budget_category', 'システム別': 'system_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
+  const tabs = ['期間別', '費目別', 'システム分類名別', '部門別', '固定費・変動費'];
+  const keyMap = { '期間別': 'fiscal_period', '費目別': 'budget_category', 'システム分類名別': 'system_classification_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
   const agg = aggregateBy(filteredItems(), keyMap[state.ui.categoryTab]);
 
   document.getElementById('content').innerHTML = `
