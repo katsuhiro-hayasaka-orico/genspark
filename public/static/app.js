@@ -91,6 +91,39 @@ function buildTimeSeries(items) {
   return { labels, bucket };
 }
 
+function scopedPeriodSummary(items) {
+  const ts = buildTimeSeries(items);
+  const lastLabel = ts.labels[ts.labels.length - 1];
+  const scopeAll = state.filters.periodMode === '通期' || !lastLabel;
+  let totalPlan = 0;
+  let totalForecast = 0;
+  let totalActual = 0;
+
+  items.forEach((item) => {
+    if (scopeAll) {
+      totalPlan += Number(item.totalPlan || 0);
+      totalForecast += Number(item.totalForecast || 0);
+      totalActual += Number(item.totalActual || 0);
+      return;
+    }
+    Object.entries(item.monthly || {}).forEach(([ym, m]) => {
+      const key = state.filters.periodMode === '月次' ? ym : ymToQuarter(ym);
+      if (key !== lastLabel) return;
+      totalPlan += Number(m.plan || 0);
+      totalForecast += Number(m.forecast || 0);
+      totalActual += Number(m.actual || 0);
+    });
+  });
+
+  return {
+    totalPlan,
+    totalForecast,
+    totalActual,
+    labels: ts.labels,
+    series: ts.labels.map(l => ts.bucket[l] || { plan: 0, forecast: 0, actual: 0 }),
+  };
+}
+
 function recomputeSummary(items) {
   const totalPlan = items.reduce((s, r) => s + Number(r.totalPlan || 0), 0);
   const totalForecast = items.reduce((s, r) => s + Number(r.totalForecast || 0), 0);
@@ -203,7 +236,7 @@ function drawLine(canvasId, labels, datasets) {
 function renderImport() {
   document.getElementById('content').innerHTML = `
     <div class="panel">
-      <h3>CSV取込（唯一の入口）</h3>
+      <h3>CSV取込</h3>
       <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv"></div>
       <div class="controls"><button class="primary" id="uploadBtn" disabled>取込実行</button></div>
       <div id="importSummary"></div>
@@ -239,7 +272,10 @@ function renderImport() {
 
 function renderSummary() {
   const items = filteredItems();
-  const s = recomputeSummary(items);
+  const s = scopedPeriodSummary(items);
+  const diff = s.totalPlan - s.totalActual;
+  const reduction = Math.max(diff, 0);
+  const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
   const top = items.map(r => ({
     name: r.project_name || '(案件名未設定)',
     gap: Number(r.totalPlan || 0) - Number(r.totalActual || 0),
@@ -253,9 +289,9 @@ function renderSummary() {
           '総予算': yen(s.totalPlan),
           '総実績': yen(s.totalActual),
           '予算消化率': pct(s.totalPlan ? s.totalActual / s.totalPlan * 100 : 0),
-          '予算-実績': `<span class="${Math.abs(s.diff) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(s.diff)}</span>`,
+          '予算-実績': `<span class="${Math.abs(diff) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(diff)}</span>`,
           '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
-          'コスト削減効果': `${yen(s.reduction)} / ${pct(s.reductionRate)}`,
+          'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
         };
         return `<div class="kpi"><div class="label">${name}</div><div class="value">${map[name]}</div></div>`;
       }).join('')}
@@ -270,15 +306,15 @@ function renderSummary() {
       </tbody></table></div>
     </div>`;
 
-  const labels = s.labels.slice(-Math.min(s.labels.length, 12));
-  const series = s.series.slice(-labels.length);
+  const labels = s.labels;
+  const series = s.series;
   drawLine('sumChart1', labels, [
-    { label: '予算', data: series.map(v => v.plan), borderColor: '#2962d0' },
-    { label: '実績', data: series.map(v => v.actual), borderColor: '#2e9d5a' },
+    { label: '予算', data: series.map(v => v.plan), borderColor: '#AC3E00' },
+    { label: '実績', data: series.map(v => v.actual), borderColor: '#541E00' },
   ]);
 
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.actual - series[idx - 1].actual);
-  drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: '#d84343' }]);
+  drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: '#FB5B01' }]);
 
   document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => {
     state.ui.detailSearch = tr.dataset.mid;
@@ -311,9 +347,9 @@ function renderTrend() {
     </tbody></table></div></div>`;
 
   drawLine('trendChart', labels, [
-    { label: '予算', data: series.map(v => v.plan), borderColor: '#2962d0' },
-    { label: '見込', data: series.map(v => v.forecast), borderColor: '#f2a037' },
-    { label: '実績', data: series.map(v => v.actual), borderColor: '#2e9d5a' },
+    { label: '予算', data: series.map(v => v.plan), borderColor: '#AC3E00' },
+    { label: '見込', data: series.map(v => v.forecast), borderColor: '#FF8D44' },
+    { label: '実績', data: series.map(v => v.actual), borderColor: '#541E00' },
   ]);
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
@@ -358,7 +394,7 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
-  const palette = ['#4f46e5','#0ea5e9','#22c55e','#f59e0b','#ef4444','#8b5cf6','#14b8a6','#f97316','#e11d48','#64748b'];
+  const palette = ['#541E00','#AC3E00','#FB5B01','#FF8D44','#FFC199','#A58000','#D2A400','#FFC700','#666666','#999999'];
   new Chart(document.getElementById('catPie'), {
     type: 'doughnut',
     data: { labels: agg.slice(0, 10).map(v => v.key), datasets: [{ data: agg.slice(0, 10).map(v => v.comp), backgroundColor: palette.slice(0, Math.min(10, agg.length)), borderWidth: 1 }] },
@@ -418,10 +454,21 @@ function renderAlert() {
 function renderVendor() {
   const items = filteredItems();
   const map = {};
+  const periodSummary = scopedPeriodSummary(items);
+  const latestLabel = periodSummary.labels[periodSummary.labels.length - 1];
+  const scopeAll = state.filters.periodMode === '通期' || !latestLabel;
   items.forEach(r => {
     const name = r.vendor_name || r.payee_name || '未設定ベンダー';
     if (!map[name]) map[name] = { name, amount: 0, count: 0 };
-    const pay = Number(r.totalActual || 0) || Number(r.totalForecast || 0) || Number(r.totalPlan || 0);
+    let pay = 0;
+    if (scopeAll) {
+      pay = Number(r.totalActual || 0) || Number(r.totalForecast || 0) || Number(r.totalPlan || 0);
+    } else {
+      Object.entries(r.monthly || {}).forEach(([ym, m]) => {
+        const key = state.filters.periodMode === '月次' ? ym : ymToQuarter(ym);
+        if (key === latestLabel) pay += Number(m.actual || 0) || Number(m.forecast || 0) || Number(m.plan || 0);
+      });
+    }
     map[name].amount += pay;
     map[name].count += 1;
   });

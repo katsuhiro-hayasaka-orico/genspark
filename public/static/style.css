@@ -1,29 +1,34 @@
 :root {
-  --bg: #f4f7fb;
-  --panel: #ffffff;
-  --panel-soft: #f9fbff;
-  --line: #d7e1ef;
-  --text: #1d2a3a;
-  --muted: #6b7685;
-  --primary: #2962d0;
-  --danger: #d84343;
-  --ok: #2e9d5a;
-  --shadow: 0 8px 24px rgba(24, 39, 75, 0.07);
+  --bg: #F8F8FB;
+  --panel: #FFFFFF;
+  --panel-soft: #F1F1F4;
+  --line: #CCCCCC;
+  --text: #000000;
+  --muted: #626264;
+  --primary: #AC3E00;
+  --primary-strong: #541E00;
+  --danger: #850000;
+  --ok: #197A4B;
+  --link: #0017C1;
+  --shadow: 0 8px 24px rgba(51, 51, 51, 0.08);
 }
 body[data-theme="dark"] {
-  --bg: #11151c;
-  --panel: #1a2130;
-  --panel-soft: #20293b;
-  --line: #2c3950;
-  --text: #e9eef7;
-  --muted: #95a4bb;
-  --primary: #76a6ff;
-  --danger: #ff7f7f;
-  --ok: #67d18d;
-  --shadow: 0 10px 28px rgba(0,0,0,0.35);
+  --bg: #333333;
+  --panel: #1f1f1f;
+  --panel-soft: #2a2a2a;
+  --line: #666666;
+  --text: #FFFFFF;
+  --muted: #CCCCCC;
+  --primary: #FB5B01;
+  --primary-strong: #AC3E00;
+  --danger: #FFC199;
+  --ok: #197A4B;
+  --link: #FFC700;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: "Noto Sans JP", "Meiryo", sans-serif; color: var(--text); background: radial-gradient(circle at 10% 10%, var(--panel-soft) 0%, var(--bg) 55%); }
+body { margin: 0; font-family: "Noto Sans JP", "Meiryo", sans-serif; color: var(--text); background: var(--bg); }
+a { color: var(--link); }
 .layout { display: grid; grid-template-columns: 268px 1fr; min-height: 100vh; }
 .sidebar { border-right: 1px solid var(--line); background: var(--panel); padding: 16px; box-shadow: var(--shadow); }
 .brand h1 { margin: 0; font-size: 17px; }
@@ -74,7 +79,8 @@ button.primary { background: var(--primary); color: #fff; border-color: var(--pr
 .table-wrap table tbody tr { transition: background .12s ease; }
 .table-wrap table tbody tr:hover { background: color-mix(in srgb, var(--primary) 9%, var(--panel)); cursor: pointer; }
 .kpi .value { letter-spacing: .2px; }
-button.primary { background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #8db6ff)); }
+button.primary { background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 65%, #FB5B01)); }
 button.primary:hover { filter: brightness(1.05); }
+.right, .kpi .value, .status, .badge, input[type="number"] { font-family: Arial, "Noto Sans JP", sans-serif; }
 @media (max-width: 1200px) { .grid-6 { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .sidebar { display:none; } .topbar-filters { grid-template-columns: repeat(2,1fr); } .grid-2 { grid-template-columns: 1fr; } }
