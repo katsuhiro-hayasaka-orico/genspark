@@ -113,6 +113,7 @@ function parseUnifiedBudgetLayout(rows) {
       management_no: managementNo,
       item_no: itemNo,
       budget_category: row['予算区分'] || row['経費区分'] || '',
+      expense_classification: row['経費区分'] || '',
       project_name: row['案件名'] || '',
       department_name: row['部署名'] || '',
       owner_name: row['担当者'] || '',
@@ -297,6 +298,7 @@ function buildUnifiedData() {
 
           // From master
           budget_category: masterRow.budget_category || '',
+          expense_classification: masterRow.expense_classification || '',
           project_name: masterRow.project_name || '',
           department_name: masterRow.department_name || '',
           owner_name: masterRow.owner_name || '',
@@ -358,6 +360,7 @@ function buildUnifiedData() {
         fiscal_period_label: periodLabel(fp),
         fiscal_year: periodFY(fp),
         budget_category: row.budget_category || '',
+        expense_classification: row.expense_classification || '',
         project_name: row.project_name || '',
         department_name: row.department_name || '',
         owner_name: row.owner_name || '',
