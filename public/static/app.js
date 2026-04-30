@@ -34,6 +34,19 @@ const fmt = (n) => Number(n || 0).toLocaleString('ja-JP');
 const pct = (n) => `${(Number(n || 0)).toFixed(1)}%`;
 const yen = (n) => `${fmt(Math.round(Number(n || 0)))} 千円`;
 const isNewProject = (r) => /新規|new/i.test(r.project_name || '');
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[ch]));
+const optionHtml = (value, selectedValue) => {
+  const safe = escapeHtml(value);
+  return `<option value="${safe}" ${value === selectedValue ? 'selected' : ''}>${safe}</option>`;
+};
+const dataAttr = (value) => escapeHtml(value);
+const jsonForHtml = (value) => escapeHtml(JSON.stringify(value, null, 2));
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -153,7 +166,7 @@ function recomputeSummary(items) {
 
 function initNav() {
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${p.key}" ${!state.hasData && !['import', 'manual'].includes(p.key) ? 'disabled' : ''}>${p.label}</button>`).join('');
+  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${!state.hasData && !['import', 'manual'].includes(p.key) ? 'disabled' : ''}>${escapeHtml(p.label)}</button>`).join('');
   nav.querySelectorAll('.nav-item').forEach(b => b.onclick = () => goPage(b.dataset.page));
 }
 
@@ -164,10 +177,10 @@ function initFilterBar() {
   const targets = ['すべて', '継続案件', '新規案件', ...vendors.map(v => `ベンダー:${v}`)];
   const root = document.getElementById('globalFilters');
   root.innerHTML = `
-    <select id="fPeriod">${['月次', '四半期', '通期'].map(v => `<option ${v === state.filters.periodMode ? 'selected' : ''}>${v}</option>`).join('')}</select>
-    <select id="fDept"><option value="">全部門</option>${depts.map(v => `<option ${v === state.filters.department ? 'selected' : ''}>${v}</option>`).join('')}</select>
-    <select id="fPers">${['費目', 'システム', '固定・変動', '投資・運用'].map(v => `<option ${v === state.filters.perspective ? 'selected' : ''}>${v}</option>`).join('')}</select>
-    <select id="fTarget">${targets.map(v => `<option ${v === state.filters.target ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <select id="fPeriod">${['月次', '四半期', '通期'].map(v => optionHtml(v, state.filters.periodMode)).join('')}</select>
+    <select id="fDept"><option value="">全部門</option>${depts.map(v => optionHtml(v, state.filters.department)).join('')}</select>
+    <select id="fPers">${['費目', 'システム', '固定・変動', '投資・運用'].map(v => optionHtml(v, state.filters.perspective)).join('')}</select>
+    <select id="fTarget">${targets.map(v => optionHtml(v, state.filters.target)).join('')}</select>
   `;
   ['fPeriod', 'fDept', 'fPers', 'fTarget'].forEach((id) => {
     root.querySelector(`#${id}`).onchange = () => {
@@ -185,7 +198,7 @@ function setStatus() {
   document.getElementById('statusBadge').textContent = state.hasData ? 'データ読込済' : 'データなし';
   document.getElementById('statusBadge').className = `status ${state.hasData ? 'ok' : ''}`;
   document.getElementById('sidebarMeta').innerHTML = state.hasData
-    ? `${state.data.status?.csvFileName || ''}<br>案件 ${fmt(state.data.status?.itemCount || 0)} 件`
+    ? `${escapeHtml(state.data.status?.csvFileName || '')}<br>案件 ${fmt(state.data.status?.itemCount || 0)} 件`
     : '未取込';
 }
 
@@ -210,14 +223,71 @@ function goPage(page) {
   renderPage();
 }
 
+function parseCsvPreviewRecords(text, delimiter = ',') {
+  const records = [];
+  let record = [];
+  let field = '';
+  let inQuotes = false;
+  let fieldStarted = false;
+  const normalized = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (normalized[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"' && !fieldStarted) {
+      inQuotes = true;
+      fieldStarted = true;
+    } else if (ch === delimiter) {
+      record.push(field);
+      field = '';
+      fieldStarted = false;
+    } else if (ch === '\n') {
+      record.push(field);
+      records.push(record);
+      record = [];
+      field = '';
+      fieldStarted = false;
+    } else {
+      field += ch;
+      fieldStarted = true;
+    }
+  }
+
+  if (field.length || fieldStarted || record.length) {
+    record.push(field);
+    records.push(record);
+  }
+  return records;
+}
+
+function detectPreviewDelimiter(text) {
+  const firstLine = String(text || '').split(/\r?\n/, 1)[0] || '';
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  return tabCount > commaCount ? '\t' : ',';
+}
+
 function csvClientChecks(text) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(Boolean);
-  if (!lines.length) return { errors: ['空ファイルです'], summary: null };
-  const headers = lines[0].split(',').map(s => s.trim());
+  const records = parseCsvPreviewRecords(text, detectPreviewDelimiter(text));
+  if (!records.length) return { errors: ['空ファイルです'], summary: null };
+  const headers = records[0].map(s => s.trim());
   const hasId = headers.includes('管理番号') || headers.includes('管理番号（統合）');
   const hasItem = headers.includes('項番');
   const monthCols = headers.filter(h => /期\d{1,2}月(計画|見込)$/.test(h));
-  const rows = lines.slice(1).map(l => l.split(','));
+  const rows = records.slice(1).filter(r => r.some(v => String(v || '').trim()));
   const errors = [];
   if (!hasId) errors.push('必須列不足: 管理番号/管理番号（統合）');
   if (!hasItem) errors.push('必須列不足: 項番');
@@ -266,8 +336,8 @@ function renderImport() {
   const preview = async (f) => {
     file = f;
     const c = csvClientChecks(await f.text());
-    document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${c.summary.periodRange}</li><li>欠損の多い列: ${c.summary.missingHeavy}</li><li>数値列への文字混入候補: ${c.summary.invalidNumeric}</li></ul></div>` : '';
-    document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${e}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
+    document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
+    document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
     uploadBtn.disabled = false;
   };
 
@@ -309,7 +379,7 @@ function renderSummary() {
           '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
           'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
         };
-        return `<div class="kpi"><div class="label">${name}</div><div class="value">${map[name]}</div></div>`;
+        return `<div class="kpi"><div class="label">${escapeHtml(name)}</div><div class="value">${map[name] || ''}</div></div>`;
       }).join('')}
     </div>
     <div class="grid-2">
@@ -318,7 +388,7 @@ function renderSummary() {
     </div>
     <div class="panel"><h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
       <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th></tr></thead><tbody>
-      ${top.map((r, i) => `<tr data-mid="${r.row.management_no}"><td>${i + 1}. ${r.name}</td><td class="right ${Math.abs(r.gap) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.gap)}</td></tr>`).join('')}
+      ${top.map((r, i) => `<tr data-mid="${dataAttr(r.row.management_no)}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${Math.abs(r.gap) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.gap)}</td></tr>`).join('')}
       </tbody></table></div>
     </div>`;
 
@@ -354,12 +424,12 @@ function renderTrend() {
     <div class="panel">
       <div class="controls">
         <label>期間 <select id="trendMonths">${[12, 24, 60].map(v => `<option value="${v}" ${v === state.ui.trendMonths ? 'selected' : ''}>${v}か月</option>`).join('')}</select></label>
-        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => `<option ${v === state.ui.trendMetric ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => optionHtml(v, state.ui.trendMetric)).join('')}</select></label>
       </div>
       <div style="height:320px"><canvas id="trendChart"></canvas></div>
     </div>
     <div class="panel"><h4>変動の大きい順ランキング（前年差・前月差）</h4><div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">前年差</th><th class="right">前月差</th></tr></thead><tbody>
-      ${rank.map(r => `<tr data-mid="${r.management_no}"><td>${r.name}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
+      ${rank.map(r => `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.name)}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 
   const cc = chartColors();
@@ -401,11 +471,11 @@ function renderCategory() {
 
   document.getElementById('content').innerHTML = `
     <div class="panel">
-      <div class="tabs">${tabs.map(t => `<button data-tab="${t}" class="${t === state.ui.categoryTab ? 'active' : ''}">${t}</button>`).join('')}</div>
+      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div>
       <div class="grid-2">
         <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
         <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${agg.slice(0, 25).map(r => `<tr><td>${r.key}</td><td class="right">${pct(r.comp)}</td><td class="right">${yen(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
+          ${agg.slice(0, 25).map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${yen(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
         </tbody></table></div></div>
       </div>
     </div>`;
@@ -435,7 +505,7 @@ function renderProject() {
     document.getElementById('projectRows').innerHTML = view.slice(0, 200).map(r => {
       const progress = Number(r.totalForecast || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
       const burn = Number(r.totalActual || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
-      return `<tr data-mid="${r.management_no}"><td>${r.project_name || '(名称未設定)'}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${r.variance_reason || '-'}</td></tr>`;
+      return `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${escapeHtml(r.variance_reason || '-')}</td></tr>`;
     }).join('');
     document.querySelectorAll('#projectRows tr').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
   };
@@ -459,9 +529,9 @@ function renderAlert() {
       <div class="controls"><span class="badge">しきい値: 乖離率 ${t.varianceRate}% / 差額 ${fmt(t.amountGap)} 千円 / 前月比 ${t.momRate}% / 前年比 ${t.yoyRate}%</span></div>
       <div class="grid-2">
         <div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${rows.slice(0, 200).map(r => `<tr data-mid="${r.management_no}"><td>${r.project_name || r.management_no}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td></tr>`).join('')}
+          ${rows.slice(0, 200).map(r => `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td></tr>`).join('')}
         </tbody></table></div>
-        <div class="panel"><h4>右ペイン</h4>${first ? `<p><b>${first.project_name || first.management_no}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${first.system_name || '-'} / ${first.department_name || '-'}</p><p>メモ欄: ${first.memo || 'CSV列なし'}</p>` : 'アラート対象なし'}</div>
+        <div class="panel"><h4>右ペイン</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p>` : 'アラート対象なし'}</div>
       </div>
     </div>`;
 
@@ -503,10 +573,10 @@ function renderVendor() {
   document.getElementById('content').innerHTML = `
     <div class="grid-2">
       <div class="panel"><h4>ベンダー別支払額ランキング（Top／全件）</h4><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th></tr></thead><tbody>
-        ${ranking.map(v => `<tr><td>${v.name}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td></tr>`).join('') || '<tr><td colspan="3">データなし</td></tr>'}
+        ${ranking.map(v => `<tr><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td></tr>`).join('') || '<tr><td colspan="3">データなし</td></tr>'}
       </tbody></table></div></div>
       <div class="panel"><h4>契約更新月一覧（当月〜3か月先）</h4><div class="table-wrap"><table><thead><tr><th>契約番号</th><th>ベンダー</th><th>更新月</th></tr></thead><tbody>
-        ${renewals.map(r => `<tr><td>${r.contract_no}</td><td>${r.vendor_name}</td><td>${r.renewal_month}</td></tr>`).join('') || '<tr><td colspan="3">対象なし</td></tr>'}
+        ${renewals.map(r => `<tr><td>${escapeHtml(r.contract_no)}</td><td>${escapeHtml(r.vendor_name)}</td><td>${escapeHtml(r.renewal_month)}</td></tr>`).join('') || '<tr><td colspan="3">対象なし</td></tr>'}
       </tbody></table></div></div>
     </div>`;
 }
@@ -524,11 +594,11 @@ function renderDetail() {
   document.getElementById('content').innerHTML = `
     <div class="panel">
       <div class="controls">
-        <input type="text" id="dSearch" placeholder="キーワード検索" value="${state.ui.detailSearch || ''}">
+        <input type="text" id="dSearch" placeholder="キーワード検索" value="${dataAttr(state.ui.detailSearch || '')}">
         <button id="dExport">表示結果をCSV書き出し</button>
       </div>
       <div class="controls"><span class="badge">キー項目は常時表示</span></div>
-      <div class="col-picker" id="colPicker">${optionalCols.map(c => `<span class="col-chip ${state.ui.extraDetailCols.includes(c) ? 'active' : ''}" data-col="${c}">${c}</span>`).join('')}</div>
+      <div class="col-picker" id="colPicker">${optionalCols.map(c => `<span class="col-chip ${state.ui.extraDetailCols.includes(c) ? 'active' : ''}" data-col="${dataAttr(c)}">${escapeHtml(c)}</span>`).join('')}</div>
       <div class="table-wrap"><table><thead><tr id="dHead"></tr></thead><tbody id="dBody"></tbody></table></div>
     </div>
     <div class="panel" id="detailPane">行クリックで属性(master)+月次(detail)を並列表示</div>`;
@@ -539,14 +609,14 @@ function renderDetail() {
     const cols = [...fixedCols, ...state.ui.extraDetailCols];
     const view = filteredItems().filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
 
-    document.getElementById('dHead').innerHTML = cols.map(c => `<th>${c}</th>`).join('');
-    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}">${cols.map(c => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`).join('');
+    document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
+    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}">${cols.map(c => `<td>${escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
       const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category };
       const detail = row.monthly || {};
-      document.getElementById('detailPane').innerHTML = `<div class="grid-2"><div><h4>属性(master)</h4><pre>${JSON.stringify(master, null, 2)}</pre></div><div><h4>月次(detail)</h4><pre>${JSON.stringify(detail, null, 2)}</pre></div></div>`;
+      document.getElementById('detailPane').innerHTML = `<div class="grid-2"><div><h4>属性(master)</h4><pre>${jsonForHtml(master)}</pre></div><div><h4>月次(detail)</h4><pre>${jsonForHtml(detail)}</pre></div></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
@@ -583,7 +653,7 @@ function renderSettings() {
         <label>前月比% <input id="sMom" type="number" value="${t.momRate}"></label>
         <label>前年比% <input id="sYoy" type="number" value="${t.yoyRate}"></label>
       </div>
-      <label>重要KPI 並び順（カンマ区切り）<input id="sKpi" type="text" style="width:100%" value="${state.settings.kpiOrder.join(',')}"></label>
+      <label>重要KPI 並び順（カンマ区切り）<input id="sKpi" type="text" style="width:100%" value="${dataAttr(state.settings.kpiOrder.join(','))}"></label>
       <div class="controls"><button class="primary" id="saveSetting">反映</button></div>
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', `

@@ -2,10 +2,13 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
+const APP_DATA_DIR = process.env.BUDGET_CSV_VIEWER_DATA_DIR || path.join(os.homedir(), '.budget-csv-viewer');
+const STORE_FILE = process.env.BUDGET_CSV_VIEWER_STORE_FILE || path.join(APP_DATA_DIR, 'store.json');
 
 // --- Multer setup (memory storage, no disk persistence) ---
 const upload = multer({
@@ -22,78 +25,174 @@ app.use(express.json());
 app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 
 // =============================================
-// In-memory data store
+// Local data store
 // =============================================
-let store = {
-  master: null,       // normalized master-like rows derived from unified CSV
-  detail: null,       // normalized detail-like rows derived from unified CSV
-  rawRows: null,      // parsed unified CSV rows (as-is view for items screen)
-  uploadedAt: null,
-  csvFileName: null,
-  varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
-  initiatives: {},       // key: initiative_id
-  contracts: {},         // key: contract_id
-};
+function emptyStore() {
+  return {
+    master: null,       // normalized master-like rows derived from unified CSV
+    detail: null,       // normalized detail-like rows derived from unified CSV
+    rawRows: null,      // parsed unified CSV rows (as-is view for items screen)
+    uploadedAt: null,
+    csvFileName: null,
+    varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
+    initiatives: {},       // key: initiative_id
+    contracts: {},         // key: contract_id
+  };
+}
+
+let store = emptyStore();
+
+function normalizeStore(candidate) {
+  return {
+    ...emptyStore(),
+    ...(candidate && typeof candidate === 'object' ? candidate : {}),
+    varianceReasons: candidate?.varianceReasons && typeof candidate.varianceReasons === 'object' ? candidate.varianceReasons : {},
+    initiatives: candidate?.initiatives && typeof candidate.initiatives === 'object' ? candidate.initiatives : {},
+    contracts: candidate?.contracts && typeof candidate.contracts === 'object' ? candidate.contracts : {},
+  };
+}
+
+function persistStore() {
+  try {
+    fs.mkdirSync(APP_DATA_DIR, { recursive: true });
+    fs.writeFileSync(STORE_FILE, JSON.stringify(store), 'utf8');
+  } catch (error) {
+    console.error('  [Store] Failed to persist local data:', error.message);
+  }
+}
+
+function loadStoreFromDisk() {
+  if (!fs.existsSync(STORE_FILE)) return false;
+
+  try {
+    const saved = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+    store = normalizeStore(saved);
+    console.log(`  [Store] Loaded local data from ${STORE_FILE}`);
+    return true;
+  } catch (error) {
+    console.error('  [Store] Failed to load local data:', error.message);
+    store = emptyStore();
+    return false;
+  }
+}
 
 // =============================================
-// CSV Parsing (no external dependency)
+// CSV Parsing
 // =============================================
 function parseCSV(text) {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  if (lines.length < 2) return [];
+  const normalized = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.trim()) return [];
 
-  const delimiter = detectDelimiter(lines[0]);
-  const headers = parseCSVLine(lines[0], delimiter);
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const values = parseCSVLine(line, delimiter);
-    const row = {};
-    headers.forEach((h, idx) => {
-      row[h.trim()] = (values[idx] || '').trim();
+  const delimiter = detectDelimiter(readFirstCSVRecord(normalized));
+  const records = parseCSVRecords(normalized, delimiter);
+  if (records.length < 2) return [];
+
+  const headers = records[0].map(h => h.trim());
+  return records.slice(1)
+    .filter(values => values.some(v => String(v || '').trim() !== ''))
+    .map((values) => {
+      const row = {};
+      headers.forEach((h, idx) => {
+        row[h] = String(values[idx] ?? '').trim();
+      });
+      return row;
     });
-    rows.push(row);
+}
+
+function readFirstCSVRecord(text) {
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === '\n' && !inQuotes) {
+      return text.slice(0, i);
+    }
   }
-  return rows;
+  return text;
 }
 
 function detectDelimiter(headerLine) {
-  const commaCount = (headerLine.match(/,/g) || []).length;
-  const tabCount = (headerLine.match(/\t/g) || []).length;
+  const commaCount = countDelimiterOutsideQuotes(headerLine, ',');
+  const tabCount = countDelimiterOutsideQuotes(headerLine, '\t');
   return tabCount > commaCount ? '\t' : ',';
 }
 
-function parseCSVLine(line, delimiter = ',') {
-  const result = [];
-  let current = '';
+function countDelimiterOutsideQuotes(text, delimiter) {
+  let count = 0;
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function parseCSVLine(line, delimiter = ',') {
+  return parseCSVRecords(String(line || ''), delimiter)[0] || [];
+}
+
+function parseCSVRecords(text, delimiter = ',') {
+  const records = [];
+  let record = [];
+  let field = '';
+  let inQuotes = false;
+  let fieldStarted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          current += '"';
+        if (text[i + 1] === '"') {
+          field += '"';
           i++;
         } else {
           inQuotes = false;
         }
       } else {
-        current += ch;
+        field += ch;
       }
+      continue;
+    }
+
+    if (ch === '"' && !fieldStarted) {
+      inQuotes = true;
+      fieldStarted = true;
+    } else if (ch === delimiter) {
+      record.push(field);
+      field = '';
+      fieldStarted = false;
+    } else if (ch === '\n') {
+      record.push(field);
+      records.push(record);
+      record = [];
+      field = '';
+      fieldStarted = false;
     } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === delimiter) {
-        result.push(current);
-        current = '';
-      } else {
-        current += ch;
-      }
+      field += ch;
+      fieldStarted = true;
     }
   }
-  result.push(current);
-  return result;
+
+  if (field.length || fieldStarted || record.length) {
+    record.push(field);
+    records.push(record);
+  }
+
+  return records;
 }
 
 function parseUnifiedBudgetLayout(rows) {
@@ -671,6 +770,8 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
       });
     }
 
+    persistStore();
+
     res.json({
       message: 'アップロード完了',
       csvFileName: store.csvFileName,
@@ -1072,6 +1173,7 @@ app.post('/api/variance-reasons', (req, res) => {
     comment: body.comment || '',
     updated_at: new Date().toISOString(),
   };
+  persistStore();
   res.json({ message: '差額理由を保存しました', data: store.varianceReasons[key] });
 });
 
@@ -1125,6 +1227,7 @@ app.post('/api/initiatives', (req, res) => {
     note: body.note || '',
     updated_at: new Date().toISOString(),
   };
+  persistStore();
   res.json({ message: '改善施策を保存しました', data: store.initiatives[initiativeId] });
 });
 
@@ -1167,6 +1270,7 @@ app.post('/api/contracts', (req, res) => {
     annual_amount: toNum(body.annual_amount),
     updated_at: new Date().toISOString(),
   };
+  persistStore();
   res.json({ message: '契約情報を保存しました', data: store.contracts[id] });
 });
 
@@ -1206,16 +1310,8 @@ app.get('/api/contracts/review-candidates', (_, res) => {
 
 // Clear data
 app.post('/api/clear', (_, res) => {
-  store = {
-    master: null,
-    detail: null,
-    rawRows: null,
-    uploadedAt: null,
-    csvFileName: null,
-    varianceReasons: {},
-    initiatives: {},
-    contracts: {},
-  };
+  store = emptyStore();
+  persistStore();
   res.json({ message: 'データをクリアしました' });
 });
 
@@ -1282,6 +1378,7 @@ function autoLoadSampleData() {
         });
       }
       console.log(`  [Auto-load] ${data ? data.items.length : 0} items, ${agg ? agg.systemNames.length : 0} systems, ${agg ? agg.periods.length : 0} periods`);
+      persistStore();
     }
   } catch (e) {
     console.error('  [Auto-load] Failed:', e.message);
@@ -1294,9 +1391,12 @@ function startServer({ host = HOST, port = PORT } = {}) {
   if (server) return server;
 
   server = app.listen(port, host, () => {
+    const actualPort = server.address()?.port || port;
     console.log(`\n  Budget CSV Viewer v4.0`);
-    console.log(`  Local:   http://${host}:${port}`);
-    autoLoadSampleData();
+    console.log(`  Local:   http://${host}:${actualPort}`);
+    if (!loadStoreFromDisk()) {
+      autoLoadSampleData();
+    }
     console.log(`  Status:  Ready\n`);
   });
 
@@ -1339,4 +1439,11 @@ module.exports = {
   app,
   startServer,
   stopServer,
+  parseCSV,
+  parseCSVLine,
+  parseUnifiedBudgetLayout,
+  buildUnifiedData,
+  getAggregations,
+  emptyStore,
+  normalizeStore,
 };
