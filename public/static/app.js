@@ -47,6 +47,7 @@ function toggleTheme() {
   const idx = order.indexOf(state.ui.theme);
   state.ui.theme = order[(idx + 1) % order.length];
   applyTheme();
+  renderPage();
 }
 
 function applyTheme() {
