@@ -8,6 +8,7 @@ const NAV_PAGES = [
   { key: 'vendor', label: '7. ベンダー／契約更新' },
   { key: 'detail', label: '8. 明細（検索・ドリルダウン）' },
   { key: 'settings', label: '9. 表示設定' },
+  { key: 'manual', label: '10. 取扱説明書（マニュアル）' },
 ];
 
 const state = {
@@ -42,10 +43,19 @@ async function api(path, opts = {}) {
 }
 
 function toggleTheme() {
-  state.ui.theme = state.ui.theme === 'light' ? 'dark' : 'light';
+  const order = ['light', 'dark', 'neon'];
+  const idx = order.indexOf(state.ui.theme);
+  state.ui.theme = order[(idx + 1) % order.length];
+  applyTheme();
+}
+
+function applyTheme() {
   document.body.dataset.theme = state.ui.theme;
   localStorage.setItem('theme', state.ui.theme);
-  document.getElementById('themeToggle').textContent = state.ui.theme === 'light' ? '🌙 ダーク' : '☀️ ライト';
+  const themeLabel = { light: '☀️ ライト', dark: '🌙 ダーク', neon: '🌈 ネオン' };
+  document.getElementById('themeToggle').textContent = `${themeLabel[state.ui.theme]}（切替）`;
+  const sel = document.getElementById('themeSelect');
+  if (sel) sel.value = state.ui.theme;
 }
 
 function ymToQuarter(ym) {
@@ -142,7 +152,7 @@ function recomputeSummary(items) {
 
 function initNav() {
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${p.key}" ${!state.hasData && p.key !== 'import' ? 'disabled' : ''}>${p.label}</button>`).join('');
+  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${p.key}" ${!state.hasData && !['import', 'manual'].includes(p.key) ? 'disabled' : ''}>${p.label}</button>`).join('');
   nav.querySelectorAll('.nav-item').forEach(b => b.onclick = () => goPage(b.dataset.page));
 }
 
@@ -170,8 +180,7 @@ function initFilterBar() {
 }
 
 function setStatus() {
-  document.body.dataset.theme = state.ui.theme;
-  document.getElementById('themeToggle').textContent = state.ui.theme === 'light' ? '🌙 ダーク' : '☀️ ライト';
+  applyTheme();
   document.getElementById('statusBadge').textContent = state.hasData ? 'データ読込済' : 'データなし';
   document.getElementById('statusBadge').className = `status ${state.hasData ? 'ok' : ''}`;
   document.getElementById('sidebarMeta').innerHTML = state.hasData
@@ -230,7 +239,13 @@ function csvClientChecks(text) {
 function drawLine(canvasId, labels, datasets) {
   const el = document.getElementById(canvasId);
   if (!el) return;
-  new Chart(el, { type: 'line', data: { labels, datasets }, options: { maintainAspectRatio: false, responsive: true } });
+  new Chart(el, { type: 'line', data: { labels, datasets }, options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { labels: { color: 'var(--text)' } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } } });
+}
+
+function chartColors() {
+  if (state.ui.theme === 'neon') return { c1: '#32E0FF', c2: '#AE7CFF', c3: '#FF4FD8', c4: '#7DFF9B', pie: ['#32E0FF','#AE7CFF','#FF4FD8','#7DFF9B','#FFD166','#6CF0FF','#D6A3FF','#FF8AE2','#9DFFB5','#7E89FF'] };
+  if (state.ui.theme === 'dark') return { c1: '#FB5B01', c2: '#FFC199', c3: '#FFC700', c4: '#82D4A5', pie: ['#FB5B01','#FF8D44','#FFC199','#FFC700','#A58000','#82D4A5','#6BC7FF','#C8A2FF','#666','#999'] };
+  return { c1: '#AC3E00', c2: '#541E00', c3: '#FB5B01', c4: '#197A4B', pie: ['#541E00','#AC3E00','#FB5B01','#FF8D44','#FFC199','#A58000','#D2A400','#FFC700','#666666','#999999'] };
 }
 
 function renderImport() {
@@ -308,13 +323,13 @@ function renderSummary() {
 
   const labels = s.labels;
   const series = s.series;
+  const cc = chartColors();
   drawLine('sumChart1', labels, [
-    { label: '予算', data: series.map(v => v.plan), borderColor: '#AC3E00' },
-    { label: '実績', data: series.map(v => v.actual), borderColor: '#541E00' },
+    { label: '予算', data: series.map(v => v.plan), borderColor: cc.c1 },
+    { label: '実績', data: series.map(v => v.actual), borderColor: cc.c2 },
   ]);
-
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.actual - series[idx - 1].actual);
-  drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: '#FB5B01' }]);
+  drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
 
   document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => {
     state.ui.detailSearch = tr.dataset.mid;
@@ -346,10 +361,11 @@ function renderTrend() {
       ${rank.map(r => `<tr data-mid="${r.management_no}"><td>${r.name}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 
+  const cc = chartColors();
   drawLine('trendChart', labels, [
-    { label: '予算', data: series.map(v => v.plan), borderColor: '#AC3E00' },
-    { label: '見込', data: series.map(v => v.forecast), borderColor: '#FF8D44' },
-    { label: '実績', data: series.map(v => v.actual), borderColor: '#541E00' },
+    { label: '予算', data: series.map(v => v.plan), borderColor: cc.c1 },
+    { label: '見込', data: series.map(v => v.forecast), borderColor: cc.c3 },
+    { label: '実績', data: series.map(v => v.actual), borderColor: cc.c2 },
   ]);
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
@@ -394,7 +410,7 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
-  const palette = ['#541E00','#AC3E00','#FB5B01','#FF8D44','#FFC199','#A58000','#D2A400','#FFC700','#666666','#999999'];
+  const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
     type: 'doughnut',
     data: { labels: agg.slice(0, 10).map(v => v.key), datasets: [{ data: agg.slice(0, 10).map(v => v.comp), backgroundColor: palette.slice(0, Math.min(10, agg.length)), borderWidth: 1 }] },
@@ -569,6 +585,20 @@ function renderSettings() {
       <label>重要KPI 並び順（カンマ区切り）<input id="sKpi" type="text" style="width:100%" value="${state.settings.kpiOrder.join(',')}"></label>
       <div class="controls"><button class="primary" id="saveSetting">反映</button></div>
     </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', `
+    <div class="panel">
+      <h4>テーマ設定</h4>
+      <div class="controls">
+        <label>表示テーマ
+          <select id="themeSelect">
+            <option value="light">ライト</option><option value="dark">ダーク</option><option value="neon">ネオン</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  `);
+  document.getElementById('themeSelect').value = state.ui.theme;
+  document.getElementById('themeSelect').onchange = (e) => { state.ui.theme = e.target.value; applyTheme(); renderPage(); };
 
   document.getElementById('saveSetting').onclick = () => {
     state.settings.thresholds.varianceRate = Number(document.getElementById('sVar').value || 10);
@@ -578,6 +608,27 @@ function renderSettings() {
     state.settings.kpiOrder = document.getElementById('sKpi').value.split(',').map(v => v.trim()).filter(Boolean);
     alert('表示設定を反映しました');
   };
+}
+
+function renderManual() {
+  document.getElementById('content').innerHTML = `
+    <div class="panel"><h3>このアプリでできること（全体像）</h3>
+      <p>予算・見込・実績を1つの画面で確認し、会議で必要な説明資料を短時間で準備するための可視化アプリです。</p>
+      <ul><li>月次会議での予実差確認</li><li>コスト削減委員会での優先課題抽出</li><li>部門・案件・ベンダー単位の深掘り</li></ul>
+    </div>
+    <div class="panel"><h3>使い方チュートリアル（ステップ形式）</h3>
+      <h4>Step 1：データ取込</h4>
+      <ol><li>「1. データ取込」へ移動しCSVをアップロードします。</li><li>「読み込み結果サマリー」で件数・対象期間を確認します。</li><li>エラーパネルで不足列や数値不正を確認し、CSVを修正して再取込します。</li></ol>
+      <h4>Step 2：全体サマリーの見方</h4>
+      <ol><li>KPIカードで「総予算・総実績・予算消化率」を確認します。</li><li>「予算-実績」の差額が大きい項目（赤表示）を優先確認します。</li><li>ランキング上位をクリックし、明細へドリルダウンします。</li></ol>
+      <h4>Step 3：分析・ドリルダウン</h4>
+      <ol><li>「推移」で時系列の異常月を特定します。</li><li>「カテゴリ別分析」で費目・部門など観点を切替え、原因候補を絞ります。</li><li>「明細」で検索し、個票レベルで確認します。</li></ol>
+    </div>
+    <div class="panel"><h3>よくある質問（FAQ）</h3>
+      <p><b>Q. 数字が合わないときは？</b><br>A. 期間フィルタ（月次/四半期/通期）と対象（部門・案件）をそろえてから確認してください。CSVのヘッダ名・数値形式も再確認してください。</p>
+      <p><b>Q. 表示を切り替えたいときは？</b><br>A. ヘッダ右上、または「9. 表示設定」のテーマ選択でライト/ダーク/ネオンを即時切替できます。選択はブラウザに保存されます。</p>
+      <div class="badge">初回アクセスの方へ：まずは Step 1 → Step 2 → Step 3 の順でお試しください。</div>
+    </div>`;
 }
 
 async function renderPage() {
@@ -592,10 +643,16 @@ async function renderPage() {
   if (state.page === 'vendor') return renderVendor();
   if (state.page === 'detail') return renderDetail();
   if (state.page === 'settings') return renderSettings();
+  if (state.page === 'manual') return renderManual();
 }
 
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
+  document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
   await refreshAllData();
+  if (!localStorage.getItem('manualHintSeen')) {
+    alert('チュートリアルは「10. 取扱説明書（マニュアル）」から確認できます。');
+    localStorage.setItem('manualHintSeen', '1');
+  }
   renderPage();
 })();
