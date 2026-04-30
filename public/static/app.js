@@ -634,6 +634,7 @@ function renderManual() {
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
   if (state.page === 'import') return renderImport();
+  if (state.page === 'manual') return renderManual();
   if (!state.hasData) return goPage('import');
   if (state.page === 'summary') return renderSummary();
   if (state.page === 'trend') return renderTrend();
@@ -643,7 +644,6 @@ async function renderPage() {
   if (state.page === 'vendor') return renderVendor();
   if (state.page === 'detail') return renderDetail();
   if (state.page === 'settings') return renderSettings();
-  if (state.page === 'manual') return renderManual();
 }
 
 (async function boot() {
