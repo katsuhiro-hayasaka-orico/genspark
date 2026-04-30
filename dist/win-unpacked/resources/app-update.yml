@@ -1,0 +1,4 @@
+owner: katsuhiro-hayasaka-orico
+repo: genspark
+provider: github
+updaterCacheDirName: budget-csv-viewer-updater
