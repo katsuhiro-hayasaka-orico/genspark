@@ -55,12 +55,22 @@ async function api(path, opts = {}) {
   return json;
 }
 
+function withViewTransition(update) {
+  if (document.startViewTransition) {
+    document.startViewTransition(update);
+  } else {
+    update();
+  }
+}
+
 function toggleTheme() {
-  const order = ['light', 'dark', 'neon'];
-  const idx = order.indexOf(state.ui.theme);
-  state.ui.theme = order[(idx + 1) % order.length];
-  applyTheme();
-  renderPage();
+  withViewTransition(() => {
+    const order = ['light', 'dark', 'neon'];
+    const idx = order.indexOf(state.ui.theme);
+    state.ui.theme = order[(idx + 1) % order.length];
+    applyTheme();
+    renderPage();
+  });
 }
 
 function applyTheme() {
@@ -218,9 +228,11 @@ async function refreshAllData() {
 }
 
 function goPage(page) {
-  state.page = page;
-  initNav();
-  renderPage();
+  withViewTransition(() => {
+    state.page = page;
+    initNav();
+    renderPage();
+  });
 }
 
 function parseCsvPreviewRecords(text, delimiter = ',') {
@@ -356,10 +368,39 @@ function renderImport() {
   };
 }
 
+function kpiStatus(name, value, thresholds) {
+  if (name === '予算消化率') {
+    if (value > 105) return { tone: 'warn', label: '超過注意', icon: '⚠️' };
+    if (value >= 90) return { tone: 'ok', label: '順調', icon: '●' };
+    return { tone: 'neutral', label: '進行中', icon: '●' };
+  }
+  if (name === '予算-実績') {
+    if (Math.abs(value) >= thresholds.amountGap) return { tone: 'warn', label: '要確認', icon: '⚠️' };
+    return { tone: 'ok', label: '許容範囲', icon: '●' };
+  }
+  if (name === 'コスト削減効果') {
+    return value > 0 ? { tone: 'ok', label: '削減効果あり', icon: '●' } : { tone: 'neutral', label: '効果なし', icon: '●' };
+  }
+  return { tone: 'neutral', label: '確認対象', icon: '●' };
+}
+
+function kpiHelpText(name) {
+  const map = {
+    '総予算': '選択中の期間・部門・対象における計画金額の合計です。',
+    '総実績': '選択範囲で確定済みの実績金額の合計です。',
+    '予算消化率': '総実績 ÷ 総予算。100%超は予算超過リスクとして確認します。',
+    '予算-実績': '総予算から総実績を差し引いた残額です。大きなプラス／マイナスは原因確認対象です。',
+    '着地見込み': '登録済み見込額の合計です。未設定の場合はCSV列・期間を確認してください。',
+    'コスト削減効果': '予算残額のうちプラス分を削減効果として見ます。',
+  };
+  return map[name] || 'KPIの読み方を確認します。';
+}
+
 function renderSummary() {
   const items = filteredItems();
   const s = scopedPeriodSummary(items);
   const diff = s.totalPlan - s.totalActual;
+  const actualRate = s.totalPlan ? s.totalActual / s.totalPlan * 100 : 0;
   const reduction = Math.max(diff, 0);
   const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
   const top = items.map(r => ({
@@ -367,30 +408,81 @@ function renderSummary() {
     gap: Number(r.totalPlan || 0) - Number(r.totalActual || 0),
     row: r,
   })).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 10);
+  const kpiRaw = {
+    '総予算': s.totalPlan,
+    '総実績': s.totalActual,
+    '予算消化率': actualRate,
+    '予算-実績': diff,
+    '着地見込み': s.totalForecast,
+    'コスト削減効果': reduction,
+  };
+  const kpiDisplay = {
+    '総予算': yen(s.totalPlan),
+    '総実績': yen(s.totalActual),
+    '予算消化率': pct(actualRate),
+    '予算-実績': yen(diff),
+    '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
+    'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
+  };
+
+  const kpiCards = state.settings.kpiOrder.map((name, idx) => {
+    const status = kpiStatus(name, kpiRaw[name], state.settings.thresholds);
+    const popId = `kpiHelp${idx}`;
+    const isHero = ['総予算', '総実績', '予算消化率'].includes(name);
+    return `<article class="kpi kpi-card ${isHero ? 'kpi-card--priority' : ''}" aria-label="${dataAttr(name)}">
+      <div class="kpi-head">
+        <div class="label">${escapeHtml(name)}</div>
+        <button class="icon-button" type="button" popovertarget="${popId}" aria-label="${dataAttr(name)}の説明を開く">?</button>
+        <div id="${popId}" class="popover-card" popover role="note">${escapeHtml(kpiHelpText(name))}</div>
+      </div>
+      <div class="value ${status.tone === 'warn' ? 'warn' : ''}">${kpiDisplay[name] || ''}</div>
+      <div class="kpi-meta">
+        <span class="status-pill status-pill--${status.tone}">${status.icon} ${escapeHtml(status.label)}</span>
+        <span>${escapeHtml(state.filters.periodMode)} / ${escapeHtml(state.filters.department || '全部門')}</span>
+      </div>
+      <p class="kpi-note">${escapeHtml(kpiHelpText(name))}</p>
+    </article>`;
+  }).join('');
 
   document.getElementById('content').innerHTML = `
-    <div class="grid-6">
-      ${state.settings.kpiOrder.map(name => {
-        const map = {
-          '総予算': yen(s.totalPlan),
-          '総実績': yen(s.totalActual),
-          '予算消化率': pct(s.totalPlan ? s.totalActual / s.totalPlan * 100 : 0),
-          '予算-実績': `<span class="${Math.abs(diff) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(diff)}</span>`,
-          '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
-          'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
-        };
-        return `<div class="kpi"><div class="label">${escapeHtml(name)}</div><div class="value">${map[name] || ''}</div></div>`;
-      }).join('')}
-    </div>
-    <div class="grid-2">
-      <div class="panel"><h4>予算 vs 実績の推移</h4><div style="height:280px"><canvas id="sumChart1"></canvas></div></div>
-      <div class="panel"><h4>前年同月比（前年差）</h4><div style="height:280px"><canvas id="sumChart2"></canvas></div></div>
-    </div>
-    <div class="panel"><h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
-      <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th></tr></thead><tbody>
-      ${top.map((r, i) => `<tr data-mid="${dataAttr(r.row.management_no)}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${Math.abs(r.gap) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.gap)}</td></tr>`).join('')}
-      </tbody></table></div>
-    </div>`;
+    <section class="dashboard-bento" aria-label="経営サマリーダッシュボード">
+      <div class="bento-card bento-card--hero summary-hero">
+        <div>
+          <p class="eyebrow">Executive overview</p>
+          <h3>まず見るべき予実差と消化状況</h3>
+          <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p>
+        </div>
+        <div class="hero-metric ${Math.abs(diff) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
+          <span>予算-実績</span><strong>${yen(diff)}</strong>
+        </div>
+      </div>
+      <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
+      <div class="bento-card bento-card--wide chart-card">
+        <div class="card-title-row"><h4>予算 vs 実績の推移</h4><span class="badge">最優先グラフ</span></div>
+        <div class="chart-frame chart-frame--large"><canvas id="sumChart1"></canvas></div>
+      </div>
+      <div class="bento-card bento-card--tall chart-card">
+        <div class="card-title-row"><h4>前年差グラフ</h4><span class="badge">前期差で代替</span></div>
+        <p class="card-help">実績の急な増減を確認します。</p>
+        <div class="chart-frame"><canvas id="sumChart2"></canvas></div>
+      </div>
+      <div class="bento-card bento-card--wide ranking-card">
+        <div class="card-title-row">
+          <h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
+          <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
+          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細検索へ移動します。</div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th></tr></thead><tbody>
+        ${top.map((r, i) => {
+          const isWarn = Math.abs(r.gap) >= state.settings.thresholds.amountGap;
+          return `<tr data-mid="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td></tr>`;
+        }).join('')}
+        </tbody></table></div>
+      </div>
+      <div class="bento-card bento-card--small insight-card">
+        <h4>フィルター中の件数</h4><strong>${fmt(items.length)}</strong><span class="muted">案件</span>
+      </div>
+    </section>`;
 
   const labels = s.labels;
   const series = s.series;
@@ -402,10 +494,7 @@ function renderSummary() {
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.actual - series[idx - 1].actual);
   drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
 
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => {
-    state.ui.detailSearch = tr.dataset.mid;
-    goPage('detail');
-  });
+  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
 }
 
 function renderTrend() {
@@ -524,18 +613,30 @@ function renderAlert() {
   }).filter(r => Math.abs(r.rate) >= t.varianceRate || Math.abs(r.gap) >= t.amountGap).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
 
   const first = rows[0];
+  const alertCards = rows.slice(0, 4).map((r, idx) => `
+    <article class="alert-card ${idx === 0 ? 'alert-card--major' : ''}">
+      <div class="card-title-row"><h4>⚠️ ${escapeHtml(r.project_name || r.management_no)}</h4><span class="status-pill status-pill--warn">重要度 ${idx + 1}</span></div>
+      <dl class="metric-list"><div><dt>差額</dt><dd class="warn">${yen(r.gap)}</dd></div><div><dt>乖離率</dt><dd>${pct(r.rate)}</dd></div></dl>
+      <p class="muted">${escapeHtml(r.department_name || '-')} / ${escapeHtml(r.system_name || '-')}</p>
+      <button type="button" data-mid="${dataAttr(r.management_no)}" aria-label="${dataAttr(r.project_name || r.management_no)}の明細を表示">明細を見る</button>
+    </article>`).join('');
+
   document.getElementById('content').innerHTML = `
-    <div class="panel">
+    <div class="panel alert-overview">
       <div class="controls"><span class="badge">しきい値: 乖離率 ${t.varianceRate}% / 差額 ${fmt(t.amountGap)} 千円 / 前月比 ${t.momRate}% / 前年比 ${t.yoyRate}%</span></div>
-      <div class="grid-2">
-        <div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${rows.slice(0, 200).map(r => `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td></tr>`).join('')}
-        </tbody></table></div>
-        <div class="panel"><h4>右ペイン</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p>` : 'アラート対象なし'}</div>
-      </div>
+      <div class="alert-grid">${alertCards || '<div class="ok">● アラート対象なし</div>'}</div>
+    </div>
+    <div class="grid-2">
+      <div class="panel"><h4>アラート一覧</h4><div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th><th>状態</th></tr></thead><tbody>
+        ${rows.slice(0, 200).map(r => `<tr data-mid="${dataAttr(r.management_no)}" class="clickable-row warning-row"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td><td><span class="status-pill status-pill--warn">⚠️ 要確認</span></td></tr>`).join('') || '<tr><td colspan="4">対象なし</td></tr>'}
+      </tbody></table></div></div>
+      <div class="panel"><h4>最重要アラートの詳細</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p><button id="alertDetailBtn" type="button">詳細説明を開く</button><dialog id="alertDetailDialog" aria-labelledby="alertDialogTitle"><h3 id="alertDialogTitle">アラートの読み方</h3><p>差額・乖離率の両方を確認し、対象案件の明細で月次推移と担当部門を確認してください。</p><form method="dialog"><button>閉じる</button></form></dialog>` : 'アラート対象なし'}</div>
     </div>`;
 
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+  document.querySelectorAll('[data-mid]').forEach(el => el.onclick = () => { state.ui.detailSearch = el.dataset.mid; goPage('detail'); });
+  const dialog = document.getElementById('alertDetailDialog');
+  const btn = document.getElementById('alertDetailBtn');
+  if (dialog && btn) btn.onclick = () => dialog.showModal();
 }
 
 function renderVendor() {
@@ -571,14 +672,14 @@ function renderVendor() {
   }).sort((a, b) => String(a.renewal_month || '').localeCompare(String(b.renewal_month || '')));
 
   document.getElementById('content').innerHTML = `
-    <div class="grid-2">
-      <div class="panel"><h4>ベンダー別支払額ランキング（Top／全件）</h4><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th></tr></thead><tbody>
-        ${ranking.map(v => `<tr><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td></tr>`).join('') || '<tr><td colspan="3">データなし</td></tr>'}
+    <section class="vendor-bento">
+      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
+        ${ranking.map((v, idx) => `<tr><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
-      <div class="panel"><h4>契約更新月一覧（当月〜3か月先）</h4><div class="table-wrap"><table><thead><tr><th>契約番号</th><th>ベンダー</th><th>更新月</th></tr></thead><tbody>
-        ${renewals.map(r => `<tr><td>${escapeHtml(r.contract_no)}</td><td>${escapeHtml(r.vendor_name)}</td><td>${escapeHtml(r.renewal_month)}</td></tr>`).join('') || '<tr><td colspan="3">対象なし</td></tr>'}
-      </tbody></table></div></div>
-    </div>`;
+      <div class="bento-card bento-card--tall"><div class="card-title-row"><h4>契約更新月一覧</h4><span class="badge">当月〜3か月先</span></div><div class="renewal-list">
+        ${renewals.map(r => `<article class="renewal-card"><span class="status-pill status-pill--warn">⚠️ 更新判断</span><strong>${escapeHtml(r.vendor_name)}</strong><span>${escapeHtml(r.contract_no)}</span><b>${escapeHtml(r.renewal_month)}</b></article>`).join('') || '<p>対象なし</p>'}
+      </div></div>
+    </section>`;
 }
 
 function toCsv(rows) {
@@ -592,16 +693,21 @@ function renderDetail() {
   const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'totalPlan', 'totalForecast', 'totalActual'];
 
   document.getElementById('content').innerHTML = `
-    <div class="panel">
-      <div class="controls">
-        <input type="text" id="dSearch" placeholder="キーワード検索" value="${dataAttr(state.ui.detailSearch || '')}">
-        <button id="dExport">表示結果をCSV書き出し</button>
+    <section class="detail-layout">
+      <div class="panel detail-tools">
+        <div class="controls detail-controls">
+          <label class="search-field">検索<input type="text" id="dSearch" placeholder="管理番号・案件名・ベンダーで検索" value="${dataAttr(state.ui.detailSearch || '')}"></label>
+          <button id="dExport" aria-label="表示中の明細をCSVで書き出す">表示結果をCSV書き出し</button>
+          <span class="badge">キー項目は常時表示</span>
+        </div>
+        <div class="col-picker" id="colPicker" aria-label="表示列の選択">${optionalCols.map(c => `<label class="col-chip" data-col="${dataAttr(c)}"><input type="checkbox" ${state.ui.extraDetailCols.includes(c) ? 'checked' : ''}>${escapeHtml(c)}</label>`).join('')}</div>
       </div>
-      <div class="controls"><span class="badge">キー項目は常時表示</span></div>
-      <div class="col-picker" id="colPicker">${optionalCols.map(c => `<span class="col-chip ${state.ui.extraDetailCols.includes(c) ? 'active' : ''}" data-col="${dataAttr(c)}">${escapeHtml(c)}</span>`).join('')}</div>
-      <div class="table-wrap"><table><thead><tr id="dHead"></tr></thead><tbody id="dBody"></tbody></table></div>
-    </div>
-    <div class="panel" id="detailPane">行クリックで属性(master)+月次(detail)を並列表示</div>`;
+      <div class="panel detail-table-card">
+        <h4>明細テーブル</h4>
+        <div class="table-wrap"><table><thead><tr id="dHead"></tr></thead><tbody id="dBody"></tbody></table></div>
+      </div>
+      <div class="panel detail-pane" id="detailPane"><h4>詳細ペイン</h4><p>行クリックで属性(master)+月次(detail)を並列表示します。</p></div>
+    </section>`;
 
   const renderRows = () => {
     const q = document.getElementById('dSearch').value.toLowerCase();
@@ -610,13 +716,13 @@ function renderDetail() {
     const view = filteredItems().filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
 
     document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
-    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}">${cols.map(c => `<td>${escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
+    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}" class="clickable-row">${cols.map(c => `<td>${escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
       const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category };
       const detail = row.monthly || {};
-      document.getElementById('detailPane').innerHTML = `<div class="grid-2"><div><h4>属性(master)</h4><pre>${jsonForHtml(master)}</pre></div><div><h4>月次(detail)</h4><pre>${jsonForHtml(detail)}</pre></div></div>`;
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
@@ -632,11 +738,10 @@ function renderDetail() {
   renderRows();
   document.getElementById('dSearch').oninput = renderRows;
   document.querySelectorAll('#colPicker .col-chip').forEach(chip => {
-    chip.onclick = () => {
+    chip.onchange = () => {
       const c = chip.dataset.col;
       if (state.ui.extraDetailCols.includes(c)) state.ui.extraDetailCols = state.ui.extraDetailCols.filter(v => v !== c);
       else state.ui.extraDetailCols.push(c);
-      chip.classList.toggle('active');
       renderRows();
     };
   });
@@ -741,13 +846,26 @@ async function renderPage() {
   if (state.page === 'settings') return renderSettings();
 }
 
+function showManualHintDialog() {
+  if (localStorage.getItem('manualHintSeen')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <dialog id="manualHintDialog" aria-labelledby="manualHintTitle" aria-describedby="manualHintDesc">
+      <h3 id="manualHintTitle">初回チュートリアル</h3>
+      <p id="manualHintDesc">チュートリアルは「10. 取扱説明書（マニュアル）」から確認できます。</p>
+      <form method="dialog" class="controls">
+        <button class="primary" value="ok">始める</button>
+      </form>
+    </dialog>`);
+  const dialog = document.getElementById('manualHintDialog');
+  dialog.addEventListener('close', () => localStorage.setItem('manualHintSeen', '1'), { once: true });
+  if (dialog.showModal) dialog.showModal();
+  else localStorage.setItem('manualHintSeen', '1');
+}
+
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
   document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
   await refreshAllData();
-  if (!localStorage.getItem('manualHintSeen')) {
-    alert('チュートリアルは「10. 取扱説明書（マニュアル）」から確認できます。');
-    localStorage.setItem('manualHintSeen', '1');
-  }
+  showManualHintDialog();
   renderPage();
 })();
