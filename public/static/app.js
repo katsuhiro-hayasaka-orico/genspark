@@ -1436,7 +1436,17 @@ function showManualHintDialog() {
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
   document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
-  await refreshAllData();
+
+  applyTheme();
+  initNav();
+  renderPage();
+
+  try {
+    await refreshAllData();
+  } catch (error) {
+    console.error('[boot] initial data refresh failed:', error);
+  }
+
   showManualHintDialog();
   renderPage();
 })();
