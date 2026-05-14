@@ -46,7 +46,15 @@ const optionHtml = (value, selectedValue) => {
   return `<option value="${safe}" ${value === selectedValue ? 'selected' : ''}>${safe}</option>`;
 };
 const dataAttr = (value) => escapeHtml(value);
-const jsonForHtml = (value) => escapeHtml(JSON.stringify(value, null, 2));
+const displayOrUnentered = (value) => {
+  const text = String(value ?? '').trim();
+  return text ? escapeHtml(text) : '未入力';
+};
+const formatYearMonth = (ym) => {
+  const s = String(ym || '').trim();
+  return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}/${s.slice(4, 6)}` : (s || '-');
+};
+const firstPresent = (...values) => values.find(value => value !== undefined && value !== null && String(value).trim() !== '');
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -829,9 +837,69 @@ function renderDetail() {
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category };
-      const detail = row.monthly || {};
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
+      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => String(a).localeCompare(String(b)));
+      const relatedContracts = state.data.contracts.filter(c => (
+        (row.contract_no && c.contract_no === row.contract_no)
+        || (row.management_no && c.management_no === row.management_no)
+        || (row.contract_no && c.contract_id === row.contract_no)
+      ));
+      const commentHistory = state.data.items
+        .filter(item => item.management_no === row.management_no)
+        .flatMap(item => Object.entries(item.monthly || {}).map(([ym, m]) => {
+          const updatedMonth = firstPresent(m.comment_updated_month, m.commentUpdatedMonth, m.updated_month, m.updated_at, m.updatedAt);
+          return {
+            ym,
+            item_no: item.item_no,
+            updatedMonth,
+            sortMonth: updatedMonth || ym,
+            comment: firstPresent(m.comment, m.monthly_comment, m.note, m.memo, ''),
+          };
+        }))
+        .filter(entry => String(entry.comment || '').trim() || String(entry.updatedMonth || '').trim())
+        .sort((a, b) => String(a.sortMonth || '').localeCompare(String(b.sortMonth || '')) || String(a.ym).localeCompare(String(b.ym)));
+
+      document.getElementById('detailPane').innerHTML = `
+        <h4>詳細ペイン</h4>
+        <div class="detail-card-grid">
+          <div>
+            <h5>属性情報</h5>
+            <table><tbody>
+              ${[
+                ['管理番号', row.management_no],
+                ['項番', row.item_no],
+                ['案件名', row.project_name],
+                ['部門', row.department_name],
+                ['カテゴリ', row.budget_category],
+                ['ベンダー', row.vendor_name || row.payee_name],
+                ['支払区分', row.payment_category],
+                ['契約番号', row.contract_no],
+              ].map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '-')}</td></tr>`).join('')}
+            </tbody></table>
+          </div>
+          <div>
+            <h5>関連する契約情報</h5>
+            <div class="table-wrap"><table><thead><tr><th>契約番号</th><th>ベンダー</th><th>システム</th><th>更新月</th><th class="right">年額</th><th>判断状況</th><th>メモ</th></tr></thead><tbody>
+              ${relatedContracts.map(c => `<tr><td>${escapeHtml(c.contract_no || '-')}</td><td>${escapeHtml(c.vendor_name || '-')}</td><td>${escapeHtml(c.system_name || '-')}</td><td>${escapeHtml(formatYearMonth(c.renewal_month))}</td><td class="right">${yen(c.annual_amount)}</td><td>${escapeHtml(c.decision_status || '-')}</td><td>${displayOrUnentered(c.decision_note)}</td></tr>`).join('') || '<tr><td colspan="7">関連する契約情報はありません</td></tr>'}
+            </tbody></table></div>
+          </div>
+        </div>
+        <h5>月次(detail)</h5>
+        <div class="table-wrap"><table><thead><tr><th>対象年月</th><th class="right">予算</th><th class="right">見込み／実績</th><th class="right">差額</th><th class="right">差額率</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
+          ${monthlyRows.map(([ym, m]) => {
+            const plan = Number(m.plan || 0);
+            const forecast = Number(m.forecast || 0);
+            const actual = Number(m.actual || 0);
+            const comparable = actual || forecast;
+            const diff = plan - comparable;
+            const diffRate = plan ? diff / plan * 100 : 0;
+            const forecastActual = `見込み ${yen(forecast)} / 実績 ${yen(actual)}`;
+            return `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(plan)}</td><td class="right">${forecastActual}</td><td class="right">${yen(diff)}</td><td class="right">${pct(diffRate)}</td><td>${displayOrUnentered(firstPresent(m.reason_category, m.variance_reason_category, m.factor_type))}</td><td>${displayOrUnentered(firstPresent(m.variance_reason, m.reason, m.reason_detail))}</td><td>${displayOrUnentered(firstPresent(m.comment, m.monthly_comment, m.note, m.memo))}</td></tr>`;
+          }).join('') || '<tr><td colspan="8">月次データはありません</td></tr>'}
+        </tbody></table></div>
+        <h5>コメント履歴</h5>
+        <div class="table-wrap"><table><thead><tr><th>コメント更新月</th><th>対象年月</th><th>項番</th><th>コメント</th></tr></thead><tbody>
+          ${commentHistory.map(entry => `<tr><td>${escapeHtml(formatYearMonth(entry.updatedMonth))}</td><td>${escapeHtml(formatYearMonth(entry.ym))}</td><td>${escapeHtml(entry.item_no || '-')}</td><td>${displayOrUnentered(entry.comment)}</td></tr>`).join('') || '<tr><td colspan="4">コメント履歴はありません</td></tr>'}
+        </tbody></table></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
