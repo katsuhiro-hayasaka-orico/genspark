@@ -8,7 +8,7 @@ const { once } = require('node:events');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-csv-viewer-'));
 process.env.BUDGET_CSV_VIEWER_STORE_FILE = path.join(tmpDir, 'store.json');
 
-const { parseCSV, startServer, stopServer } = require('../server');
+const { parseCSV, parseUnifiedBudgetLayout, normalizeAmount, normalizeDateString, safeString, startServer, stopServer } = require('../server');
 
 test('parseCSV handles quoted commas and quoted newlines', () => {
   const rows = parseCSV([
@@ -23,6 +23,30 @@ test('parseCSV handles quoted commas and quoted newlines', () => {
   assert.equal(rows[1]['案件名'], 'line1\nline2');
 });
 
+
+test('normalizers and unified layout report row-level import issues without throwing', () => {
+  assert.equal(safeString('　ＡＢＣ１２３　'), 'ABC123');
+  assert.deepEqual(normalizeDateString('２０２５/４').value, '202504');
+  assert.equal(normalizeAmount('￥１，２３４').value, 1234);
+  assert.equal(normalizeAmount('abc').valid, false);
+
+  const rows = parseCSV([
+    '管理番号,項番,期,案件名,契約金額,月額,65期4月計画,65期13月計画,65期4月見込',
+    'A-1,1,65,正常,１，０００, 100 ,1 234,badmonth,９００',
+    ',1,65,管理番号なし,1000,100,100,,',
+    'A-2,1,65,金額不正,abc,def,not-a-number,,',
+  ].join('\n'));
+
+  const result = parseUnifiedBudgetLayout(rows);
+  assert.equal(result.totalRows, 3);
+  assert.equal(result.successRows, 2);
+  assert.equal(result.skippedRows, 1);
+  assert.equal(result.master.length, 2);
+  assert.equal(result.detail.length, 2);
+  assert.equal(result.warningCount >= 3, true);
+  assert.equal(result.issues.some(issue => issue.level === 'skipped' && issue.field === '管理番号'), true);
+});
+
 test('upload and mutable records persist to the local store file', async () => {
   const server = startServer({ host: '127.0.0.1', port: 0 });
   if (!server.listening) await once(server, 'listening');
@@ -34,8 +58,21 @@ test('upload and mutable records persist to the local store file', async () => {
       'XSS-1,1,65,運用,"<img src=x onerror=alert(1)>",IT,Alice,Vendor A,C-1,1000,100,運用,固定,SYS1,System One,Hosting,Core,クラウド,1000,900',
     ].join('\n');
 
+    const dryRunForm = new FormData();
+    dryRunForm.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'upload.csv');
+    dryRunForm.append('dryRun', 'true');
+    const dryRunRes = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: dryRunForm });
+    assert.equal(dryRunRes.status, 200);
+    const dryRunJson = await dryRunRes.json();
+    assert.equal(dryRunJson.dryRun, true);
+    assert.equal(dryRunJson.successRows, 1);
+
+    const savedAfterDryRun = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
+    assert.notEqual(savedAfterDryRun.csvFileName, 'upload.csv');
+
     const form = new FormData();
     form.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'upload.csv');
+    form.append('confirmImport', 'true');
     const uploadRes = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: form });
     assert.equal(uploadRes.status, 200);
 
@@ -55,6 +92,9 @@ test('upload and mutable records persist to the local store file', async () => {
     });
     assert.equal(contractRes.status, 200);
 
+    const renewals = await fetch(`${baseUrl}/api/contracts/renewals?baseYearMonth=202605`).then(res => res.json());
+    assert.equal(renewals.data.some(row => row.contract_no === 'C-1' && 'alert_type' in row && 'review_required' in row && 'months_until_renewal' in row && 'note' in row), true);
+
     const saved = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
     assert.equal(saved.csvFileName, 'upload.csv');
     assert.equal(saved.master.length, 1);
@@ -62,4 +102,35 @@ test('upload and mutable records persist to the local store file', async () => {
   } finally {
     await stopServer();
   }
+});
+
+test('contract date normalization and renewal alerts preserve invalid inputs', () => {
+  const { parseCSV, parseUnifiedBudgetLayout, normalizeDateString, detectContractAlerts } = require('../server');
+  assert.deepEqual(normalizeDateString('2026/05/14'), { value: '2026-05-14', status: 'valid', warning: '' });
+
+  const invalidDate = normalizeDateString('更新時確認');
+  assert.equal(invalidDate.value, '更新時確認');
+  assert.equal(invalidDate.status, 'invalid');
+  assert.match(invalidDate.warning, /日付形式/);
+
+  const csv = [
+    '管理番号,項番,期,案件名,支払先,契約番号,契約開始日,契約終了日,契約期間,次回更新予定月,支払区分,備考,65期4月計画',
+    'C-ROW,1,65,契約案件,Vendor X,CON-1,2026/01/01,更新時確認,期間不明,2026/07,月払い,原契約確認,100',
+  ].join('\n');
+  const converted = parseUnifiedBudgetLayout(parseCSV(csv));
+  const master = converted.master[0];
+
+  assert.equal(master.contract_start_date, '2026-01-01');
+  assert.equal(master.contract_end_date, '更新時確認');
+  assert.equal(master.contract_end_date_status, 'invalid');
+  assert.equal(master.next_renewal_month, '202607');
+  assert.equal(master.payment_category, '月払い');
+  assert.equal(master.note, '原契約確認');
+
+  const alerts = detectContractAlerts(master, '202605');
+  assert.equal(alerts.months_until_renewal, 2);
+  assert.match(alerts.alert_type, /更新3か月以内/);
+  assert.match(alerts.alert_type, /月次見直し/);
+  assert.match(alerts.alert_type, /契約期間形式不正/);
+  assert.match(alerts.note, /原契約確認/);
 });
