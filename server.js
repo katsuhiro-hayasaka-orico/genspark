@@ -805,7 +805,7 @@ app.get('/api/status', (_, res) => {
     classifications: agg ? agg.classifications : [],
     departments: agg ? agg.departments : [],
     vendors: agg ? agg.byVendor.map(v => v.name) : [],
-    periods: agg ? agg.periods : [],
+    periods: data ? data.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
   });
