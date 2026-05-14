@@ -195,6 +195,115 @@ function parseCSVRecords(text, delimiter = ',') {
   return records;
 }
 
+const COLUMN_ALIASES = {
+  period: ['期', '会計期', '年度期'],
+  management_no: ['管理番号', '管理番号（統合）', '管理No', '管理NO', '管理No.', 'management_no'],
+  item_no: ['項番', '明細番号', 'item_no'],
+  budget_category: ['予算区分', '経費区分', 'budget_category'],
+  expense_classification: ['経費区分', 'expense_classification'],
+  project_name: ['案件名', 'プロジェクト名', '件名', 'project_name'],
+  department_name: ['部署名', '部門名', 'department_name'],
+  owner_name: ['担当者', '担当者名', 'owner_name'],
+  payee_name: ['支払先', 'ベンダー名', '取引先', 'payee_name', 'vendor_name'],
+  contract_no: ['契約番号', '契約No', '契約NO', 'contract_no'],
+  contract_amount: ['契約金額', 'contract_amount'],
+  monthly_amount: ['月額', 'monthly_amount'],
+  payment_category: ['支払区分', 'payment_category'],
+  fixed_variable_type: ['固定変動', '固定/変動', 'fixed_variable_type'],
+  expense_item_code: ['経費事象コード', '費目コード', 'expense_item_code'],
+  system_code: ['経費事象コード', 'システムコード', 'system_code'],
+  system_name: ['システム名', 'system_name'],
+  expense_item_name: ['経費事象名', '費目名', 'expense_item_name'],
+  system_classification_name: ['システム分類名', 'システム分類', 'system_classification_name'],
+  variance_reason: ['差額理由', '差異理由', '増減理由', 'variance_reason'],
+  variance_reason_category: ['差額理由分類', '差異理由分類', '理由分類', 'reason_category', 'variance_reason_category'],
+  comment: ['コメント', '備考', 'comment'],
+  comment_updated_month: ['コメント更新月', '更新月', 'comment_updated_month'],
+  comment_updated_by: ['コメント更新者', '更新者', 'comment_updated_by'],
+};
+
+const VARIANCE_REASON_CATEGORIES = [
+  '未分類',
+  '時期差',
+  '数量差',
+  '単価差',
+  'スコープ変更',
+  '契約変更',
+  '為替影響',
+  '予算超過',
+  '予算未消化',
+  'その他',
+];
+
+function pickColumn(row, logicalName, defaultValue = '') {
+  if (!row || typeof row !== 'object') return defaultValue;
+  const candidates = COLUMN_ALIASES[logicalName] || [logicalName];
+
+  for (const columnName of candidates) {
+    if (!Object.prototype.hasOwnProperty.call(row, columnName)) continue;
+    const value = row[columnName];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text !== '') return text;
+  }
+
+  return defaultValue;
+}
+
+function normalizeVarianceReasonCategory(value) {
+  const text = String(value || '').trim();
+  return VARIANCE_REASON_CATEGORIES.includes(text) ? text : '未分類';
+}
+
+function pickVarianceReasonFields(row) {
+  return {
+    variance_reason: pickColumn(row, 'variance_reason'),
+    variance_reason_category: normalizeVarianceReasonCategory(pickColumn(row, 'variance_reason_category')),
+    comment: pickColumn(row, 'comment'),
+    comment_updated_month: pickColumn(row, 'comment_updated_month'),
+    comment_updated_by: pickColumn(row, 'comment_updated_by'),
+  };
+}
+
+function mergeVarianceReasons(items, varianceReasonRows) {
+  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(varianceReasonRows) || varianceReasonRows.length === 0) {
+    return items.map(item => ({
+      ...item,
+      variance_reason_category: normalizeVarianceReasonCategory(item?.variance_reason_category),
+    }));
+  }
+
+  const reasonByManagementNo = {};
+  for (const row of varianceReasonRows) {
+    const managementNo = pickColumn(row, 'management_no');
+    if (!managementNo) continue;
+
+    const rawCategory = pickColumn(row, 'variance_reason_category');
+    reasonByManagementNo[managementNo] = {
+      ...pickVarianceReasonFields(row),
+      has_variance_reason_category: rawCategory !== '',
+    };
+  }
+
+  return items.map((item) => {
+    const managementNo = item?.management_no || '';
+    const reason = reasonByManagementNo[managementNo] || {};
+    const merged = { ...item };
+
+    for (const field of ['variance_reason', 'comment', 'comment_updated_month', 'comment_updated_by']) {
+      merged[field] = reason[field] || merged[field] || '';
+    }
+    merged.variance_reason_category = normalizeVarianceReasonCategory(
+      reason.has_variance_reason_category
+        ? reason.variance_reason_category
+        : merged.variance_reason_category,
+    );
+
+    return merged;
+  });
+}
+
 function parseUnifiedBudgetLayout(rows) {
   const master = [];
   const detail = [];
@@ -203,30 +312,35 @@ function parseUnifiedBudgetLayout(rows) {
   const monthPattern = /^(\d+)期(\d{1,2})月(計画|見込)$/;
 
   for (const row of rows) {
-    const managementNo = row['管理番号'] || row['管理番号（統合）'] || '';
-    const itemNo = row['項番'] || '1';
+    const managementNo = pickColumn(row, 'management_no');
+    const itemNo = pickColumn(row, 'item_no', '1');
     if (!managementNo) continue;
 
+    const varianceReasonFields = pickVarianceReasonFields(row);
+    const expenseItemCode = pickColumn(row, 'expense_item_code');
+    const systemCode = pickColumn(row, 'system_code');
+
     master.push({
-      period: row['期'] || '',
+      period: pickColumn(row, 'period'),
       management_no: managementNo,
       item_no: itemNo,
-      budget_category: row['予算区分'] || row['経費区分'] || '',
-      expense_classification: row['経費区分'] || '',
-      project_name: row['案件名'] || '',
-      department_name: row['部署名'] || '',
-      owner_name: row['担当者'] || '',
-      payee_name: row['支払先'] || '',
-      contract_no: row['契約番号'] || '',
-      contract_amount: row['契約金額'] || '0',
-      monthly_amount: row['月額'] || '0',
-      payment_category: row['支払区分'] || '',
-      fixed_variable_type: row['固定変動'] || '',
-      system_code: row['経費事象コード'] || '',
-      system_name: row['システム名'] || '',
-      expense_item_code: row['経費事象コード'] || '',
-      expense_item_name: row['経費事象名'] || '',
-      system_classification_name: row['システム分類名'] || '',
+      budget_category: pickColumn(row, 'budget_category'),
+      expense_classification: pickColumn(row, 'expense_classification'),
+      project_name: pickColumn(row, 'project_name'),
+      department_name: pickColumn(row, 'department_name'),
+      owner_name: pickColumn(row, 'owner_name'),
+      payee_name: pickColumn(row, 'payee_name'),
+      contract_no: pickColumn(row, 'contract_no'),
+      contract_amount: pickColumn(row, 'contract_amount', '0'),
+      monthly_amount: pickColumn(row, 'monthly_amount', '0'),
+      payment_category: pickColumn(row, 'payment_category'),
+      fixed_variable_type: pickColumn(row, 'fixed_variable_type'),
+      system_code: systemCode,
+      system_name: pickColumn(row, 'system_name'),
+      expense_item_code: expenseItemCode,
+      expense_item_name: pickColumn(row, 'expense_item_name'),
+      system_classification_name: pickColumn(row, 'system_classification_name'),
+      ...varianceReasonFields,
     });
 
     for (const [key, rawAmount] of Object.entries(row)) {
@@ -247,12 +361,13 @@ function parseUnifiedBudgetLayout(rows) {
       detail.push({
         management_no: managementNo,
         item_no: itemNo,
-        expense_item_code: row['経費事象コード'] || '',
-        system_code: row['経費事象コード'] || '',
+        expense_item_code: expenseItemCode,
+        system_code: systemCode,
         fiscal_period: String(period),
         target_year_month: ym,
         value_type: valueType,
         amount: amountText,
+        ...varianceReasonFields,
       });
     }
   }
@@ -418,6 +533,11 @@ function buildUnifiedData() {
           system_classification: masterRow.system_classification_name || sysInfo.classification || '',
           expense_item_code: row.expense_item_code || masterRow.expense_item_code || '',
           expense_item_name: sysInfo.expense_item_name || masterRow.expense_item_name || '',
+          variance_reason: masterRow.variance_reason || row.variance_reason || '',
+          variance_reason_category: normalizeVarianceReasonCategory(masterRow.variance_reason_category || row.variance_reason_category),
+          comment: masterRow.comment || row.comment || '',
+          comment_updated_month: masterRow.comment_updated_month || row.comment_updated_month || '',
+          comment_updated_by: masterRow.comment_updated_by || row.comment_updated_by || '',
 
           // Monthly data: { ym: { plan, forecast, actual } }
           monthly: {},
@@ -478,6 +598,11 @@ function buildUnifiedData() {
         system_classification: row.system_classification_name || sysInfo.classification || '',
         expense_item_code: row.expense_item_code || '',
         expense_item_name: sysInfo.expense_item_name || row.expense_item_name || '',
+        variance_reason: row.variance_reason || '',
+        variance_reason_category: normalizeVarianceReasonCategory(row.variance_reason_category),
+        comment: row.comment || '',
+        comment_updated_month: row.comment_updated_month || '',
+        comment_updated_by: row.comment_updated_by || '',
         monthly: {},
         totalPlan: toNum(row.contract_amount),
         totalForecast: toNum(row.contract_amount),
@@ -805,7 +930,7 @@ app.get('/api/status', (_, res) => {
     classifications: agg ? agg.classifications : [],
     departments: agg ? agg.departments : [],
     vendors: agg ? agg.byVendor.map(v => v.name) : [],
-    periods: agg ? agg.periods : [],
+    periods: data ? data.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
   });
@@ -1441,6 +1566,11 @@ module.exports = {
   stopServer,
   parseCSV,
   parseCSVLine,
+  COLUMN_ALIASES,
+  VARIANCE_REASON_CATEGORIES,
+  pickColumn,
+  normalizeVarianceReasonCategory,
+  mergeVarianceReasons,
   parseUnifiedBudgetLayout,
   buildUnifiedData,
   getAggregations,
