@@ -551,8 +551,74 @@ function parseVarianceReasonCsv(text) {
   return makeImportedParseResult(IMPORT_FILE_TYPES.VARIANCE_REASON, rows, '差額理由データを取り込みました');
 }
 
-function parseNewProjectCsv() {
-  return makeNotImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT);
+function parseProgressRate(value) {
+  const text = safeString(value);
+  if (!text) return null;
+  const numeric = text.match(/(\d+(?:\.\d+)?)\s*%?/);
+  if (numeric) {
+    const n = Number(numeric[1]);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+  }
+  const normalized = text.toLowerCase();
+  if (/完了|本番|リリース|稼働|済/.test(normalized)) return 100;
+  if (/テスト|受入|移行/.test(normalized)) return 85;
+  if (/開発|製造|構築/.test(normalized)) return 65;
+  if (/設計/.test(normalized)) return 45;
+  if (/要件|企画|検討|計画/.test(normalized)) return 25;
+  if (/未着手|保留|中止/.test(normalized)) return 0;
+  return null;
+}
+
+function deriveFiscalPeriodFromYearMonth(ym) {
+  const parsed = parseYM(ym);
+  if (!parsed) return '';
+  const fiscalYear = parsed.month <= 3 ? parsed.year - 1 : parsed.year;
+  const period = fiscalYear - 1960;
+  return period > 0 ? String(period) : '';
+}
+
+function normalizeNewProjectRecord(row = {}) {
+  const managementNo = normalizeManagementNo(row);
+  const targetYearMonth = normalizeYearMonthString(getFirstValue(row, ['年月', 'target_year_month', '対象年月']));
+  const budgetAmount = normalizeAmount(getFirstValue(row, ['予算金額', 'budget_amount', 'plan']));
+  const forecastAmount = normalizeAmount(getFirstValue(row, ['見込金額', 'forecast_amount', '見込み金額', 'forecast']));
+  const fiveYearExpense = normalizeAmount(getFirstValue(row, ['5年経費合計', 'five_year_expense_total']));
+  const category = getFirstValue(row, ['案件区分', 'project_category', '投資運用区分']);
+  const division = getFirstValue(row, ['区分', 'division']);
+  const itStrategyCategory = getFirstValue(row, ['区分_1', 'it_strategy_category', 'IT戦区分']);
+  const progressStatus = getFirstValue(row, ['進捗状況', 'progress_status']);
+
+  return {
+    ...row,
+    management_no: managementNo,
+    division,
+    team_name: getFirstValue(row, ['チーム名', 'team_name']),
+    computer_processing_no: getFirstValue(row, ['電算処理№', '電算処理No', 'computer_processing_no']),
+    project_name: getFirstValue(row, ['案件名', 'project_name']),
+    owner_name: getFirstValue(row, ['案件担当者', '担当者', 'owner_name']),
+    production_start_date: getFirstValue(row, ['本番開始予定日', 'production_start_date']),
+    it_investment_simulation_no: getFirstValue(row, ['IT投資ｼﾐｭﾚｰｼｮﾝ№', 'IT投資シミュレーション№', 'it_investment_simulation_no']),
+    expense_event: getFirstValue(row, ['経費事象', 'expense_event']),
+    progress_status: progressStatus,
+    progress_rate: parseProgressRate(progressStatus),
+    has_budget: getFirstValue(row, ['予算有り', 'has_budget']),
+    five_year_expense_total: fiveYearExpense.valid ? fiveYearExpense.value : 0,
+    project_category: category,
+    memo: getFirstValue(row, ['memo', 'メモ', '差額理由', '理由']),
+    it_strategy_category: itStrategyCategory,
+    target_year_month: targetYearMonth.valid ? targetYearMonth.value : '',
+    fiscal_period: targetYearMonth.valid ? deriveFiscalPeriodFromYearMonth(targetYearMonth.value) : '',
+    budget_amount: budgetAmount.valid ? budgetAmount.value : 0,
+    forecast_amount: forecastAmount.valid ? forecastAmount.value : 0,
+    budget_amount_valid: budgetAmount.valid,
+    forecast_amount_valid: forecastAmount.valid,
+    target_year_month_status: targetYearMonth.status,
+  };
+}
+
+function parseNewProjectCsv(text) {
+  const rows = parseCSV(text).map(normalizeNewProjectRecord);
+  return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT, rows, '新規案件データを取り込みました');
 }
 
 function parseOasisActualCsv() {
@@ -622,6 +688,127 @@ function mergeAdditionalDataByManagementNo(items, additionalStores) {
       },
     };
   });
+}
+
+
+function buildNewProjectAnalysis() {
+  const normalizedAdditional = normalizeAdditionalDataStore(store.additionalData);
+  const newProjectRows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT]?.rows || [];
+  const data = buildUnifiedData();
+  const baseItems = data?.items || [];
+  const baseByManagementNo = new Map(baseItems.map(item => [item.management_no, item]));
+  const grouped = new Map();
+
+  for (const row of newProjectRows) {
+    const managementNo = row.management_no || normalizeManagementNo(row);
+    if (!managementNo) continue;
+    if (!grouped.has(managementNo)) {
+      const baseItem = baseByManagementNo.get(managementNo) || {};
+      grouped.set(managementNo, {
+        management_no: managementNo,
+        project_name: row.project_name || baseItem.project_name || '',
+        team_name: row.team_name || baseItem.department_name || '',
+        owner_name: row.owner_name || baseItem.owner_name || '',
+        project_category: row.project_category || baseItem.payment_category || baseItem.budget_category || '',
+        it_strategy_category: row.it_strategy_category || row.division || baseItem.system_classification || '',
+        expense_event: row.expense_event || baseItem.expense_item_name || '',
+        progress_status: row.progress_status || '',
+        progress_rate: row.progress_rate,
+        production_start_date: row.production_start_date || '',
+        memo: row.memo || baseItem.comment || '',
+        variance_reason_category: baseItem.variance_reason_category || row.project_category || row.it_strategy_category || '',
+        variance_reason: baseItem.variance_reason || row.memo || '',
+        comment: baseItem.comment || row.memo || '',
+        totalPlan: 0,
+        totalForecast: 0,
+        totalActual: Number(baseItem.totalActual || 0),
+        five_year_expense_total: 0,
+        monthly: {},
+        source: 'new_project_csv',
+      });
+    }
+
+    const project = grouped.get(managementNo);
+    project.project_name = project.project_name || row.project_name || '';
+    project.team_name = project.team_name || row.team_name || '';
+    project.owner_name = project.owner_name || row.owner_name || '';
+    project.project_category = project.project_category || row.project_category || '';
+    project.it_strategy_category = project.it_strategy_category || row.it_strategy_category || row.division || '';
+    project.expense_event = project.expense_event || row.expense_event || '';
+    project.progress_status = project.progress_status || row.progress_status || '';
+    if (project.progress_rate === null || project.progress_rate === undefined) project.progress_rate = row.progress_rate;
+    project.production_start_date = project.production_start_date || row.production_start_date || '';
+    project.memo = project.memo || row.memo || '';
+    project.variance_reason = project.variance_reason || row.memo || '';
+    project.comment = project.comment || row.memo || '';
+    project.five_year_expense_total = Math.max(project.five_year_expense_total || 0, Number(row.five_year_expense_total || 0));
+
+    if (row.target_year_month) {
+      if (!project.monthly[row.target_year_month]) project.monthly[row.target_year_month] = { plan: 0, forecast: 0, actual: 0 };
+      project.monthly[row.target_year_month].plan += Number(row.budget_amount || 0);
+      project.monthly[row.target_year_month].forecast += Number(row.forecast_amount || 0);
+    }
+    project.totalPlan += Number(row.budget_amount || 0);
+    project.totalForecast += Number(row.forecast_amount || 0);
+  }
+
+  for (const baseItem of baseItems) {
+    const hasAdditional = grouped.has(baseItem.management_no);
+    const looksNewProject = /新規|new/i.test(`${baseItem.project_name || ''} ${baseItem.budget_category || ''} ${baseItem.payment_category || ''}`);
+    if (hasAdditional || !looksNewProject) continue;
+    grouped.set(baseItem.management_no, {
+      ...baseItem,
+      team_name: baseItem.department_name || '',
+      project_category: baseItem.payment_category || baseItem.budget_category || '',
+      it_strategy_category: baseItem.system_classification || '',
+      expense_event: baseItem.expense_item_name || '',
+      progress_status: baseItem.new_project_status || '',
+      progress_rate: parseProgressRate(baseItem.new_project_status),
+      memo: baseItem.comment || '',
+      source: 'budget_csv',
+    });
+  }
+
+  const projects = [...grouped.values()].map((project) => {
+    const plan = Number(project.totalPlan || 0) || Number(project.five_year_expense_total || 0);
+    const comparable = Number(project.totalActual || 0) > 0 ? Number(project.totalActual || 0) : Number(project.totalForecast || 0);
+    const costBurnRate = plan > 0 ? (comparable / plan) * 100 : 0;
+    const progressRate = project.progress_rate === null || project.progress_rate === undefined ? costBurnRate : Number(project.progress_rate || 0);
+    const varianceAmount = plan - comparable;
+    return {
+      ...project,
+      totalPlan: plan,
+      comparableAmount: comparable,
+      cost_burn_rate: Math.round(costBurnRate * 10) / 10,
+      progress_rate: Math.round(progressRate * 10) / 10,
+      variance_amount: varianceAmount,
+      variance_rate: plan > 0 ? Math.round((varianceAmount / plan) * 1000) / 10 : 0,
+      variance_reason_category: project.variance_reason_category || project.project_category || project.it_strategy_category || '未分類',
+      variance_reason: project.variance_reason || project.memo || '未入力',
+      comment: project.comment || project.memo || '',
+    };
+  }).sort((a, b) => Math.abs(b.variance_amount) - Math.abs(a.variance_amount));
+
+  const groupSummary = {};
+  for (const project of projects) {
+    const category = project.project_category || '未設定';
+    const strategy = project.it_strategy_category || '未設定';
+    for (const [type, key] of [['project_category', category], ['it_strategy_category', strategy]]) {
+      const summaryKey = `${type}:${key}`;
+      if (!groupSummary[summaryKey]) groupSummary[summaryKey] = { type, key, plan: 0, comparable: 0, variance: 0, itemCount: 0 };
+      groupSummary[summaryKey].plan += Number(project.totalPlan || 0);
+      groupSummary[summaryKey].comparable += Number(project.comparableAmount || 0);
+      groupSummary[summaryKey].variance += Number(project.variance_amount || 0);
+      groupSummary[summaryKey].itemCount += 1;
+    }
+  }
+
+  return {
+    projects,
+    groupSummary: Object.values(groupSummary).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)),
+    sourceRowCount: newProjectRows.length,
+    hasNewProjectCsv: newProjectRows.length > 0,
+  };
 }
 
 // =============================================
@@ -1398,7 +1585,7 @@ app.get('/api/status', (_, res) => {
   const data = buildUnifiedData();
   const agg = data ? getAggregations(data) : null;
   res.json({
-    hasData: store.master.length > 0 || store.detail.length > 0,
+    hasData: store.master.length > 0 || store.detail.length > 0 || (store.additionalData?.new_project?.rows || []).length > 0,
     csvFileName: store.csvFileName,
     uploadedAt: store.uploadedAt,
     itemCount: data ? data.items.length : 0,
@@ -1478,6 +1665,11 @@ app.get('/api/items', (req, res) => {
     );
   }
   res.json({ items: filtered, total: filtered.length, sortedYMs: data.sortedYMs });
+});
+
+// Analysis: new projects from 新規案件個票.csv
+app.get('/api/analysis/new-projects', (_, res) => {
+  res.json({ data: buildNewProjectAnalysis() });
 });
 
 // Analysis: by system
@@ -2074,6 +2266,7 @@ module.exports = {
   normalizeDateString,
   safeString,
   buildUnifiedData,
+  buildNewProjectAnalysis,
   buildVarianceReasonMap,
   getAggregations,
   emptyStore,
