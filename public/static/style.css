@@ -185,6 +185,14 @@
   .metric-list dd { margin: 0; font-weight: 800; }
   .renewal-list { display: grid; gap: var(--space-2); }
   .renewal-card { display: grid; gap: var(--space-1); }
+  .notice { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); margin-bottom: var(--space-3); background: var(--surface-raised); }
+  .notice--empty { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); font-weight: 700; }
+  .additional-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+  .mini-status { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); background: var(--surface-muted); display: grid; gap: 4px; }
+  .mini-status span { color: var(--danger); font-weight: 800; }
+  .mini-status small { color: var(--text-muted); overflow-wrap: anywhere; }
+  .mini-status--ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); }
+  .mini-status--ok span { color: var(--ok); }
   .col-picker { display:flex; flex-wrap:wrap; gap: var(--space-2); }
   .col-chip { border:1px solid var(--border); border-radius:999px; padding:5px 10px; font-size:12px; cursor:pointer; background:var(--surface-muted); display: inline-flex; gap: 5px; align-items: center; }
   .col-chip:has(input:checked), .col-chip.active { border-color: var(--primary); color: var(--primary); font-weight: 700; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
@@ -208,7 +216,7 @@
     .bento-card--wide, .bento-card--tall, .bento-card--small { grid-column: span 6; }
     .bento-card.kpi-strip { grid-column: span 6; }
     .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .alert-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .alert-grid, .additional-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; }
@@ -222,6 +230,6 @@
     .hero-metric { text-align: left; }
     .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-  @media (max-width: 560px) { .topbar-row { align-items: flex-start; flex-direction: column; } .topbar-filters, .kpi-strip, .alert-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .topbar-row { align-items: flex-start; flex-direction: column; } .topbar-filters, .kpi-strip, .alert-grid, .additional-status-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; } ::view-transition-old(root), ::view-transition-new(root) { animation: none; } }
 }
