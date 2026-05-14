@@ -315,6 +315,29 @@ function normalizeDateString(value) {
   return { value: `${year}${String(month).padStart(2, '0')}`, rawValue, blank: false, valid: true };
 }
 
+function normalizeYearMonthString(value) {
+  const normalized = normalizeDateString(value);
+  if (normalized.blank) {
+    return {
+      ...normalized,
+      status: 'blank',
+      warning: '',
+    };
+  }
+  if (!normalized.valid) {
+    return {
+      ...normalized,
+      status: 'invalid',
+      warning: '年月はYYYYMMまたはYYYY/MM形式で入力してください',
+    };
+  }
+  return {
+    ...normalized,
+    status: 'valid',
+    warning: '',
+  };
+}
+
 function makeImportIssue(level, rowNumber, field, message, rawValue = '') {
   return { level, rowNumber, field, message, rawValue };
 }
@@ -504,9 +527,10 @@ function parseBudgetCsv(text) {
   const rows = parseCSV(text);
   const converted = parseUnifiedBudgetLayout(rows);
   return {
+    ...converted,
     fileType: IMPORT_FILE_TYPES.BUDGET,
     status: 'imported',
-    message: '予算データを取り込みました',
+    message: '予実績管理データを取り込みました',
     rows,
     master: converted.master,
     detail: converted.detail,
@@ -641,6 +665,10 @@ function periodFY(p) {
   const n = toNum(p);
   if (n >= 60 && n <= 99) return 1960 + n;
   return n;
+}
+
+function normalizeVarianceReasonCategory(value) {
+  return safeString(value || '');
 }
 
 function makeItemKey(managementNo, itemNo, fiscalPeriod, targetYm = '') {
@@ -1177,6 +1205,35 @@ function getAggregations(data) {
 }
 
 
+function monthsBetweenYearMonths(fromYm, toYm) {
+  const from = parseYM(fromYm);
+  const to = parseYM(toYm);
+  if (!from || !to) return null;
+  return (to.year - from.year) * 12 + (to.month - from.month);
+}
+
+function detectContractAlerts(contract = {}, baseYearMonth = getCurrentYYYYMM()) {
+  const renewalMonth = contract.next_renewal_month || contract.renewal_month || '';
+  const monthsUntilRenewal = renewalMonth ? monthsBetweenYearMonths(String(baseYearMonth), renewalMonth) : null;
+  const hasInvalidDates = [
+    contract.contract_start_date_status,
+    contract.contract_end_date_status,
+    contract.next_renewal_month_status,
+  ].includes('invalid');
+  const reviewRequired = hasInvalidDates || monthsUntilRenewal === null || monthsUntilRenewal <= 3;
+  let alertType = '通常';
+  if (hasInvalidDates) alertType = '日付確認';
+  else if (monthsUntilRenewal === null) alertType = '更新月未設定';
+  else if (monthsUntilRenewal < 0) alertType = '更新期限超過';
+  else if (monthsUntilRenewal <= 3) alertType = '更新間近';
+
+  return {
+    months_until_renewal: monthsUntilRenewal,
+    review_required: reviewRequired,
+    alert_type: alertType,
+  };
+}
+
 function buildContractRecord(item, overrides = {}, baseYearMonth = getCurrentYYYYMM()) {
   const contract = {
     contract_id: overrides.contract_id || item.contract_no || overrides.contract_no || '',
@@ -1206,6 +1263,12 @@ function buildContractRecord(item, overrides = {}, baseYearMonth = getCurrentYYY
   return contract;
 }
 
+function summarizeTargetYearMonthRange(detailRows = []) {
+  const months = [...new Set((detailRows || []).map(row => row.target_year_month).filter(Boolean))].sort();
+  if (!months.length) return '';
+  return months.length === 1 ? months[0] : `${months[0]}〜${months[months.length - 1]}`;
+}
+
 // =============================================
 // API Routes
 // =============================================
@@ -1223,6 +1286,24 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
     const uploadedAt = new Date().toISOString();
 
     if (fileType === IMPORT_FILE_TYPES.BUDGET) {
+      if (String(req.body.dryRun || '').toLowerCase() === 'true' && String(req.body.confirmImport || '').toLowerCase() !== 'true') {
+        persistStore();
+        return res.json({
+          dryRun: true,
+          fileType,
+          csvFileName: req.file.originalname,
+          totalRows: parsed.totalRows,
+          successRows: parsed.successRows,
+          warningCount: parsed.warningCount,
+          errorCount: parsed.errorCount,
+          skippedRows: parsed.skippedRows,
+          issues: parsed.issues || [],
+          targetPeriods: [...new Set((parsed.detail || []).map(row => row.fiscal_period).filter(Boolean))].sort(),
+          targetYearMonthRange: summarizeTargetYearMonthRange(parsed.detail || []),
+          message: parsed.message || '取込前チェックが完了しました',
+        });
+      }
+
       store.rawRows = parsed.rows;
       store.master = parsed.master;
       store.detail = parsed.detail;

@@ -17,3 +17,11 @@ test('manual route is checked before no-data gate in renderPage', () => {
     'manual route check must appear before no-data gate',
   );
 });
+
+test('primary data label and page gate do not require additional imports', () => {
+  const appJs = fs.readFileSync('public/static/app.js', 'utf8');
+
+  assert.match(appJs, /\{ value: 'budget', label: '予実績管理データ' \}/);
+  assert.match(appJs, /追加データが未取込でも、予実績管理データをもとに各ページを表示します。/);
+  assert.doesNotMatch(appJs, /if \([^\n]*(additionalData|ADDITIONAL_FILE_TYPES)[^\n]*\) return goPage\('import'\);/);
+});

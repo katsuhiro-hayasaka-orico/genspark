@@ -3,7 +3,7 @@
 ## Project Overview
 - **Name**: budget-csv-viewer
 - **Version**: 3.0.0
-- **Goal**: 統合レイアウトCSVファイル（1ファイル）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予算データを可視化するローカル専用アプリ
+- **Goal**: 統合レイアウトCSVファイル（1ファイル）をアップロードし、計画(plan)・見通し(forecast)・実績(actual) の3軸で予実績管理データを可視化するローカル専用アプリ
 - **Features**: 完全ビジュアライゼーション専用（データ入力機能なし）
 
 ## Tech Stack
