@@ -18,7 +18,7 @@ const state = {
   filters: { periodMode: '月次', department: '', perspective: '費目', target: 'すべて', fiscalPeriod: '', targetYearMonth: '' },
   settings: {
     thresholds: { varianceRate: 10, amountGap: 1000, momRate: 10, yoyRate: 10 },
-    kpiOrder: ['総予算', '総実績', '予算消化率', '予算-実績', '着地見込み', 'コスト削減効果'],
+    kpiOrder: ['総予算', '見込み／実績', '予算消化率', '差額', '着地見込み', 'コスト削減効果'],
   },
   ui: {
     theme: localStorage.getItem('theme') || 'light',
@@ -251,18 +251,60 @@ function buildTimeSeries(items) {
   return { labels, bucket };
 }
 
+function getComparableActual(itemOrMonthly) {
+  const actual = Number(itemOrMonthly?.actual ?? itemOrMonthly?.totalActual ?? 0);
+  const forecast = Number(itemOrMonthly?.forecast ?? itemOrMonthly?.totalForecast ?? 0);
+  return actual > 0 ? actual : forecast;
+}
+
+function calculateVariance(plan, comparable) {
+  const amount = Number(plan || 0) - Number(comparable || 0);
+  const rate = Number(plan || 0) ? amount / Number(plan || 0) * 100 : 0;
+  return { amount, rate };
+}
+
+function calculateBurnRate(plan, comparable) {
+  return Number(plan || 0) ? Number(comparable || 0) / Number(plan || 0) * 100 : 0;
+}
+
 function scopedPeriodSummary(items) {
   const ts = buildTimeSeries(items);
-  const totalPlan = items.reduce((s, r) => s + Number(r.totalPlan || 0), 0);
-  const totalForecast = items.reduce((s, r) => s + Number(r.totalForecast || 0), 0);
-  const totalActual = items.reduce((s, r) => s + Number(r.totalActual || 0), 0);
+  const lastLabel = ts.labels[ts.labels.length - 1];
+  const scopeAll = state.filters.periodMode === '通期' || !lastLabel;
+  let totalPlan = 0;
+  let totalForecast = 0;
+  let totalActual = 0;
+  let comparable = 0;
+
+  items.forEach((item) => {
+    if (scopeAll) {
+      totalPlan += Number(item.totalPlan || 0);
+      totalForecast += Number(item.totalForecast || 0);
+      totalActual += Number(item.totalActual || 0);
+      comparable += getComparableActual(item);
+      return;
+    }
+    Object.entries(item.monthly || {}).forEach(([ym, m]) => {
+      const key = state.filters.periodMode === '月次' ? ym : ymToQuarter(ym);
+      if (key !== lastLabel) return;
+      totalPlan += Number(m.plan || 0);
+      totalForecast += Number(m.forecast || 0);
+      totalActual += Number(m.actual || 0);
+      comparable += getComparableActual(m);
+    });
+  });
 
   return {
     totalPlan,
     totalForecast,
     totalActual,
+    comparable,
+    label: lastLabel,
     labels: ts.labels,
-    series: ts.labels.map(l => ts.bucket[l] || { plan: 0, forecast: 0, actual: 0 }),
+    series: ts.labels.map(l => {
+      const values = ts.bucket[l] || { plan: 0, forecast: 0, actual: 0 };
+      return { ...values, comparable: getComparableActual(values) };
+    }),
   };
 }
 
@@ -491,7 +533,7 @@ function kpiStatus(name, value, thresholds) {
     if (value >= 90) return { tone: 'ok', label: '順調', icon: '●' };
     return { tone: 'neutral', label: '進行中', icon: '●' };
   }
-  if (name === '予算-実績') {
+  if (name === '差額') {
     if (Math.abs(value) >= thresholds.amountGap) return { tone: 'warn', label: '要確認', icon: '⚠️' };
     return { tone: 'ok', label: '許容範囲', icon: '●' };
   }
@@ -504,9 +546,9 @@ function kpiStatus(name, value, thresholds) {
 function kpiHelpText(name) {
   const map = {
     '総予算': '選択中の期間・部門・対象における計画金額の合計です。',
-    '総実績': '選択範囲で確定済みの実績金額の合計です。',
-    '予算消化率': '総実績 ÷ 総予算。100%超は予算超過リスクとして確認します。',
-    '予算-実績': '総予算から総実績を差し引いた残額です。大きなプラス／マイナスは原因確認対象です。',
+    '見込み／実績': '実績がある場合は実績、未確定の場合は見込を使った比較対象金額です。',
+    '予算消化率': '見込み／実績 ÷ 総予算。100%超は予算超過リスクとして確認します。',
+    '差額': '総予算から見込み／実績を差し引いた残額です。大きなプラス／マイナスは原因確認対象です。',
     '着地見込み': '登録済み見込額の合計です。未設定の場合はCSV列・期間を確認してください。',
     'コスト削減効果': '予算残額のうちプラス分を削減効果として見ます。',
   };
@@ -516,48 +558,70 @@ function kpiHelpText(name) {
 function renderSummary() {
   const items = filteredItems();
   const s = scopedPeriodSummary(items);
-  const diff = s.totalPlan - s.totalActual;
-  const actualRate = s.totalPlan ? s.totalActual / s.totalPlan * 100 : 0;
-  const reduction = Math.max(diff, 0);
+  const periodVariance = calculateVariance(s.totalPlan, s.comparable);
+  const periodBurnRate = calculateBurnRate(s.totalPlan, s.comparable);
+  const fullComparable = items.reduce((sum, item) => sum + getComparableActual(item), 0);
+  const fullPlan = items.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
+  const fullBurnRate = calculateBurnRate(fullPlan, fullComparable);
+  const reduction = Math.max(periodVariance.amount, 0);
   const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
-  const top = items.map(r => ({
-    name: r.project_name || '(案件名未設定)',
-    gap: Number(r.totalPlan || 0) - Number(r.totalActual || 0),
-    row: r,
-  })).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 10);
+  const top = items.map(r => {
+    let scopedPlan = 0;
+    let scopedComparable = 0;
+    const scopeAll = state.filters.periodMode === '通期' || !s.label;
+
+    if (scopeAll) {
+      scopedPlan = Number(r.totalPlan || 0);
+      scopedComparable = getComparableActual(r);
+    } else {
+      Object.entries(r.monthly || {}).forEach(([ym, m]) => {
+        const key = state.filters.periodMode === '月次' ? ym : ymToQuarter(ym);
+        if (key !== s.label) return;
+        scopedPlan += Number(m.plan || 0);
+        scopedComparable += getComparableActual(m);
+      });
+    }
+
+    return {
+      name: r.project_name || '(案件名未設定)',
+      gap: calculateVariance(scopedPlan, scopedComparable).amount,
+      row: r,
+    };
+  }).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 10);
   const kpiRaw = {
     '総予算': s.totalPlan,
-    '総実績': s.totalActual,
-    '予算消化率': actualRate,
-    '予算-実績': diff,
+    '見込み／実績': s.comparable,
+    '予算消化率': periodBurnRate,
+    '差額': periodVariance.amount,
     '着地見込み': s.totalForecast,
     'コスト削減効果': reduction,
   };
   const kpiDisplay = {
     '総予算': yen(s.totalPlan),
-    '総実績': yen(s.totalActual),
-    '予算消化率': pct(actualRate),
-    '予算-実績': yen(diff),
+    '見込み／実績': yen(s.comparable),
+    '予算消化率': pct(periodBurnRate),
+    '差額': yen(periodVariance.amount),
     '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
     'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
   };
 
   const kpiCards = state.settings.kpiOrder.map((name, idx) => {
-    const status = kpiStatus(name, kpiRaw[name], state.settings.thresholds);
+    const displayName = name;
+    const status = kpiStatus(displayName, kpiRaw[displayName], state.settings.thresholds);
     const popId = `kpiHelp${idx}`;
-    const isHero = ['総予算', '総実績', '予算消化率'].includes(name);
-    return `<article class="kpi kpi-card ${isHero ? 'kpi-card--priority' : ''}" aria-label="${dataAttr(name)}">
+    const isHero = ['総予算', '見込み／実績', '予算消化率'].includes(displayName);
+    return `<article class="kpi kpi-card ${isHero ? 'kpi-card--priority' : ''}" aria-label="${dataAttr(displayName)}">
       <div class="kpi-head">
-        <div class="label">${escapeHtml(name)}</div>
-        <button class="icon-button" type="button" popovertarget="${popId}" aria-label="${dataAttr(name)}の説明を開く">?</button>
-        <div id="${popId}" class="popover-card" popover role="note">${escapeHtml(kpiHelpText(name))}</div>
+        <div class="label">${escapeHtml(displayName)}</div>
+        <button class="icon-button" type="button" popovertarget="${popId}" aria-label="${dataAttr(displayName)}の説明を開く">?</button>
+        <div id="${popId}" class="popover-card" popover role="note">${escapeHtml(kpiHelpText(displayName))}</div>
       </div>
-      <div class="value ${status.tone === 'warn' ? 'warn' : ''}">${kpiDisplay[name] || ''}</div>
+      <div class="value ${status.tone === 'warn' ? 'warn' : ''}">${kpiDisplay[displayName] || ''}</div>
       <div class="kpi-meta">
         <span class="status-pill status-pill--${status.tone}">${status.icon} ${escapeHtml(status.label)}</span>
         <span>${escapeHtml(state.filters.periodMode)} / ${escapeHtml(state.filters.department || '全部門')}</span>
       </div>
-      <p class="kpi-note">${escapeHtml(kpiHelpText(name))}</p>
+      <p class="kpi-note">${escapeHtml(kpiHelpText(displayName))}</p>
     </article>`;
   }).join('');
 
@@ -566,28 +630,46 @@ function renderSummary() {
       <div class="bento-card bento-card--hero summary-hero">
         <div>
           <p class="eyebrow">Executive overview</p>
-          <h3>まず見るべき予実差と消化状況</h3>
+          <h3>まず見るべき差額と消化状況</h3>
           <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p>
         </div>
-        <div class="hero-metric ${Math.abs(diff) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
-          <span>予算-実績</span><strong>${yen(diff)}</strong>
+        <div class="hero-metric ${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
+          <span>差額</span><strong>${yen(periodVariance.amount)}</strong>
         </div>
       </div>
       <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
+      <div class="bento-card bento-card--small insight-card">
+        <h4>当月カード</h4>
+        <p class="muted">選択スコープ: ${escapeHtml(s.label || '通期')}</p>
+        <dl>
+          <dt>予算</dt><dd>${yen(s.totalPlan)}</dd>
+          <dt>見込み／実績</dt><dd>${yen(s.comparable)}</dd>
+          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(periodVariance.amount)}</dd>
+          <dt>差額率</dt><dd>${pct(periodVariance.rate)}</dd>
+        </dl>
+      </div>
+      <div class="bento-card bento-card--small insight-card">
+        <h4>期全体カード</h4>
+        <dl>
+          <dt>期全体の予算</dt><dd>${yen(fullPlan)}</dd>
+          <dt>期全体の見込み／実績</dt><dd>${yen(fullComparable)}</dd>
+          <dt>予算消化率</dt><dd>${pct(fullBurnRate)}</dd>
+        </dl>
+      </div>
       <div class="bento-card bento-card--wide chart-card">
-        <div class="card-title-row"><h4>予算 vs 実績の推移</h4><span class="badge">最優先グラフ</span></div>
+        <div class="card-title-row"><h4>予算 vs 見込み／実績の推移</h4><span class="badge">最優先グラフ</span></div>
         <div class="chart-frame chart-frame--large"><canvas id="sumChart1"></canvas></div>
       </div>
       <div class="bento-card bento-card--tall chart-card">
         <div class="card-title-row"><h4>前年差グラフ</h4><span class="badge">前期差で代替</span></div>
-        <p class="card-help">実績の急な増減を確認します。</p>
+        <p class="card-help">見込み／実績の急な増減を確認します。</p>
         <div class="chart-frame"><canvas id="sumChart2"></canvas></div>
       </div>
       <div class="bento-card bento-card--wide ranking-card">
         <div class="card-title-row">
           <h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
           <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
-          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細検索へ移動します。</div>
+          <div id="rankHelp" class="popover-card" popover role="note">選択スコープの予算と見込み／実績の絶対差額が大きい順です。行クリックで明細検索へ移動します。</div>
         </div>
         <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th></tr></thead><tbody>
         ${top.map((r, i) => {
@@ -606,9 +688,9 @@ function renderSummary() {
   const cc = chartColors();
   drawLine('sumChart1', labels, [
     { label: '予算', data: series.map(v => v.plan), borderColor: cc.c1 },
-    { label: '実績', data: series.map(v => v.actual), borderColor: cc.c2 },
+    { label: '見込み／実績', data: series.map(v => v.comparable), borderColor: cc.c2 },
   ]);
-  const deltas = series.map((v, idx) => idx === 0 ? 0 : v.actual - series[idx - 1].actual);
+  const deltas = series.map((v, idx) => idx === 0 ? 0 : v.comparable - series[idx - 1].comparable);
   drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
 
   document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
@@ -974,7 +1056,7 @@ function renderManual() {
       <h4>1. データ取込</h4>
       <ul><li><b>見るポイント：</b>読み込み件数、対象期間、警告件数。</li><li><b>操作：</b>CSVを選択してアップロード。エラーがあれば修正後に再取込。</li></ul>
       <h4>2. 全体サマリー（月次レポート）</h4>
-      <ul><li><b>見るポイント：</b>KPIカード（総予算・総実績・予算消化率）と差額ランキング。</li><li><b>操作：</b>上部フィルタ（期間・部門・観点・対象）を切替えて、差異の大きい領域を特定。</li></ul>
+      <ul><li><b>見るポイント：</b>KPIカード（総予算・見込み／実績・予算消化率）と差額ランキング。</li><li><b>操作：</b>上部フィルタ（期間・部門・観点・対象）を切替えて、差異の大きい領域を特定。</li></ul>
       <h4>3. 推移（前年差／トレンド）</h4>
       <ul><li><b>見るポイント：</b>異常に増減した月、前年同月比の跳ね。</li><li><b>操作：</b>表示月数や指標を切替え、異常月を起点に原因を深掘り。</li></ul>
       <h4>4. カテゴリ別分析</h4>
@@ -996,7 +1078,7 @@ function renderManual() {
       <h4>Step 1：データ取込</h4>
       <ol><li>「1. データ取込」へ移動しCSVをアップロードします。</li><li>「読み込み結果サマリー」で件数・対象期間を確認します。</li><li>エラーパネルで不足列や数値不正を確認し、CSVを修正して再取込します。</li></ol>
       <h4>Step 2：全体サマリーの見方</h4>
-      <ol><li>KPIカードで「総予算・総実績・予算消化率」を確認します。</li><li>「予算-実績」の差額が大きい項目（赤表示）を優先確認します。</li><li>ランキング上位をクリックし、明細へドリルダウンします。</li></ol>
+      <ol><li>KPIカードで「総予算・見込み／実績・予算消化率」を確認します。</li><li>「差額」が大きい項目（赤表示）を優先確認します。</li><li>ランキング上位をクリックし、明細へドリルダウンします。</li></ol>
       <h4>Step 3：分析・ドリルダウン</h4>
       <ol><li>「推移」で時系列の異常月を特定します。</li><li>「カテゴリ別分析」で費目・部門など観点を切替え、原因候補を絞ります。</li><li>「明細」で検索し、個票レベルで確認します。</li></ol>
     </div>
