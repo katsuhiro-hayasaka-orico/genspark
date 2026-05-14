@@ -551,21 +551,82 @@ function renderImport() {
     <div class="panel">
       <h3>CSV取込</h3>
       <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv"></div>
-      <div class="controls"><button class="primary" id="uploadBtn" disabled>取込実行</button></div>
+      <div class="controls">
+        <button class="primary" id="uploadBtn" disabled>取込前チェック</button>
+        <button class="primary" id="confirmImportBtn" style="display:none">取込を続行する</button>
+        <button id="cancelImportBtn" style="display:none">取込を中止する</button>
+      </div>
       <div id="importSummary"></div>
       <div id="importErrors"></div>
     </div>`;
 
   const fileInput = document.getElementById('csvFile');
   const uploadBtn = document.getElementById('uploadBtn');
+  const confirmBtn = document.getElementById('confirmImportBtn');
+  const cancelBtn = document.getElementById('cancelImportBtn');
+  const summaryEl = document.getElementById('importSummary');
+  const errorsEl = document.getElementById('importErrors');
   let file = null;
+  let lastInspection = null;
+
+  const issueLabel = (level) => ({ warning: '警告', error: 'エラー', skipped: '対象外' }[level] || level);
+  const issueHtml = (issue) => {
+    const row = issue.rowNumber ? `${fmt(issue.rowNumber)}行目` : 'ファイル全体';
+    const raw = issue.rawValue !== undefined && issue.rawValue !== '' ? `（値: ${escapeHtml(issue.rawValue)}）` : '';
+    return `<li class="${issue.level === 'error' || issue.level === 'skipped' ? 'warn' : ''}"><b>${escapeHtml(issueLabel(issue.level))}</b> ${escapeHtml(row)} / ${escapeHtml(issue.field || '-')}: ${escapeHtml(issue.message || '')}${raw}</li>`;
+  };
+
+  const renderInspection = (result) => {
+    lastInspection = result;
+    const warnings = (result.issues || []).filter(i => i.level === 'warning');
+    const errors = (result.issues || []).filter(i => i.level === 'error');
+    const skipped = (result.issues || []).filter(i => i.level === 'skipped');
+    const mainWarnings = warnings.concat(skipped).slice(0, 10);
+    const mainErrors = errors.slice(0, 10);
+    const targetPeriods = (result.targetPeriods || []).length ? result.targetPeriods.map(p => `第${p}期`).join(', ') : '-';
+
+    summaryEl.innerHTML = `
+      <div class="panel">
+        <h4>${result.dryRun ? '取込前チェック結果' : '取込結果'}</h4>
+        <ul>
+          <li>取込ファイル名: ${escapeHtml(result.csvFileName || file?.name || '-')}</li>
+          <li>対象年月: ${escapeHtml(result.targetYearMonthRange || '-')}</li>
+          <li>対象期: ${escapeHtml(targetPeriods)}</li>
+          <li>総レコード数: ${fmt(result.totalRows)}</li>
+          <li>正常取込件数: ${fmt(result.successRows)}</li>
+          <li>警告件数: ${fmt(result.warningCount)}</li>
+          <li>エラー件数: ${fmt(result.errorCount)}</li>
+          <li>取込対象外件数: ${fmt(result.skippedRows)}</li>
+        </ul>
+      </div>`;
+
+    errorsEl.innerHTML = `
+      <div class="panel">
+        <h4>主な警告</h4>
+        ${mainWarnings.length ? `<ul>${mainWarnings.map(issueHtml).join('')}</ul>` : '<p>警告はありません。</p>'}
+      </div>
+      <div class="panel">
+        <h4>主なエラー</h4>
+        ${mainErrors.length ? `<ul>${mainErrors.map(issueHtml).join('')}</ul>` : '<p>エラーはありません。</p>'}
+      </div>`;
+
+    const hasIssues = Number(result.warningCount || 0) > 0 || Number(result.errorCount || 0) > 0 || Number(result.skippedRows || 0) > 0;
+    uploadBtn.style.display = result.dryRun ? 'none' : '';
+    confirmBtn.style.display = result.dryRun ? '' : 'none';
+    cancelBtn.style.display = result.dryRun && hasIssues ? '' : 'none';
+    confirmBtn.textContent = hasIssues ? '取込を続行する' : '取込を確定する';
+  };
 
   const preview = async (f) => {
     file = f;
-    const c = csvClientChecks(await f.text());
-    document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
-    document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
+    lastInspection = null;
+    confirmBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    uploadBtn.style.display = '';
     uploadBtn.disabled = false;
+    const c = csvClientChecks(await f.text());
+    summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
+    errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
   };
 
   fileInput.onchange = e => e.target.files[0] && preview(e.target.files[0]);
@@ -577,9 +638,29 @@ function renderImport() {
     if (!file) return;
     const fd = new FormData();
     fd.append('budget_csv', file);
-    await api('/upload', { method: 'POST', body: fd });
+    fd.append('dryRun', 'true');
+    const result = await api('/upload', { method: 'POST', body: fd });
+    renderInspection(result);
+  };
+
+  confirmBtn.onclick = async () => {
+    if (!file || !lastInspection) return;
+    const fd = new FormData();
+    fd.append('budget_csv', file);
+    fd.append('confirmImport', 'true');
+    const result = await api('/upload', { method: 'POST', body: fd });
+    renderInspection(result);
     await refreshAllData();
     goPage('summary');
+  };
+
+  cancelBtn.onclick = () => {
+    lastInspection = null;
+    confirmBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    uploadBtn.style.display = '';
+    uploadBtn.disabled = !file;
+    errorsEl.innerHTML = '<div class="panel"><h4>取込を中止しました</h4><p>ストアには反映していません。</p></div>';
   };
 }
 
