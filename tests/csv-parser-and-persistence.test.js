@@ -79,6 +79,13 @@ test('upload and mutable records persist to the local store file', async () => {
     const status = await fetch(`${baseUrl}/api/status`).then(res => res.json());
     assert.equal(status.hasData, true);
     assert.equal(status.itemCount, 1);
+    assert.equal(status.additionalData.new_project.status, 'not_imported');
+    assert.equal(status.additionalData.oasis_actual.message, '追加データ未取込');
+
+    const summary = await fetch(`${baseUrl}/api/dashboard/summary`).then(res => res.json());
+    assert.ok(summary.kpi, 'dashboard summary should render from primary data only');
+    assert.equal(summary.kpi.itemCount, 1);
+    assert.equal(summary.kpi.totalPlan, 1000);
 
     const contractRes = await fetch(`${baseUrl}/api/contracts`, {
       method: 'POST',

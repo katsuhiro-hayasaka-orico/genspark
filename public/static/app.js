@@ -12,7 +12,7 @@ const NAV_PAGES = [
 ];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
-  { value: 'budget', label: '予算データ' },
+  { value: 'budget', label: '予実績管理データ' },
   { value: 'variance_reason', label: '差額理由' },
   { value: 'new_project', label: '新規案件' },
   { value: 'oasis_actual', label: 'OASIS実績' },
@@ -127,6 +127,8 @@ const displayContractDate = (value, status) => {
   return value;
 };
 const displayContractValue = (value) => value === null || value === undefined || value === '' ? '-' : value;
+const escapedContractValueForHtml = (value) => escapeHtml(value || '-');
+const monthlyCommentHtml = (m = {}, item = {}) => displayOrUnentered(firstPresent(m.comment, item.comment));
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -738,7 +740,7 @@ function renderImport() {
           <select id="fileTypeSelect">${IMPORT_FILE_TYPE_OPTIONS.map(t => `<option value="${dataAttr(t.value)}" ${t.value === state.ui.importFileType ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}</select>
         </label>
       </div>
-      <p class="muted">データ仕様が未確定の追加データは、空の本番風モックを作らず「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として扱います。</p>
+      <p class="muted">追加データが未取込でも、予実績管理データをもとに各ページを表示します。データ仕様が未確定の追加データは、空の本番風モックを作らず「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として扱います。</p>
       <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv"></div>
       <div class="controls">
         <button class="primary" id="uploadBtn" disabled>取込前チェック</button>
@@ -812,14 +814,13 @@ function renderImport() {
   const preview = async (f) => {
     file = f;
     const selectedType = fileTypeSelect.value;
-    if (selectedType === 'budget') {
-      const c = csvClientChecks(await f.text());
-      document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
-      document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
-    } else {
-      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。結合キーは management_no（管理番号）を中心に既存明細へ補完します。</p></div>`;
-      document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
+    if (selectedType !== 'budget') {
+      summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。結合キーは management_no（管理番号）を中心に既存明細へ補完します。</p></div>`;
+      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
+      uploadBtn.disabled = false;
+      return;
     }
+
     uploadBtn.disabled = false;
     const c = csvClientChecks(await f.text());
     summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
@@ -1236,7 +1237,7 @@ function renderVendor() {
         ${ranking.map((v, idx) => `<tr class="clickable-row" data-filter-type="vendor" data-filter-value="${dataAttr(v.name)}"><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
       <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>契約更新・見直し一覧</h4><span class="badge">契約属性とアラート</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー名</th><th>案件名</th><th>支払区分</th><th>契約開始日</th><th>契約終了日</th><th>次回更新予定月</th><th class="right">残月数</th><th>アラート区分</th><th>見直し要否</th><th>備考</th></tr></thead><tbody>
-        ${contractRows.map(r => `<tr class="${r.review_required ? 'warning-row' : ''}"><td>${escapeHtml(r.vendor_name || '未設定ベンダー')}</td><td>${escapeHtml(r.project_name || r.system_name || '-')}</td><td>${escapeHtml(displayContractValue(r.payment_category))}</td><td>${escapeHtml(displayContractDate(r.contract_start_date, r.contract_start_date_status))}</td><td>${escapeHtml(displayContractDate(r.contract_end_date, r.contract_end_date_status))}</td><td>${escapeHtml(displayContractValue(r.next_renewal_month || r.renewal_month))}</td><td class="right">${escapeHtml(r.months_until_renewal ?? '-')}</td><td>${escapeHtml(r.alert_type || '通常')}</td><td><span class="status-pill status-pill--${r.review_required ? 'warn' : 'neutral'}">${r.review_required ? '要見直し' : '不要'}</span></td><td>${escapeHtml(displayContractValue(r.note))}</td></tr>`).join('') || '<tr><td colspan="10">契約データなし</td></tr>'}
+        ${contractRows.map(r => `<tr class="${r.review_required ? 'warning-row' : ''}"><td>${escapeHtml(r.vendor_name || '未設定ベンダー')}</td><td>${escapeHtml(r.project_name || r.system_name || '-')}</td><td>${escapedContractValueForHtml(r.payment_category)}</td><td>${escapeHtml(displayContractDate(r.contract_start_date, r.contract_start_date_status))}</td><td>${escapeHtml(displayContractDate(r.contract_end_date, r.contract_end_date_status))}</td><td>${escapedContractValueForHtml(r.next_renewal_month || r.renewal_month)}</td><td class="right">${escapeHtml(r.months_until_renewal ?? '-')}</td><td>${escapeHtml(r.alert_type || '通常')}</td><td><span class="status-pill status-pill--${r.review_required ? 'warn' : 'neutral'}">${r.review_required ? '要見直し' : '不要'}</span></td><td>${escapedContractValueForHtml(r.note)}</td></tr>`).join('') || '<tr><td colspan="10">契約データなし</td></tr>'}
       </tbody></table></div></div>
     </section>`;
 
@@ -1283,7 +1284,8 @@ function renderDetail() {
       const row = view[Number(tr.dataset.idx)];
       const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category, variance_reason_category: displayText(row.variance_reason_category), variance_reason: displayText(row.variance_reason), comment: displayText(row.comment), comment_updated_month: displayText(row.comment_updated_month), comment_updated_by: displayText(row.comment_updated_by) };
       const detail = row.monthly || {};
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
+      const monthlyRows = Object.entries(detail).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
