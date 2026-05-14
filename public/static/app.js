@@ -26,6 +26,7 @@ const state = {
     trendMonths: 12,
     trendMetric: '総額',
     detailSearch: '',
+    detailFilter: null,
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
   },
 };
@@ -47,6 +48,54 @@ const optionHtml = (value, selectedValue) => {
 };
 const dataAttr = (value) => escapeHtml(value);
 const jsonForHtml = (value) => escapeHtml(JSON.stringify(value, null, 2));
+
+const DETAIL_FILTER_LABELS = {
+  management_no: '管理番号',
+  category: 'カテゴリ',
+  department: '部門',
+  vendor: 'ベンダー',
+  contract_no: '契約番号',
+};
+
+function setDetailFilter(type, value) {
+  state.ui.detailFilter = value ? { type, value } : null;
+  state.ui.detailSearch = '';
+}
+
+function detailFilterLabel(filter = state.ui.detailFilter) {
+  if (!filter) return '';
+  return `${DETAIL_FILTER_LABELS[filter.type] || filter.type}: ${filter.value}`;
+}
+
+function itemMatchesDetailFilter(item, filter = state.ui.detailFilter) {
+  if (!filter || !filter.value) return true;
+  const value = String(filter.value);
+  if (filter.type === 'management_no') return String(item.management_no || '') === value;
+  if (filter.type === 'department') return String(item.department_name || '') === value;
+  if (filter.type === 'vendor') return String(item.vendor_name || item.payee_name || '') === value;
+  if (filter.type === 'contract_no') return String(item.contract_no || '') === value;
+  if (filter.type === 'category') {
+    return [
+      item.budget_category,
+      item.system_classification,
+      item.expense_classification,
+      item.expense_item_name,
+      item.fixed_variable_type,
+      item.payment_category,
+      item.system_name,
+    ].some(v => String(v || '') === value);
+  }
+  return true;
+}
+
+function bindDetailFilterLinks(scope = document) {
+  scope.querySelectorAll('[data-filter-type][data-filter-value]').forEach(el => {
+    el.onclick = () => {
+      setDetailFilter(el.dataset.filterType, el.dataset.filterValue);
+      goPage('detail');
+    };
+  });
+}
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -470,12 +519,12 @@ function renderSummary() {
         <div class="card-title-row">
           <h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
           <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
-          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細検索へ移動します。</div>
+          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</div>
         </div>
         <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th></tr></thead><tbody>
         ${top.map((r, i) => {
           const isWarn = Math.abs(r.gap) >= state.settings.thresholds.amountGap;
-          return `<tr data-mid="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td></tr>`;
+          return `<tr data-filter-type="management_no" data-filter-value="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td></tr>`;
         }).join('')}
         </tbody></table></div>
       </div>
@@ -494,7 +543,7 @@ function renderSummary() {
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.actual - series[idx - 1].actual);
   drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
 
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+  bindDetailFilterLinks();
 }
 
 function renderTrend() {
@@ -518,7 +567,7 @@ function renderTrend() {
       <div style="height:320px"><canvas id="trendChart"></canvas></div>
     </div>
     <div class="panel"><h4>変動の大きい順ランキング（前年差・前月差）</h4><div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">前年差</th><th class="right">前月差</th></tr></thead><tbody>
-      ${rank.map(r => `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.name)}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
+      ${rank.map(r => `<tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}"><td>${escapeHtml(r.name)}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 
   const cc = chartColors();
@@ -530,7 +579,7 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+  bindDetailFilterLinks();
 }
 
 function aggregateBy(rows, key) {
@@ -556,7 +605,8 @@ function aggregateBy(rows, key) {
 function renderCategory() {
   const tabs = ['システム分類名別', '経費区分別', '経費事象名別', '部門別', '固定費・変動費'];
   const keyMap = { 'システム分類名別': 'system_classification', '経費区分別': 'expense_classification', '経費事象名別': 'expense_item_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
-  const agg = aggregateBy(filteredItems(), keyMap[state.ui.categoryTab]);
+  const categoryKey = keyMap[state.ui.categoryTab];
+  const agg = aggregateBy(filteredItems(), categoryKey);
 
   document.getElementById('content').innerHTML = `
     <div class="panel">
@@ -564,12 +614,13 @@ function renderCategory() {
       <div class="grid-2">
         <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
         <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${agg.slice(0, 25).map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${yen(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
+          ${agg.slice(0, 25).map(r => `<tr class="clickable-row" data-filter-type="${categoryKey === 'department_name' ? 'department' : 'category'}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${yen(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
         </tbody></table></div></div>
       </div>
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
+  bindDetailFilterLinks();
   const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
     type: 'doughnut',
@@ -594,9 +645,9 @@ function renderProject() {
     document.getElementById('projectRows').innerHTML = view.slice(0, 200).map(r => {
       const progress = Number(r.totalForecast || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
       const burn = Number(r.totalActual || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
-      return `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${escapeHtml(r.variance_reason || '-')}</td></tr>`;
+      return `<tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${escapeHtml(r.variance_reason || '-')}</td></tr>`;
     }).join('');
-    document.querySelectorAll('#projectRows tr').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+    bindDetailFilterLinks(document.getElementById('projectRows'));
   };
 
   drawRows();
@@ -618,7 +669,7 @@ function renderAlert() {
       <div class="card-title-row"><h4>⚠️ ${escapeHtml(r.project_name || r.management_no)}</h4><span class="status-pill status-pill--warn">重要度 ${idx + 1}</span></div>
       <dl class="metric-list"><div><dt>差額</dt><dd class="warn">${yen(r.gap)}</dd></div><div><dt>乖離率</dt><dd>${pct(r.rate)}</dd></div></dl>
       <p class="muted">${escapeHtml(r.department_name || '-')} / ${escapeHtml(r.system_name || '-')}</p>
-      <button type="button" data-mid="${dataAttr(r.management_no)}" aria-label="${dataAttr(r.project_name || r.management_no)}の明細を表示">明細を見る</button>
+      <button type="button" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}" aria-label="${dataAttr(r.project_name || r.management_no)}の明細を表示">明細を見る</button>
     </article>`).join('');
 
   document.getElementById('content').innerHTML = `
@@ -628,12 +679,12 @@ function renderAlert() {
     </div>
     <div class="grid-2">
       <div class="panel"><h4>アラート一覧</h4><div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th><th>状態</th></tr></thead><tbody>
-        ${rows.slice(0, 200).map(r => `<tr data-mid="${dataAttr(r.management_no)}" class="clickable-row warning-row"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td><td><span class="status-pill status-pill--warn">⚠️ 要確認</span></td></tr>`).join('') || '<tr><td colspan="4">対象なし</td></tr>'}
+        ${rows.slice(0, 200).map(r => `<tr data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}" class="clickable-row warning-row"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td><td><span class="status-pill status-pill--warn">⚠️ 要確認</span></td></tr>`).join('') || '<tr><td colspan="4">対象なし</td></tr>'}
       </tbody></table></div></div>
       <div class="panel"><h4>最重要アラートの詳細</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p><button id="alertDetailBtn" type="button">詳細説明を開く</button><dialog id="alertDetailDialog" aria-labelledby="alertDialogTitle"><h3 id="alertDialogTitle">アラートの読み方</h3><p>差額・乖離率の両方を確認し、対象案件の明細で月次推移と担当部門を確認してください。</p><form method="dialog"><button>閉じる</button></form></dialog>` : 'アラート対象なし'}</div>
     </div>`;
 
-  document.querySelectorAll('[data-mid]').forEach(el => el.onclick = () => { state.ui.detailSearch = el.dataset.mid; goPage('detail'); });
+  bindDetailFilterLinks();
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
@@ -674,12 +725,14 @@ function renderVendor() {
   document.getElementById('content').innerHTML = `
     <section class="vendor-bento">
       <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
-        ${ranking.map((v, idx) => `<tr><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
+        ${ranking.map((v, idx) => `<tr class="clickable-row" data-filter-type="vendor" data-filter-value="${dataAttr(v.name)}"><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
       <div class="bento-card bento-card--tall"><div class="card-title-row"><h4>契約更新月一覧</h4><span class="badge">当月〜3か月先</span></div><div class="renewal-list">
-        ${renewals.map(r => `<article class="renewal-card"><span class="status-pill status-pill--warn">⚠️ 更新判断</span><strong>${escapeHtml(r.vendor_name)}</strong><span>${escapeHtml(r.contract_no)}</span><b>${escapeHtml(r.renewal_month)}</b></article>`).join('') || '<p>対象なし</p>'}
+        ${renewals.map(r => `<article class="renewal-card clickable-row" data-filter-type="contract_no" data-filter-value="${dataAttr(r.contract_no)}"><span class="status-pill status-pill--warn">⚠️ 更新判断</span><strong>${escapeHtml(r.vendor_name)}</strong><span>${escapeHtml(r.contract_no)}</span><b>${escapeHtml(r.renewal_month)}</b></article>`).join('') || '<p>対象なし</p>'}
       </div></div>
     </section>`;
+
+  bindDetailFilterLinks();
 }
 
 function toCsv(rows) {
@@ -690,7 +743,10 @@ function toCsv(rows) {
 
 function renderDetail() {
   const fixedCols = ['management_no', 'project_name', 'department_name', 'system_name'];
-  const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'totalPlan', 'totalForecast', 'totalActual'];
+  const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'contract_no', 'totalPlan', 'totalForecast', 'totalActual'];
+  const drilldownBadge = state.ui.detailFilter
+    ? `<span class="badge">ドリルダウン: ${escapeHtml(detailFilterLabel())}</span><button id="dClearFilter" type="button">絞り込み解除</button>`
+    : '<span class="badge">ドリルダウンなし</span>';
 
   document.getElementById('content').innerHTML = `
     <section class="detail-layout">
@@ -699,6 +755,7 @@ function renderDetail() {
           <label class="search-field">検索<input type="text" id="dSearch" placeholder="管理番号・案件名・ベンダーで検索" value="${dataAttr(state.ui.detailSearch || '')}"></label>
           <button id="dExport" aria-label="表示中の明細をCSVで書き出す">表示結果をCSV書き出し</button>
           <span class="badge">キー項目は常時表示</span>
+          ${drilldownBadge}
         </div>
         <div class="col-picker" id="colPicker" aria-label="表示列の選択">${optionalCols.map(c => `<label class="col-chip" data-col="${dataAttr(c)}"><input type="checkbox" ${state.ui.extraDetailCols.includes(c) ? 'checked' : ''}>${escapeHtml(c)}</label>`).join('')}</div>
       </div>
@@ -713,7 +770,7 @@ function renderDetail() {
     const q = document.getElementById('dSearch').value.toLowerCase();
     state.ui.detailSearch = q;
     const cols = [...fixedCols, ...state.ui.extraDetailCols];
-    const view = filteredItems().filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
+    const view = filteredItems().filter(r => itemMatchesDetailFilter(r)).filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
 
     document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
     document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}" class="clickable-row">${cols.map(c => `<td>${escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
@@ -734,6 +791,9 @@ function renderDetail() {
       a.click();
     };
   };
+
+  const clearFilter = document.getElementById('dClearFilter');
+  if (clearFilter) clearFilter.onclick = () => { state.ui.detailFilter = null; renderDetail(); };
 
   renderRows();
   document.getElementById('dSearch').oninput = renderRows;
