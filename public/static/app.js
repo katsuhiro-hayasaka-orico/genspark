@@ -400,6 +400,22 @@ function buildReportSeries(items, fiscalPeriod) {
   };
 }
 
+function getComparableActual(record = {}) {
+  const actual = Number(record.actual ?? record.totalActual ?? 0);
+  const forecast = Number(record.forecast ?? record.totalForecast ?? 0);
+  return actual || forecast;
+}
+
+function calculateVariance(plan, comparable) {
+  const amount = Number(plan || 0) - Number(comparable || 0);
+  const rate = Number(plan || 0) ? amount / Number(plan || 0) * 100 : 0;
+  return { amount, rate };
+}
+
+function calculateBurnRate(plan, comparable) {
+  return Number(plan || 0) ? Number(comparable || 0) / Number(plan || 0) * 100 : 0;
+}
+
 function scopedPeriodSummary(items) {
   const ts = buildTimeSeries(items);
   const lastLabel = ts.labels[ts.labels.length - 1];
@@ -1252,6 +1268,9 @@ function toCsv(rows) {
 function renderDetail() {
   const fixedCols = ['management_no', 'project_name', 'department_name', 'system_name'];
   const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'totalPlan', 'totalForecast', 'totalActual', 'variance_reason_category', 'variance_reason', 'comment'];
+  const drilldownBadge = state.ui.detailFilter
+    ? `<span class="badge">絞り込み: ${escapeHtml(detailFilterLabel())}</span><button id="dClearFilter" type="button">絞り込み解除</button>`
+    : '';
 
   document.getElementById('content').innerHTML = `
     <section class="detail-layout">
