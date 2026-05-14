@@ -63,3 +63,13 @@ test('upload and mutable records persist to the local store file', async () => {
     await stopServer();
   }
 });
+
+
+test('additional import types preserve not imported status when specs are unavailable', () => {
+  const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
+  const result = parseUploadedFile(IMPORT_FILE_TYPES.NEW_PROJECT, 'management_no,name\nM-1,Sample');
+
+  assert.equal(result.status, 'not_imported');
+  assert.equal(result.message, '追加データ未取込');
+  assert.deepEqual(result.rows, []);
+});

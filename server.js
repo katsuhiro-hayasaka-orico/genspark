@@ -10,6 +10,23 @@ const HOST = process.env.HOST || '127.0.0.1';
 const APP_DATA_DIR = process.env.BUDGET_CSV_VIEWER_DATA_DIR || path.join(os.homedir(), '.budget-csv-viewer');
 const STORE_FILE = process.env.BUDGET_CSV_VIEWER_STORE_FILE || path.join(APP_DATA_DIR, 'store.json');
 
+const IMPORT_FILE_TYPES = Object.freeze({
+  BUDGET: 'budget',
+  VARIANCE_REASON: 'variance_reason',
+  NEW_PROJECT: 'new_project',
+  OASIS_ACTUAL: 'oasis_actual',
+  DEPRECIATION_SIMULATION: 'depreciation_simulation',
+});
+
+const ADDITIONAL_IMPORT_FILE_TYPES = Object.freeze([
+  IMPORT_FILE_TYPES.VARIANCE_REASON,
+  IMPORT_FILE_TYPES.NEW_PROJECT,
+  IMPORT_FILE_TYPES.OASIS_ACTUAL,
+  IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION,
+]);
+
+const NOT_IMPORTED_MESSAGE = '追加データ未取込';
+
 // --- Multer setup (memory storage, no disk persistence) ---
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,13 +44,25 @@ app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 // =============================================
 // Local data store
 // =============================================
+function createAdditionalDataStore() {
+  return Object.fromEntries(ADDITIONAL_IMPORT_FILE_TYPES.map((fileType) => [fileType, {
+    status: 'not_imported',
+    message: NOT_IMPORTED_MESSAGE,
+    rows: [],
+    byManagementNo: {},
+    fileName: null,
+    uploadedAt: null,
+  }]));
+}
+
 function emptyStore() {
   return {
-    master: null,       // normalized master-like rows derived from unified CSV
-    detail: null,       // normalized detail-like rows derived from unified CSV
-    rawRows: null,      // parsed unified CSV rows (as-is view for items screen)
+    master: [],       // normalized master-like rows derived from unified CSV
+    detail: [],       // normalized detail-like rows derived from unified CSV
+    rawRows: [],      // parsed unified CSV rows (as-is view for items screen)
     uploadedAt: null,
     csvFileName: null,
+    additionalData: createAdditionalDataStore(),
     varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
     initiatives: {},       // key: initiative_id
     contracts: {},         // key: contract_id
@@ -42,13 +71,41 @@ function emptyStore() {
 
 let store = emptyStore();
 
+function normalizeAdditionalDataStore(candidate) {
+  const normalized = createAdditionalDataStore();
+  if (!candidate || typeof candidate !== 'object') return normalized;
+
+  for (const fileType of ADDITIONAL_IMPORT_FILE_TYPES) {
+    const current = candidate[fileType];
+    if (!current || typeof current !== 'object') continue;
+    const rows = Array.isArray(current.rows) ? current.rows : [];
+    normalized[fileType] = {
+      ...normalized[fileType],
+      ...current,
+      status: current.status || (rows.length ? 'imported' : 'not_imported'),
+      message: current.message || (rows.length ? '取込済み' : NOT_IMPORTED_MESSAGE),
+      rows,
+      byManagementNo: current.byManagementNo && typeof current.byManagementNo === 'object'
+        ? current.byManagementNo
+        : indexRowsByManagementNo(rows),
+    };
+  }
+  return normalized;
+}
+
 function normalizeStore(candidate) {
+  const base = emptyStore();
+  const source = candidate && typeof candidate === 'object' ? candidate : {};
   return {
-    ...emptyStore(),
-    ...(candidate && typeof candidate === 'object' ? candidate : {}),
-    varianceReasons: candidate?.varianceReasons && typeof candidate.varianceReasons === 'object' ? candidate.varianceReasons : {},
-    initiatives: candidate?.initiatives && typeof candidate.initiatives === 'object' ? candidate.initiatives : {},
-    contracts: candidate?.contracts && typeof candidate.contracts === 'object' ? candidate.contracts : {},
+    ...base,
+    ...source,
+    master: Array.isArray(source.master) ? source.master : [],
+    detail: Array.isArray(source.detail) ? source.detail : [],
+    rawRows: Array.isArray(source.rawRows) ? source.rawRows : [],
+    additionalData: normalizeAdditionalDataStore(source.additionalData),
+    varianceReasons: source.varianceReasons && typeof source.varianceReasons === 'object' ? source.varianceReasons : {},
+    initiatives: source.initiatives && typeof source.initiatives === 'object' ? source.initiatives : {},
+    contracts: source.contracts && typeof source.contracts === 'object' ? source.contracts : {},
   };
 }
 
@@ -260,6 +317,155 @@ function parseUnifiedBudgetLayout(rows) {
   return { master, detail };
 }
 
+
+function getFirstValue(row, aliases) {
+  for (const key of aliases) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+  }
+  return '';
+}
+
+function normalizeManagementNo(row) {
+  return getFirstValue(row, ['management_no', '管理番号', '管理番号（統合）', '管理No', '管理NO', '案件管理番号']);
+}
+
+function indexRowsByManagementNo(rows) {
+  const indexed = {};
+  for (const row of rows || []) {
+    const managementNo = row.management_no || normalizeManagementNo(row);
+    if (!managementNo) continue;
+    if (!indexed[managementNo]) indexed[managementNo] = [];
+    indexed[managementNo].push({ ...row, management_no: managementNo });
+  }
+  return indexed;
+}
+
+function makeNotImportedParseResult(fileType) {
+  return {
+    fileType,
+    status: 'not_imported',
+    message: NOT_IMPORTED_MESSAGE,
+    rows: [],
+    byManagementNo: {},
+  };
+}
+
+function makeImportedParseResult(fileType, rows, message = '取込済み') {
+  const normalizedRows = (rows || []).map((row) => ({
+    ...row,
+    management_no: row.management_no || normalizeManagementNo(row),
+  })).filter(row => row.management_no);
+
+  return {
+    fileType,
+    status: normalizedRows.length > 0 ? 'imported' : 'not_imported',
+    message: normalizedRows.length > 0 ? message : NOT_IMPORTED_MESSAGE,
+    rows: normalizedRows,
+    byManagementNo: indexRowsByManagementNo(normalizedRows),
+  };
+}
+
+function parseBudgetCsv(text) {
+  const rows = parseCSV(text);
+  const converted = parseUnifiedBudgetLayout(rows);
+  return {
+    fileType: IMPORT_FILE_TYPES.BUDGET,
+    status: 'imported',
+    message: '予算データを取り込みました',
+    rows,
+    master: converted.master,
+    detail: converted.detail,
+  };
+}
+
+function parseVarianceReasonCsv(text) {
+  const rows = parseCSV(text).map((row) => ({
+    ...row,
+    management_no: normalizeManagementNo(row),
+    item_no: getFirstValue(row, ['item_no', '項番']),
+    fiscal_period: getFirstValue(row, ['fiscal_period', '期']),
+    target_year_month: getFirstValue(row, ['target_year_month', '対象年月', '年月']),
+    reason_category: getFirstValue(row, ['reason_category', '理由カテゴリ', '差額理由カテゴリ']),
+    factor_type: getFirstValue(row, ['factor_type', '要因区分']),
+    comment: getFirstValue(row, ['comment', 'コメント', '差額理由', '理由']),
+  }));
+  return makeImportedParseResult(IMPORT_FILE_TYPES.VARIANCE_REASON, rows, '差額理由データを取り込みました');
+}
+
+function parseNewProjectCsv() {
+  return makeNotImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT);
+}
+
+function parseOasisActualCsv() {
+  return makeNotImportedParseResult(IMPORT_FILE_TYPES.OASIS_ACTUAL);
+}
+
+function parseDepreciationSimulationCsv() {
+  return makeNotImportedParseResult(IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION);
+}
+
+function parseUploadedFile(fileType, text) {
+  switch (fileType) {
+    case IMPORT_FILE_TYPES.BUDGET:
+      return parseBudgetCsv(text);
+    case IMPORT_FILE_TYPES.VARIANCE_REASON:
+      return parseVarianceReasonCsv(text);
+    case IMPORT_FILE_TYPES.NEW_PROJECT:
+      return parseNewProjectCsv(text);
+    case IMPORT_FILE_TYPES.OASIS_ACTUAL:
+      return parseOasisActualCsv(text);
+    case IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION:
+      return parseDepreciationSimulationCsv(text);
+    default:
+      throw new Error(`未対応のファイル種別です: ${fileType}`);
+  }
+}
+
+function summarizeAdditionalData(additionalData) {
+  const normalized = normalizeAdditionalDataStore(additionalData);
+  return Object.fromEntries(ADDITIONAL_IMPORT_FILE_TYPES.map((fileType) => {
+    const entry = normalized[fileType];
+    return [fileType, {
+      status: entry.status || 'not_imported',
+      message: entry.message || NOT_IMPORTED_MESSAGE,
+      rowCount: Array.isArray(entry.rows) ? entry.rows.length : 0,
+      fileName: entry.fileName || null,
+      uploadedAt: entry.uploadedAt || null,
+    }];
+  }));
+}
+
+function firstAdditionalRow(additionalStores, fileType, managementNo) {
+  return additionalStores?.[fileType]?.byManagementNo?.[managementNo]?.[0] || null;
+}
+
+function mergeAdditionalDataByManagementNo(items, additionalStores) {
+  const normalized = normalizeAdditionalDataStore(additionalStores);
+  return (items || []).map((item) => {
+    const managementNo = item.management_no || '';
+    const varianceReason = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.VARIANCE_REASON, managementNo);
+    const newProject = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.NEW_PROJECT, managementNo);
+    const oasisActual = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.OASIS_ACTUAL, managementNo);
+    const depreciationSimulation = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION, managementNo);
+
+    return {
+      ...item,
+      variance_reason: item.variance_reason || varianceReason?.comment || varianceReason?.reason || '',
+      new_project_status: newProject?.status || item.new_project_status || '',
+      oasis_actual_amount: oasisActual?.actual_amount ?? item.oasis_actual_amount ?? '',
+      depreciation_simulation_amount: depreciationSimulation?.simulation_amount ?? item.depreciation_simulation_amount ?? '',
+      additional_data_status: summarizeAdditionalData(normalized),
+      additional_data: {
+        variance_reason: varianceReason,
+        new_project: newProject,
+        oasis_actual: oasisActual,
+        depreciation_simulation: depreciationSimulation,
+      },
+    };
+  });
+}
+
 // =============================================
 // Data Processing Helpers
 // =============================================
@@ -316,7 +522,7 @@ function getCurrentYYYYMM() {
 // Build unified data from new schema
 // =============================================
 function buildUnifiedData() {
-  if (!store.master && !store.detail) return null;
+  if ((!store.master || store.master.length === 0) && (!store.detail || store.detail.length === 0)) return null;
 
   // Step 1: Build master lookup map: management_no + item_no -> master info
   const masterMap = {};
@@ -326,7 +532,7 @@ function buildUnifiedData() {
   const allBudgetCategories = new Set();
   const allExpenseItems = {};  // expense_item_code -> expense_item_name
 
-  if (store.master) {
+  if (store.master && store.master.length > 0) {
     for (const row of store.master) {
       const mno = row.management_no || '';
       const ino = row.item_no || '';
@@ -363,7 +569,7 @@ function buildUnifiedData() {
   const items = [];
   const allYearMonths = new Set();
 
-  if (store.detail) {
+  if (store.detail && store.detail.length > 0) {
     for (const row of store.detail) {
       const mno = row.management_no || '';
       const ino = row.item_no || '';
@@ -438,7 +644,7 @@ function buildUnifiedData() {
   }
 
   // If only master uploaded (no detail), create items from master contract data
-  if (store.master && !store.detail) {
+  if (store.master && store.master.length > 0 && (!store.detail || store.detail.length === 0)) {
     for (const row of store.master) {
       const mno = row.management_no || '';
       const ino = row.item_no || '';
@@ -503,8 +709,10 @@ function buildUnifiedData() {
   // Sort year_months
   const sortedYMs = [...allYearMonths].sort();
 
+  const mergedItems = mergeAdditionalDataByManagementNo(items, store.additionalData);
+
   return {
-    items,
+    items: mergedItems,
     sortedYMs,
     periods: [...allPeriods].sort(),
     systems: allSystems,
@@ -733,54 +941,101 @@ function getAggregations(data) {
 // API Routes
 // =============================================
 
-// Upload unified CSV file
+// Upload CSV file by import type
 app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: '統合CSVファイル（budget_csv）をアップロードしてください' });
+      return res.status(400).json({ error: 'CSVファイル（budget_csv）をアップロードしてください' });
     }
 
+    const fileType = String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET);
     const text = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
-    const parsedRows = parseCSV(text);
-    const converted = parseUnifiedBudgetLayout(parsedRows);
-    store.rawRows = parsedRows;
-    store.master = converted.master;
-    store.detail = converted.detail;
-    store.csvFileName = req.file.originalname;
-    store.uploadedAt = new Date().toISOString();
+    const parsed = parseUploadedFile(fileType, text);
+    const uploadedAt = new Date().toISOString();
 
-    const data = buildUnifiedData();
-    const agg = data ? getAggregations(data) : null;
-    store.contracts = {};
-    if (data) {
-      data.items.filter(i => i.contract_no).forEach((item) => {
-        const id = item.contract_no;
-        if (store.contracts[id]) return;
-        store.contracts[id] = {
-          contract_id: id,
-          contract_no: item.contract_no,
-          vendor_name: item.vendor_name || '未設定ベンダー',
-          system_name: item.system_name || '',
-          renewal_month: data.sortedYMs[0] || '',
-          decision_status: '未判断',
-          decision_note: '',
-          annual_amount: item.contract_amount || item.totalPlan || 0,
-          updated_at: new Date().toISOString(),
-        };
+    if (fileType === IMPORT_FILE_TYPES.BUDGET) {
+      store.rawRows = parsed.rows;
+      store.master = parsed.master;
+      store.detail = parsed.detail;
+      store.csvFileName = req.file.originalname;
+      store.uploadedAt = uploadedAt;
+
+      const data = buildUnifiedData();
+      const agg = data ? getAggregations(data) : null;
+      store.contracts = {};
+      if (data) {
+        data.items.filter(i => i.contract_no).forEach((item) => {
+          const id = item.contract_no;
+          if (store.contracts[id]) return;
+          store.contracts[id] = {
+            contract_id: id,
+            contract_no: item.contract_no,
+            vendor_name: item.vendor_name || '未設定ベンダー',
+            system_name: item.system_name || '',
+            renewal_month: data.sortedYMs[0] || '',
+            decision_status: '未判断',
+            decision_note: '',
+            annual_amount: item.contract_amount || item.totalPlan || 0,
+            updated_at: uploadedAt,
+          };
+        });
+      }
+
+      persistStore();
+
+      return res.json({
+        message: parsed.message || 'アップロード完了',
+        fileType,
+        csvFileName: store.csvFileName,
+        masterRows: store.master.length,
+        detailRows: store.detail.length,
+        itemCount: data ? data.items.length : 0,
+        systemCount: agg ? agg.systemNames.length : 0,
+        periodCount: agg ? agg.periods.length : 0,
+        classificationCount: agg ? agg.classifications.length : 0,
+        additionalData: summarizeAdditionalData(store.additionalData),
       });
+    }
+
+    if (!ADDITIONAL_IMPORT_FILE_TYPES.includes(fileType)) {
+      return res.status(400).json({ error: `未対応のファイル種別です: ${fileType}` });
+    }
+
+    store.additionalData[fileType] = {
+      status: parsed.status,
+      message: parsed.message,
+      rows: parsed.rows || [],
+      byManagementNo: parsed.byManagementNo || {},
+      fileName: parsed.status === 'imported' ? req.file.originalname : null,
+      uploadedAt: parsed.status === 'imported' ? uploadedAt : null,
+    };
+
+    if (fileType === IMPORT_FILE_TYPES.VARIANCE_REASON && parsed.status === 'imported') {
+      for (const row of parsed.rows || []) {
+        if (!row.management_no) continue;
+        const key = makeItemKey(row.management_no, row.item_no, row.fiscal_period, row.target_year_month);
+        store.varianceReasons[key] = {
+          key,
+          management_no: row.management_no,
+          item_no: row.item_no || '',
+          fiscal_period: row.fiscal_period || '',
+          target_year_month: row.target_year_month || '',
+          reason_category: row.reason_category || '未分類',
+          factor_type: row.factor_type || '未分類',
+          comment: row.comment || '',
+          updated_at: uploadedAt,
+        };
+      }
     }
 
     persistStore();
 
-    res.json({
-      message: 'アップロード完了',
-      csvFileName: store.csvFileName,
-      masterRows: store.master ? store.master.length : 0,
-      detailRows: store.detail ? store.detail.length : 0,
-      itemCount: data ? data.items.length : 0,
-      systemCount: agg ? agg.systemNames.length : 0,
-      periodCount: agg ? agg.periods.length : 0,
-      classificationCount: agg ? agg.classifications.length : 0,
+    return res.json({
+      message: parsed.message,
+      fileType,
+      status: parsed.status,
+      rowCount: (parsed.rows || []).length,
+      additionalData: summarizeAdditionalData(store.additionalData),
     });
   } catch (e) {
     console.error('Upload error:', e);
@@ -793,7 +1048,7 @@ app.get('/api/status', (_, res) => {
   const data = buildUnifiedData();
   const agg = data ? getAggregations(data) : null;
   res.json({
-    hasData: !!(store.master || store.detail),
+    hasData: store.master.length > 0 || store.detail.length > 0,
     csvFileName: store.csvFileName,
     uploadedAt: store.uploadedAt,
     itemCount: data ? data.items.length : 0,
@@ -808,6 +1063,8 @@ app.get('/api/status', (_, res) => {
     periods: agg ? agg.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
+    importFileTypes: IMPORT_FILE_TYPES,
+    additionalData: summarizeAdditionalData(store.additionalData),
   });
 });
 
@@ -1441,6 +1698,14 @@ module.exports = {
   stopServer,
   parseCSV,
   parseCSVLine,
+  IMPORT_FILE_TYPES,
+  parseUploadedFile,
+  parseBudgetCsv,
+  parseVarianceReasonCsv,
+  parseNewProjectCsv,
+  parseOasisActualCsv,
+  parseDepreciationSimulationCsv,
+  mergeAdditionalDataByManagementNo,
   parseUnifiedBudgetLayout,
   buildUnifiedData,
   getAggregations,

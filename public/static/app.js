@@ -11,6 +11,17 @@ const NAV_PAGES = [
   { key: 'manual', label: '10. 取扱説明書（マニュアル）' },
 ];
 
+const IMPORT_FILE_TYPE_OPTIONS = [
+  { value: 'budget', label: '予算データ' },
+  { value: 'variance_reason', label: '差額理由' },
+  { value: 'new_project', label: '新規案件' },
+  { value: 'oasis_actual', label: 'OASIS実績' },
+  { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
+];
+
+const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
+const NOT_IMPORTED_MESSAGE = '追加データ未取込';
+
 const state = {
   page: 'import',
   hasData: false,
@@ -27,6 +38,7 @@ const state = {
     trendMetric: '総額',
     detailSearch: '',
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
+    importFileType: 'budget',
   },
 };
 
@@ -292,6 +304,26 @@ function detectPreviewDelimiter(text) {
   return tabCount > commaCount ? '\t' : ',';
 }
 
+function additionalDataNoticeHtml() {
+  const additionalData = state.data.status?.additionalData || {};
+  const missing = ADDITIONAL_FILE_TYPES.filter((fileType) => (additionalData[fileType]?.status || 'not_imported') !== 'imported');
+  if (!missing.length) return '';
+  return `<div class="notice notice--empty">${escapeHtml(NOT_IMPORTED_MESSAGE)}：${missing.map((fileType) => {
+    const option = IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === fileType);
+    return escapeHtml(option?.label || fileType);
+  }).join(' / ')}</div>`;
+}
+
+function additionalStatusListHtml() {
+  const additionalData = state.data.status?.additionalData || {};
+  return `<div class="additional-status-grid">${ADDITIONAL_FILE_TYPES.map((fileType) => {
+    const option = IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === fileType);
+    const st = additionalData[fileType] || { status: 'not_imported', message: NOT_IMPORTED_MESSAGE, rowCount: 0 };
+    const imported = st.status === 'imported';
+    return `<article class="mini-status ${imported ? 'mini-status--ok' : ''}"><strong>${escapeHtml(option?.label || fileType)}</strong><span>${escapeHtml(imported ? '取込済み' : NOT_IMPORTED_MESSAGE)}</span><small>${imported ? `${fmt(st.rowCount)}件 / ${escapeHtml(st.fileName || '')}` : escapeHtml(st.message || NOT_IMPORTED_MESSAGE)}</small></article>`;
+  }).join('')}</div>`;
+}
+
 function csvClientChecks(text) {
   const records = parseCsvPreviewRecords(text, detectPreviewDelimiter(text));
   if (!records.length) return { errors: ['空ファイルです'], summary: null };
@@ -335,21 +367,40 @@ function renderImport() {
   document.getElementById('content').innerHTML = `
     <div class="panel">
       <h3>CSV取込</h3>
+      <div class="controls">
+        <label>ファイル種別
+          <select id="fileTypeSelect">${IMPORT_FILE_TYPE_OPTIONS.map(t => `<option value="${dataAttr(t.value)}" ${t.value === state.ui.importFileType ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}</select>
+        </label>
+      </div>
+      <p class="muted">データ仕様が未確定の追加データは、空の本番風モックを作らず「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として扱います。</p>
       <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv"></div>
       <div class="controls"><button class="primary" id="uploadBtn" disabled>取込実行</button></div>
       <div id="importSummary"></div>
       <div id="importErrors"></div>
+      <div class="panel"><h4>追加データ取込状況</h4>${additionalStatusListHtml()}</div>
     </div>`;
 
   const fileInput = document.getElementById('csvFile');
   const uploadBtn = document.getElementById('uploadBtn');
+  const fileTypeSelect = document.getElementById('fileTypeSelect');
   let file = null;
+
+  fileTypeSelect.onchange = () => {
+    state.ui.importFileType = fileTypeSelect.value;
+    if (file) preview(file);
+  };
 
   const preview = async (f) => {
     file = f;
-    const c = csvClientChecks(await f.text());
-    document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
-    document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
+    const selectedType = fileTypeSelect.value;
+    if (selectedType === 'budget') {
+      const c = csvClientChecks(await f.text());
+      document.getElementById('importSummary').innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
+      document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
+    } else {
+      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。結合キーは management_no（管理番号）を中心に既存明細へ補完します。</p></div>`;
+      document.getElementById('importErrors').innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
+    }
     uploadBtn.disabled = false;
   };
 
@@ -360,11 +411,17 @@ function renderImport() {
 
   uploadBtn.onclick = async () => {
     if (!file) return;
+    const selectedType = fileTypeSelect.value;
     const fd = new FormData();
     fd.append('budget_csv', file);
-    await api('/upload', { method: 'POST', body: fd });
+    fd.append('fileType', selectedType);
+    const result = await api('/upload', { method: 'POST', body: fd });
     await refreshAllData();
-    goPage('summary');
+    if (selectedType === 'budget') goPage('summary');
+    else {
+      renderImport();
+      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
+    }
   };
 }
 
@@ -831,19 +888,26 @@ function renderManual() {
     </div>`;
 }
 
+function showAdditionalDataNotice() {
+  const content = document.getElementById('content');
+  const notice = additionalDataNoticeHtml();
+  if (content && notice && state.page !== 'import') content.insertAdjacentHTML('afterbegin', notice);
+}
+
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
   if (state.page === 'import') return renderImport();
   if (state.page === 'manual') return renderManual();
   if (!state.hasData) return goPage('import');
-  if (state.page === 'summary') return renderSummary();
-  if (state.page === 'trend') return renderTrend();
-  if (state.page === 'category') return renderCategory();
-  if (state.page === 'project') return renderProject();
-  if (state.page === 'alert') return renderAlert();
-  if (state.page === 'vendor') return renderVendor();
-  if (state.page === 'detail') return renderDetail();
-  if (state.page === 'settings') return renderSettings();
+  if (state.page === 'summary') renderSummary();
+  else if (state.page === 'trend') renderTrend();
+  else if (state.page === 'category') renderCategory();
+  else if (state.page === 'project') renderProject();
+  else if (state.page === 'alert') renderAlert();
+  else if (state.page === 'vendor') renderVendor();
+  else if (state.page === 'detail') renderDetail();
+  else if (state.page === 'settings') renderSettings();
+  showAdditionalDataNotice();
 }
 
 function showManualHintDialog() {
