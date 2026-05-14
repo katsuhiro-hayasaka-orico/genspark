@@ -317,6 +317,10 @@ function parseUnifiedBudgetLayout(rows) {
       issues.push(makeImportIssue('warning', rowNumber, '月額', '月額が不正なため 0 として取り込みます', row['月額']));
     }
 
+    const contractStartDate = normalizeDateString(row['契約開始日'] || '');
+    const contractEndDate = normalizeDateString(row['契約終了日'] || '');
+    const nextRenewalMonth = normalizeYearMonthString(row['次回更新予定月'] || '');
+
     master.push({
       period: safeString(row['期'] || ''),
       management_no: managementNo,
@@ -537,6 +541,17 @@ function buildUnifiedData() {
           contract_amount: toNum(masterRow.contract_amount),
           monthly_amount: toNum(masterRow.monthly_amount),
           payment_category: masterRow.payment_category || '',
+          contract_start_date: masterRow.contract_start_date || '',
+          contract_start_date_status: masterRow.contract_start_date_status || '',
+          contract_start_date_warning: masterRow.contract_start_date_warning || '',
+          contract_end_date: masterRow.contract_end_date || '',
+          contract_end_date_status: masterRow.contract_end_date_status || '',
+          contract_end_date_warning: masterRow.contract_end_date_warning || '',
+          contract_period: masterRow.contract_period || '',
+          next_renewal_month: masterRow.next_renewal_month || '',
+          next_renewal_month_status: masterRow.next_renewal_month_status || '',
+          next_renewal_month_warning: masterRow.next_renewal_month_warning || '',
+          note: masterRow.note || '',
           fixed_variable_type: masterRow.fixed_variable_type || '',
 
           // System info
@@ -548,6 +563,11 @@ function buildUnifiedData() {
           system_classification: masterRow.system_classification_name || sysInfo.classification || '',
           expense_item_code: row.expense_item_code || masterRow.expense_item_code || '',
           expense_item_name: sysInfo.expense_item_name || masterRow.expense_item_name || '',
+          variance_reason: masterRow.variance_reason || row.variance_reason || '',
+          variance_reason_category: normalizeVarianceReasonCategory(masterRow.variance_reason_category || row.variance_reason_category),
+          comment: masterRow.comment || row.comment || '',
+          comment_updated_month: masterRow.comment_updated_month || row.comment_updated_month || '',
+          comment_updated_by: masterRow.comment_updated_by || row.comment_updated_by || '',
 
           // Monthly data: { ym: { plan, forecast, actual } }
           monthly: {},
@@ -599,6 +619,17 @@ function buildUnifiedData() {
         contract_amount: toNum(row.contract_amount),
         monthly_amount: toNum(row.monthly_amount),
         payment_category: row.payment_category || '',
+        contract_start_date: row.contract_start_date || '',
+        contract_start_date_status: row.contract_start_date_status || '',
+        contract_start_date_warning: row.contract_start_date_warning || '',
+        contract_end_date: row.contract_end_date || '',
+        contract_end_date_status: row.contract_end_date_status || '',
+        contract_end_date_warning: row.contract_end_date_warning || '',
+        contract_period: row.contract_period || '',
+        next_renewal_month: row.next_renewal_month || '',
+        next_renewal_month_status: row.next_renewal_month_status || '',
+        next_renewal_month_warning: row.next_renewal_month_warning || '',
+        note: row.note || '',
         fixed_variable_type: row.fixed_variable_type || '',
         system_code: syscode,
         // NOTE:
@@ -608,6 +639,11 @@ function buildUnifiedData() {
         system_classification: row.system_classification_name || sysInfo.classification || '',
         expense_item_code: row.expense_item_code || '',
         expense_item_name: sysInfo.expense_item_name || row.expense_item_name || '',
+        variance_reason: row.variance_reason || '',
+        variance_reason_category: normalizeVarianceReasonCategory(row.variance_reason_category),
+        comment: row.comment || '',
+        comment_updated_month: row.comment_updated_month || '',
+        comment_updated_by: row.comment_updated_by || '',
         monthly: {},
         totalPlan: toNum(row.contract_amount),
         totalForecast: toNum(row.contract_amount),
@@ -859,6 +895,36 @@ function getAggregations(data) {
   };
 }
 
+
+function buildContractRecord(item, overrides = {}, baseYearMonth = getCurrentYYYYMM()) {
+  const contract = {
+    contract_id: overrides.contract_id || item.contract_no || overrides.contract_no || '',
+    contract_no: overrides.contract_no || item.contract_no || '',
+    vendor_name: overrides.vendor_name || item.vendor_name || '未設定ベンダー',
+    project_name: overrides.project_name || item.project_name || '',
+    system_name: overrides.system_name || item.system_name || '',
+    payment_category: overrides.payment_category ?? item.payment_category ?? '',
+    contract_start_date: overrides.contract_start_date ?? item.contract_start_date ?? '',
+    contract_start_date_status: overrides.contract_start_date_status ?? item.contract_start_date_status ?? '',
+    contract_start_date_warning: overrides.contract_start_date_warning ?? item.contract_start_date_warning ?? '',
+    contract_end_date: overrides.contract_end_date ?? item.contract_end_date ?? '',
+    contract_end_date_status: overrides.contract_end_date_status ?? item.contract_end_date_status ?? '',
+    contract_end_date_warning: overrides.contract_end_date_warning ?? item.contract_end_date_warning ?? '',
+    contract_period: overrides.contract_period ?? item.contract_period ?? '',
+    next_renewal_month: overrides.next_renewal_month ?? item.next_renewal_month ?? overrides.renewal_month ?? '',
+    next_renewal_month_status: overrides.next_renewal_month_status ?? item.next_renewal_month_status ?? '',
+    next_renewal_month_warning: overrides.next_renewal_month_warning ?? item.next_renewal_month_warning ?? '',
+    renewal_month: overrides.renewal_month || overrides.next_renewal_month || item.next_renewal_month || '',
+    decision_status: overrides.decision_status || '未判断',
+    decision_note: overrides.decision_note || '',
+    annual_amount: toNum(overrides.annual_amount ?? item.contract_amount ?? item.totalPlan ?? 0),
+    note: overrides.note ?? item.note ?? '',
+    updated_at: new Date().toISOString(),
+  };
+  Object.assign(contract, detectContractAlerts(contract, baseYearMonth));
+  return contract;
+}
+
 // =============================================
 // API Routes
 // =============================================
@@ -990,7 +1056,7 @@ app.get('/api/status', (_, res) => {
     classifications: agg ? agg.classifications : [],
     departments: agg ? agg.departments : [],
     vendors: agg ? agg.byVendor.map(v => v.name) : [],
-    periods: agg ? agg.periods : [],
+    periods: data ? data.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
   });
@@ -1437,37 +1503,52 @@ app.get('/api/initiatives/summary', (_, res) => {
 
 // Contract renewal support
 app.get('/api/contracts', (_, res) => {
-  res.json({ data: Object.values(store.contracts || {}) });
+  const currentYm = getCurrentYYYYMM();
+  res.json({ data: Object.values(store.contracts || {}).map((c) => ({ ...c, ...detectContractAlerts(c, currentYm) })) });
 });
 
 app.post('/api/contracts', (req, res) => {
   const body = req.body || {};
   if (!body.contract_no) return res.status(400).json({ error: '契約番号は必須です' });
   const id = body.contract_id || body.contract_no;
-  store.contracts[id] = {
+  const contractStartDate = normalizeDateString(body.contract_start_date || '');
+  const contractEndDate = normalizeDateString(body.contract_end_date || '');
+  const nextRenewalMonth = normalizeYearMonthString(body.next_renewal_month || body.renewal_month || '');
+  store.contracts[id] = buildContractRecord({}, {
+    ...body,
     contract_id: id,
     contract_no: body.contract_no,
     vendor_name: body.vendor_name || '未設定ベンダー',
-    system_name: body.system_name || '',
-    renewal_month: body.renewal_month || '',
-    decision_status: body.decision_status || '未判断',
-    decision_note: body.decision_note || '',
+    contract_start_date: contractStartDate.value,
+    contract_start_date_status: contractStartDate.status,
+    contract_start_date_warning: contractStartDate.warning,
+    contract_end_date: contractEndDate.value,
+    contract_end_date_status: contractEndDate.status,
+    contract_end_date_warning: contractEndDate.warning,
+    next_renewal_month: nextRenewalMonth.value,
+    next_renewal_month_status: nextRenewalMonth.status,
+    next_renewal_month_warning: nextRenewalMonth.warning,
+    renewal_month: nextRenewalMonth.value,
     annual_amount: toNum(body.annual_amount),
-    updated_at: new Date().toISOString(),
-  };
+  });
   persistStore();
   res.json({ message: '契約情報を保存しました', data: store.contracts[id] });
 });
 
 app.get('/api/contracts/renewals', (req, res) => {
   const withinMonths = Number(req.query.withinMonths || 3);
-  const currentYm = getCurrentYYYYMM();
-  const rows = Object.values(store.contracts || {}).filter((c) => {
-    const ym = Number(c.renewal_month);
-    if (!ym) return false;
-    const diff = (Math.floor(ym / 100) - Math.floor(currentYm / 100)) * 12 + (ym % 100) - (currentYm % 100);
-    return diff >= 0 && diff <= withinMonths;
-  }).sort((a, b) => (a.renewal_month || '').localeCompare(b.renewal_month || ''));
+  const currentYm = String(req.query.baseYearMonth || getCurrentYYYYMM());
+  const rows = Object.values(store.contracts || {}).map((c) => {
+    const alerts = detectContractAlerts(c, currentYm);
+    return { ...c, ...alerts };
+  }).filter((c) => {
+    if (c.months_until_renewal === null || c.months_until_renewal === undefined) return c.review_required;
+    return c.review_required || (c.months_until_renewal >= 0 && c.months_until_renewal <= withinMonths);
+  }).sort((a, b) => {
+    const am = a.months_until_renewal ?? Number.MAX_SAFE_INTEGER;
+    const bm = b.months_until_renewal ?? Number.MAX_SAFE_INTEGER;
+    return am - bm || String(a.next_renewal_month || a.renewal_month || '').localeCompare(String(b.next_renewal_month || b.renewal_month || ''));
+  });
   res.json({ data: rows, currentYm, withinMonths });
 });
 
@@ -1549,17 +1630,11 @@ function autoLoadSampleData() {
           const id = item.contract_no;
           if (store.contracts[id]) return;
           const renewalMonth = data.sortedYMs.find((ym) => ym >= `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`) || data.sortedYMs[0] || '';
-          store.contracts[id] = {
+          store.contracts[id] = buildContractRecord(item, {
             contract_id: id,
-            contract_no: item.contract_no,
-            vendor_name: item.vendor_name || '未設定ベンダー',
-            system_name: item.system_name || '',
-            renewal_month: renewalMonth,
-            decision_status: '未判断',
-            decision_note: '',
-            annual_amount: item.contract_amount || item.totalPlan || 0,
-            updated_at: new Date().toISOString(),
-          };
+            renewal_month: item.next_renewal_month || renewalMonth,
+            next_renewal_month: item.next_renewal_month || renewalMonth,
+          });
         });
       }
       console.log(`  [Auto-load] ${data ? data.items.length : 0} items, ${agg ? agg.systemNames.length : 0} systems, ${agg ? agg.periods.length : 0} periods`);
@@ -1626,6 +1701,11 @@ module.exports = {
   stopServer,
   parseCSV,
   parseCSVLine,
+  COLUMN_ALIASES,
+  VARIANCE_REASON_CATEGORIES,
+  pickColumn,
+  normalizeVarianceReasonCategory,
+  mergeVarianceReasons,
   parseUnifiedBudgetLayout,
   normalizeAmount,
   normalizeDateString,
