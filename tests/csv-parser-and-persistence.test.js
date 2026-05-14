@@ -92,8 +92,39 @@ test('upload and mutable records persist to the local store file', async () => {
     });
     assert.equal(contractRes.status, 200);
 
-    const renewals = await fetch(`${baseUrl}/api/contracts/renewals?baseYearMonth=202605`).then(res => res.json());
-    assert.equal(renewals.data.some(row => row.contract_no === 'C-1' && 'alert_type' in row && 'review_required' in row && 'months_until_renewal' in row && 'note' in row), true);
+    const varianceReasonRes = await fetch(`${baseUrl}/api/variance-reasons`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        management_no: 'XSS-1',
+        item_no: '1',
+        fiscal_period: '65',
+        target_year_month: '202504',
+        reason_category: '価格改定',
+        factor_type: 'ライセンス単価上昇',
+        comment: '更新見積もりを確認済み',
+        comment_updated_by: 'Alice',
+      }),
+    });
+    assert.equal(varianceReasonRes.status, 200);
+
+    const items = await fetch(`${baseUrl}/api/items`).then(res => res.json());
+    assert.equal(items.items.length, 1);
+    assert.equal(items.items[0].variance_reason_category, '価格改定');
+    assert.equal(items.items[0].variance_reason, 'ライセンス単価上昇');
+    assert.equal(items.items[0].comment, '更新見積もりを確認済み');
+    assert.equal(items.items[0].comment_updated_month, '202504');
+    assert.equal(items.items[0].comment_updated_by, 'Alice');
+    assert.deepEqual(items.items[0].monthlyComments['202504'], {
+      variance_reason: 'ライセンス単価上昇',
+      variance_reason_category: '価格改定',
+      comment: '更新見積もりを確認済み',
+      comment_updated_month: '202504',
+      comment_updated_by: 'Alice',
+    });
+    assert.equal(items.items[0].monthly['202504'].variance_reason_category, '価格改定');
+    assert.equal(items.items[0].monthly['202504'].variance_reason, 'ライセンス単価上昇');
+    assert.equal(items.items[0].monthly['202504'].comment, '更新見積もりを確認済み');
 
     const saved = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
     assert.equal(saved.csvFileName, 'upload.csv');

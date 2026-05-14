@@ -446,6 +446,27 @@ function getCurrentYYYYMM() {
   return Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`);
 }
 
+function normalizeVarianceReasonRecord(record = {}) {
+  return {
+    ...record,
+    variance_reason: record.variance_reason || record.factor_type || '',
+    variance_reason_category: record.variance_reason_category || record.reason_category || '',
+    comment: record.comment || '',
+    comment_updated_month: record.comment_updated_month || record.updated_month || record.target_year_month || '',
+    comment_updated_by: record.comment_updated_by || record.updated_by || '',
+  };
+}
+
+function buildVarianceReasonMap(varianceReasons = {}) {
+  const map = new Map();
+  Object.values(varianceReasons || {}).forEach((record) => {
+    if (!record || typeof record !== 'object') return;
+    const key = makeItemKey(record.management_no, record.item_no, record.fiscal_period, record.target_year_month);
+    map.set(key, normalizeVarianceReasonRecord(record));
+  });
+  return map;
+}
+
 // =============================================
 // Build unified data from new schema
 // =============================================
@@ -496,6 +517,7 @@ function buildUnifiedData() {
   const itemIndex = {};
   const items = [];
   const allYearMonths = new Set();
+  const varianceReasonMap = buildVarianceReasonMap(store.varianceReasons);
 
   if (store.detail) {
     for (const row of store.detail) {
@@ -581,7 +603,7 @@ function buildUnifiedData() {
 
       const item = itemIndex[itemKey];
       if (!item.monthly[ym]) {
-        item.monthly[ym] = { plan: 0, forecast: 0, actual: 0 };
+        item.monthly[ym] = { plan: 0, forecast: 0, actual: 0, variance_reason: '', variance_reason_category: '', comment: '' };
       }
       item.monthly[ym][vtype] += amount;
     }
@@ -650,6 +672,57 @@ function buildUnifiedData() {
         totalActual: 0,
       };
       items.push(itemIndex[itemKey]);
+    }
+  }
+
+  // Attach variance reasons/comments to items and monthly cells.
+  for (const item of items) {
+    item.variance_reason = '';
+    item.variance_reason_category = '';
+    item.comment = '';
+    item.comment_updated_month = '';
+    item.comment_updated_by = '';
+    item.monthlyComments = {};
+
+    const matchingReasons = [...varianceReasonMap.values()].filter(reason => (
+      reason.management_no === item.management_no &&
+      reason.item_no === item.item_no &&
+      reason.fiscal_period === item.fiscal_period
+    ));
+    const monthlyYms = new Set([
+      ...Object.keys(item.monthly),
+      ...matchingReasons.map(reason => reason.target_year_month).filter(Boolean),
+    ]);
+
+    const reasons = [...monthlyYms].sort().map((ym) => {
+      if (!item.monthly[ym]) {
+        item.monthly[ym] = { plan: 0, forecast: 0, actual: 0, variance_reason: '', variance_reason_category: '', comment: '' };
+        allYearMonths.add(ym);
+      }
+
+      const reason = varianceReasonMap.get(makeItemKey(item.management_no, item.item_no, item.fiscal_period, ym));
+      if (!reason) return null;
+
+      item.monthly[ym].variance_reason = reason.variance_reason || '';
+      item.monthly[ym].variance_reason_category = reason.variance_reason_category || '';
+      item.monthly[ym].comment = reason.comment || '';
+      item.monthlyComments[ym] = {
+        variance_reason: reason.variance_reason || '',
+        variance_reason_category: reason.variance_reason_category || '',
+        comment: reason.comment || '',
+        comment_updated_month: reason.comment_updated_month || '',
+        comment_updated_by: reason.comment_updated_by || '',
+      };
+      return reason;
+    }).filter(Boolean);
+
+    const latestReason = reasons.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
+    if (latestReason) {
+      item.variance_reason = latestReason.variance_reason || '';
+      item.variance_reason_category = latestReason.variance_reason_category || '';
+      item.comment = latestReason.comment || '';
+      item.comment_updated_month = latestReason.comment_updated_month || '';
+      item.comment_updated_by = latestReason.comment_updated_by || '';
     }
   }
 
@@ -1421,7 +1494,11 @@ app.post('/api/variance-reasons', (req, res) => {
     target_year_month: body.target_year_month,
     reason_category: body.reason_category || '未分類',
     factor_type: body.factor_type || '未分類',
+    variance_reason_category: body.variance_reason_category || body.reason_category || '未分類',
+    variance_reason: body.variance_reason || body.factor_type || '未分類',
     comment: body.comment || '',
+    comment_updated_month: body.comment_updated_month || body.updated_month || body.target_year_month || '',
+    comment_updated_by: body.comment_updated_by || body.updated_by || '',
     updated_at: new Date().toISOString(),
   };
   persistStore();
@@ -1711,6 +1788,7 @@ module.exports = {
   normalizeDateString,
   safeString,
   buildUnifiedData,
+  buildVarianceReasonMap,
   getAggregations,
   emptyStore,
   normalizeStore,

@@ -26,9 +26,7 @@ const state = {
     trendMonths: 12,
     trendMetric: '総額',
     detailSearch: '',
-    detailFilter: null,
-    extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
-    reportFiscalPeriod: '',
+    extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast', 'variance_reason_category', 'variance_reason', 'comment'],
   },
 };
 
@@ -43,6 +41,11 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
   '"': '&quot;',
   "'": '&#39;',
 }[ch]));
+const displayText = (value) => {
+  const text = String(value ?? '').trim();
+  return text ? text : '未入力';
+};
+const displayHtml = (value) => escapeHtml(displayText(value));
 const optionHtml = (value, selectedValue) => {
   const safe = escapeHtml(value);
   return `<option value="${safe}" ${value === selectedValue ? 'selected' : ''}>${safe}</option>`;
@@ -977,10 +980,10 @@ function renderSummary() {
           <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
           <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
         ${top.map((r, i) => {
           const isWarn = Math.abs(r.gap) >= state.settings.thresholds.amountGap;
-          return `<tr data-filter-type="management_no" data-filter-value="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td></tr>`;
+          return `<tr data-mid="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td><td>${displayHtml(r.row.variance_reason_category)}</td><td>${displayHtml(r.row.variance_reason)}</td><td>${displayHtml(r.row.comment)}</td></tr>`;
         }).join('')}
         </tbody></table></div>
       </div>
@@ -1102,14 +1105,14 @@ function renderProject() {
 
   document.getElementById('content').innerHTML = `
     <div class="panel"><div class="controls"><input id="pSearch" type="text" placeholder="案件検索"></div><div style="height:300px"><canvas id="projectScatter"></canvas></div></div>
-    <div class="panel"><div class="table-wrap"><table><thead><tr><th>プロジェクト</th><th class="right">予算実績差異</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th>差額理由</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
+    <div class="panel"><div class="table-wrap"><table><thead><tr><th>プロジェクト</th><th class="right">予算実績差異</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
 
   const drawRows = (q = '') => {
     const view = rows.filter(r => !q || (r.project_name || '').toLowerCase().includes(q.toLowerCase()));
     document.getElementById('projectRows').innerHTML = view.slice(0, 200).map(r => {
       const progress = Number(r.totalForecast || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
       const burn = Number(r.totalActual || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
-      return `<tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${escapeHtml(r.variance_reason || '-')}</td></tr>`;
+      return `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${displayHtml(r.variance_reason_category)}</td><td>${displayHtml(r.variance_reason)}</td><td>${displayHtml(r.comment)}</td></tr>`;
     }).join('');
     bindDetailFilterLinks(document.getElementById('projectRows'));
   };
@@ -1132,8 +1135,8 @@ function renderAlert() {
     <article class="alert-card ${idx === 0 ? 'alert-card--major' : ''}">
       <div class="card-title-row"><h4>⚠️ ${escapeHtml(r.project_name || r.management_no)}</h4><span class="status-pill status-pill--warn">重要度 ${idx + 1}</span></div>
       <dl class="metric-list"><div><dt>差額</dt><dd class="warn">${yen(r.gap)}</dd></div><div><dt>乖離率</dt><dd>${pct(r.rate)}</dd></div></dl>
-      <p class="muted">${escapeHtml(r.department_name || '-')} / ${escapeHtml(r.system_name || '-')}</p>
-      <button type="button" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}" aria-label="${dataAttr(r.project_name || r.management_no)}の明細を表示">明細を見る</button>
+      <p class="muted">${escapeHtml(r.department_name || '-')} / ${escapeHtml(r.system_name || '-')}</p><p>差額理由分類: ${displayHtml(r.variance_reason_category)} / 差額理由: ${displayHtml(r.variance_reason)}</p><p>コメント: ${displayHtml(r.comment)}</p>
+      <button type="button" data-mid="${dataAttr(r.management_no)}" aria-label="${dataAttr(r.project_name || r.management_no)}の明細を表示">明細を見る</button>
     </article>`).join('');
 
   document.getElementById('content').innerHTML = `
@@ -1142,10 +1145,10 @@ function renderAlert() {
       <div class="alert-grid">${alertCards || '<div class="ok">● アラート対象なし</div>'}</div>
     </div>
     <div class="grid-2">
-      <div class="panel"><h4>アラート一覧</h4><div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th><th>状態</th></tr></thead><tbody>
-        ${rows.slice(0, 200).map(r => `<tr data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}" class="clickable-row warning-row"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td><td><span class="status-pill status-pill--warn">⚠️ 要確認</span></td></tr>`).join('') || '<tr><td colspan="4">対象なし</td></tr>'}
+      <div class="panel"><h4>アラート一覧</h4><div class="table-wrap"><table><thead><tr><th>案件</th><th class="right">差額</th><th class="right">乖離率</th><th>状態</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
+        ${rows.slice(0, 200).map(r => `<tr data-mid="${dataAttr(r.management_no)}" class="clickable-row warning-row"><td>${escapeHtml(r.project_name || r.management_no)}</td><td class="right warn">${yen(r.gap)}</td><td class="right">${pct(r.rate)}</td><td><span class="status-pill status-pill--warn">⚠️ 要確認</span></td><td>${displayHtml(r.variance_reason_category)}</td><td>${displayHtml(r.variance_reason)}</td><td>${displayHtml(r.comment)}</td></tr>`).join('') || '<tr><td colspan="7">対象なし</td></tr>'}
       </tbody></table></div></div>
-      <div class="panel"><h4>最重要アラートの詳細</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p><button id="alertDetailBtn" type="button">詳細説明を開く</button><dialog id="alertDetailDialog" aria-labelledby="alertDialogTitle"><h3 id="alertDialogTitle">アラートの読み方</h3><p>差額・乖離率の両方を確認し、対象案件の明細で月次推移と担当部門を確認してください。</p><form method="dialog"><button>閉じる</button></form></dialog>` : 'アラート対象なし'}</div>
+      <div class="panel"><h4>最重要アラートの詳細</h4>${first ? `<p><b>${escapeHtml(first.project_name || first.management_no)}</b></p><p>推移: 予算 ${yen(first.totalPlan)} / 実績 ${yen(first.totalActual)}</p><p>関連明細: ${escapeHtml(first.system_name || '-')} / ${escapeHtml(first.department_name || '-')}</p><p>差額理由分類: ${displayHtml(first.variance_reason_category)} / 差額理由: ${displayHtml(first.variance_reason)}</p><p>コメント: ${displayHtml(first.comment)}</p><p>メモ欄: ${escapeHtml(first.memo || 'CSV列なし')}</p><button id="alertDetailBtn" type="button">詳細説明を開く</button><dialog id="alertDetailDialog" aria-labelledby="alertDialogTitle"><h3 id="alertDialogTitle">アラートの読み方</h3><p>差額・乖離率の両方を確認し、対象案件の明細で月次推移と担当部門を確認してください。</p><form method="dialog"><button>閉じる</button></form></dialog>` : 'アラート対象なし'}</div>
     </div>`;
 
   bindDetailFilterLinks();
@@ -1206,10 +1209,7 @@ function toCsv(rows) {
 
 function renderDetail() {
   const fixedCols = ['management_no', 'project_name', 'department_name', 'system_name'];
-  const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'contract_no', 'totalPlan', 'totalForecast', 'totalActual'];
-  const drilldownBadge = state.ui.detailFilter
-    ? `<span class="badge">ドリルダウン: ${escapeHtml(detailFilterLabel())}</span><button id="dClearFilter" type="button">絞り込み解除</button>`
-    : '<span class="badge">ドリルダウンなし</span>';
+  const optionalCols = ['owner_name', 'vendor_name', 'budget_category', 'fixed_variable_type', 'payment_category', 'totalPlan', 'totalForecast', 'totalActual', 'variance_reason_category', 'variance_reason', 'comment'];
 
   document.getElementById('content').innerHTML = `
     <section class="detail-layout">
@@ -1236,73 +1236,13 @@ function renderDetail() {
     const view = filteredItems().filter(r => itemMatchesDetailFilter(r)).filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
 
     document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
-    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}" class="clickable-row">${cols.map(c => `<td>${escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
+    document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}" class="clickable-row">${cols.map(c => `<td>${['variance_reason_category', 'variance_reason', 'comment'].includes(c) ? displayHtml(r[c]) : escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => String(a).localeCompare(String(b)));
-      const relatedContracts = state.data.contracts.filter(c => (
-        (row.contract_no && c.contract_no === row.contract_no)
-        || (row.management_no && c.management_no === row.management_no)
-        || (row.contract_no && c.contract_id === row.contract_no)
-      ));
-      const commentHistory = state.data.items
-        .filter(item => item.management_no === row.management_no)
-        .flatMap(item => Object.entries(item.monthly || {}).map(([ym, m]) => {
-          const updatedMonth = firstPresent(m.comment_updated_month, m.commentUpdatedMonth, m.updated_month, m.updated_at, m.updatedAt);
-          return {
-            ym,
-            item_no: item.item_no,
-            updatedMonth,
-            sortMonth: updatedMonth || ym,
-            comment: firstPresent(m.comment, m.monthly_comment, m.note, m.memo, ''),
-          };
-        }))
-        .filter(entry => String(entry.comment || '').trim() || String(entry.updatedMonth || '').trim())
-        .sort((a, b) => String(a.sortMonth || '').localeCompare(String(b.sortMonth || '')) || String(a.ym).localeCompare(String(b.ym)));
-
-      document.getElementById('detailPane').innerHTML = `
-        <h4>詳細ペイン</h4>
-        <div class="detail-card-grid">
-          <div>
-            <h5>属性情報</h5>
-            <table><tbody>
-              ${[
-                ['管理番号', row.management_no],
-                ['項番', row.item_no],
-                ['案件名', row.project_name],
-                ['部門', row.department_name],
-                ['カテゴリ', row.budget_category],
-                ['ベンダー', row.vendor_name || row.payee_name],
-                ['支払区分', row.payment_category],
-                ['契約番号', row.contract_no],
-              ].map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '-')}</td></tr>`).join('')}
-            </tbody></table>
-          </div>
-          <div>
-            <h5>関連する契約情報</h5>
-            <div class="table-wrap"><table><thead><tr><th>契約番号</th><th>ベンダー</th><th>システム</th><th>更新月</th><th class="right">年額</th><th>判断状況</th><th>メモ</th></tr></thead><tbody>
-              ${relatedContracts.map(c => `<tr><td>${escapeHtml(c.contract_no || '-')}</td><td>${escapeHtml(c.vendor_name || '-')}</td><td>${escapeHtml(c.system_name || '-')}</td><td>${escapeHtml(formatYearMonth(c.renewal_month))}</td><td class="right">${yen(c.annual_amount)}</td><td>${escapeHtml(c.decision_status || '-')}</td><td>${displayOrUnentered(c.decision_note)}</td></tr>`).join('') || '<tr><td colspan="7">関連する契約情報はありません</td></tr>'}
-            </tbody></table></div>
-          </div>
-        </div>
-        <h5>月次(detail)</h5>
-        <div class="table-wrap"><table><thead><tr><th>対象年月</th><th class="right">予算</th><th class="right">見込み／実績</th><th class="right">差額</th><th class="right">差額率</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
-          ${monthlyRows.map(([ym, m]) => {
-            const plan = Number(m.plan || 0);
-            const forecast = Number(m.forecast || 0);
-            const actual = Number(m.actual || 0);
-            const comparable = actual || forecast;
-            const diff = plan - comparable;
-            const diffRate = plan ? diff / plan * 100 : 0;
-            const forecastActual = `見込み ${yen(forecast)} / 実績 ${yen(actual)}`;
-            return `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(plan)}</td><td class="right">${forecastActual}</td><td class="right">${yen(diff)}</td><td class="right">${pct(diffRate)}</td><td>${displayOrUnentered(firstPresent(m.reason_category, m.variance_reason_category, m.factor_type))}</td><td>${displayOrUnentered(firstPresent(m.variance_reason, m.reason, m.reason_detail))}</td><td>${displayOrUnentered(firstPresent(m.comment, m.monthly_comment, m.note, m.memo))}</td></tr>`;
-          }).join('') || '<tr><td colspan="8">月次データはありません</td></tr>'}
-        </tbody></table></div>
-        <h5>コメント履歴</h5>
-        <div class="table-wrap"><table><thead><tr><th>コメント更新月</th><th>対象年月</th><th>項番</th><th>コメント</th></tr></thead><tbody>
-          ${commentHistory.map(entry => `<tr><td>${escapeHtml(formatYearMonth(entry.updatedMonth))}</td><td>${escapeHtml(formatYearMonth(entry.ym))}</td><td>${escapeHtml(entry.item_no || '-')}</td><td>${displayOrUnentered(entry.comment)}</td></tr>`).join('') || '<tr><td colspan="4">コメント履歴はありません</td></tr>'}
-        </tbody></table></div>`;
+      const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category, variance_reason_category: displayText(row.variance_reason_category), variance_reason: displayText(row.variance_reason), comment: displayText(row.comment), comment_updated_month: displayText(row.comment_updated_month), comment_updated_by: displayText(row.comment_updated_by) };
+      const detail = row.monthly || {};
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
