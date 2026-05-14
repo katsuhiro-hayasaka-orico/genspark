@@ -8,7 +8,7 @@ const { once } = require('node:events');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-csv-viewer-'));
 process.env.BUDGET_CSV_VIEWER_STORE_FILE = path.join(tmpDir, 'store.json');
 
-const { parseCSV, startServer, stopServer } = require('../server');
+const { parseCSV, parseUnifiedBudgetLayout, mergeVarianceReasons, startServer, stopServer } = require('../server');
 
 test('parseCSV handles quoted commas and quoted newlines', () => {
   const rows = parseCSV([
@@ -21,6 +21,47 @@ test('parseCSV handles quoted commas and quoted newlines', () => {
   assert.equal(rows.length, 2);
   assert.equal(rows[0]['案件名'], 'alpha, beta');
   assert.equal(rows[1]['案件名'], 'line1\nline2');
+});
+
+test('parseUnifiedBudgetLayout maps aliased variance reason columns and normalizes categories', () => {
+  const rows = parseCSV([
+    '管理番号（統合）,項番,期,案件名,差額理由,差額理由分類,コメント,コメント更新月,コメント更新者,65期4月計画',
+    'M-1,2,65,Project A,利用量増,未定義カテゴリ,要確認,202604,Alice,100',
+    'M-2,1,65,Project B,契約変更,契約変更,確認済み,202605,Bob,200',
+  ].join('\n'));
+
+  const converted = parseUnifiedBudgetLayout(rows);
+
+  assert.equal(converted.master[0].management_no, 'M-1');
+  assert.equal(converted.master[0].project_name, 'Project A');
+  assert.equal(converted.master[0].variance_reason, '利用量増');
+  assert.equal(converted.master[0].variance_reason_category, '未分類');
+  assert.equal(converted.master[0].comment, '要確認');
+  assert.equal(converted.master[0].comment_updated_month, '202604');
+  assert.equal(converted.master[0].comment_updated_by, 'Alice');
+  assert.equal(converted.detail[0].variance_reason_category, '未分類');
+  assert.equal(converted.master[1].variance_reason_category, '契約変更');
+});
+
+test('mergeVarianceReasons overlays rows by management number', () => {
+  const items = [
+    { management_no: 'M-1', variance_reason: 'old', variance_reason_category: '時期差', comment: '' },
+    { management_no: 'M-2', variance_reason: '', variance_reason_category: '時期差', comment: 'keep' },
+  ];
+  const varianceRows = [
+    { 管理番号: 'M-1', 差額理由: 'new', 差額理由分類: '契約変更', コメント: 'updated', コメント更新月: '202606', コメント更新者: 'Carol' },
+    { 管理番号: 'M-2', 差額理由分類: 'unknown' },
+  ];
+
+  const merged = mergeVarianceReasons(items, varianceRows);
+
+  assert.equal(merged[0].variance_reason, 'new');
+  assert.equal(merged[0].variance_reason_category, '契約変更');
+  assert.equal(merged[0].comment, 'updated');
+  assert.equal(merged[0].comment_updated_month, '202606');
+  assert.equal(merged[0].comment_updated_by, 'Carol');
+  assert.equal(merged[1].variance_reason_category, '未分類');
+  assert.equal(merged[1].comment, 'keep');
 });
 
 test('upload and mutable records persist to the local store file', async () => {
