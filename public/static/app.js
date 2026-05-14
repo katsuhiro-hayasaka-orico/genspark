@@ -15,7 +15,7 @@ const state = {
   page: 'import',
   hasData: false,
   data: { status: null, items: [], contracts: [] },
-  filters: { periodMode: '月次', department: '', perspective: '費目', target: 'すべて' },
+  filters: { periodMode: '月次', department: '', perspective: '費目', target: 'すべて', fiscalPeriod: '', targetYearMonth: '' },
   settings: {
     thresholds: { varianceRate: 10, amountGap: 1000, momRate: 10, yoyRate: 10 },
     kpiOrder: ['総予算', '見込み／実績', '予算消化率', '差額', '着地見込み', 'コスト削減効果'],
@@ -46,7 +46,15 @@ const optionHtml = (value, selectedValue) => {
   return `<option value="${safe}" ${value === selectedValue ? 'selected' : ''}>${safe}</option>`;
 };
 const dataAttr = (value) => escapeHtml(value);
-const jsonForHtml = (value) => escapeHtml(JSON.stringify(value, null, 2));
+const displayOrUnentered = (value) => {
+  const text = String(value ?? '').trim();
+  return text ? escapeHtml(text) : '未入力';
+};
+const formatYearMonth = (ym) => {
+  const s = String(ym || '').trim();
+  return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}/${s.slice(4, 6)}` : (s || '-');
+};
+const firstPresent = (...values) => values.find(value => value !== undefined && value !== null && String(value).trim() !== '');
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -91,16 +99,119 @@ function ymToQuarter(ym) {
   return `${y}Q${q}`;
 }
 
-function filteredItems() {
-  let rows = [...state.data.items];
+function periodSortValue(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : String(value || '');
+}
+
+function getPeriodOptions() {
+  const st = state.data.status || {};
+  const periods = Array.isArray(st.periods) ? st.periods : [];
+  if (periods.length) return [...periods].filter(Boolean).sort((a, b) => String(periodSortValue(a)).localeCompare(String(periodSortValue(b)), 'ja', { numeric: true }));
+  return [...new Set(state.data.items.map(r => r.fiscal_period).filter(Boolean))].sort((a, b) => String(periodSortValue(a)).localeCompare(String(periodSortValue(b)), 'ja', { numeric: true }));
+}
+
+function getYearMonthOptions() {
+  const period = state.filters.fiscalPeriod;
+  const scopedItems = period
+    ? state.data.items.filter(r => String(r.fiscal_period || '') === String(period))
+    : state.data.items;
+  const scopedYMs = [...new Set(scopedItems.flatMap(r => Object.keys(r.monthly || {})).filter(Boolean))].sort();
+  if (scopedYMs.length) return scopedYMs;
+  const st = state.data.status || {};
+  const yms = Array.isArray(st.sortedYMs) ? st.sortedYMs : [];
+  return [...yms].filter(Boolean).sort();
+}
+
+function normalizeGlobalScopeFilters() {
+  const periods = getPeriodOptions();
+  const yms = getYearMonthOptions();
+  if (!state.filters.fiscalPeriod || (periods.length && !periods.includes(state.filters.fiscalPeriod))) {
+    state.filters.fiscalPeriod = periods[periods.length - 1] || '';
+  }
+  if (!state.filters.targetYearMonth || (yms.length && !yms.includes(state.filters.targetYearMonth))) {
+    state.filters.targetYearMonth = yms[yms.length - 1] || '';
+  }
+}
+
+function ymCompare(a, b) {
+  return String(a || '').localeCompare(String(b || ''));
+}
+
+function selectedQuarterLabel() {
+  return ymToQuarter(state.filters.targetYearMonth);
+}
+
+function ymInSelectedScope(ym, { includeHistory = false } = {}) {
+  const selectedYM = state.filters.targetYearMonth;
+  if (!selectedYM || state.filters.periodMode === '通期') return true;
+  if (state.filters.periodMode === '月次') {
+    return includeHistory ? ymCompare(ym, selectedYM) <= 0 : ym === selectedYM;
+  }
+  const selectedQuarter = selectedQuarterLabel();
+  if (includeHistory) return ymToQuarter(ym) <= selectedQuarter;
+  return ymToQuarter(ym) === selectedQuarter;
+}
+
+function scopedItemTotals(item) {
+  let totalPlan = 0;
+  let totalForecast = 0;
+  let totalActual = 0;
+  const monthlyEntries = Object.entries(item.monthly || {}).filter(([ym]) => ymInSelectedScope(ym));
+
+  if (state.filters.periodMode === '通期' && monthlyEntries.length === 0) {
+    return {
+      totalPlan: Number(item.totalPlan || 0),
+      totalForecast: Number(item.totalForecast || 0),
+      totalActual: Number(item.totalActual || 0),
+    };
+  }
+
+  monthlyEntries.forEach(([, m]) => {
+    totalPlan += Number(m.plan || 0);
+    totalForecast += Number(m.forecast || 0);
+    totalActual += Number(m.actual || 0);
+  });
+
+  return { totalPlan, totalForecast, totalActual };
+}
+
+function hasSelectedMonthData(item) {
+  if (!state.filters.targetYearMonth || state.filters.periodMode === '通期') return true;
+  return Object.keys(item.monthly || {}).some(ym => ymInSelectedScope(ym));
+}
+
+function filterItemsByGlobalScope(sourceItems = state.data.items) {
+  let rows = [...sourceItems];
   if (state.filters.department) rows = rows.filter(r => r.department_name === state.filters.department);
   if (state.filters.target === '新規案件') rows = rows.filter(isNewProject);
   if (state.filters.target === '継続案件') rows = rows.filter(r => !isNewProject(r));
-  if (state.filters.target.startsWith('ベンダー:')) {
+  if ((state.filters.target || '').startsWith('ベンダー:')) {
     const v = state.filters.target.replace('ベンダー:', '');
     rows = rows.filter(r => (r.vendor_name || r.payee_name || '') === v);
   }
-  return rows;
+  if (state.filters.fiscalPeriod) rows = rows.filter(r => String(r.fiscal_period || '') === String(state.filters.fiscalPeriod));
+  rows = rows.filter(hasSelectedMonthData);
+
+  return rows.map((r) => {
+    const scoped = scopedItemTotals(r);
+    return {
+      ...r,
+      rawTotalPlan: Number(r.totalPlan || 0),
+      rawTotalForecast: Number(r.totalForecast || 0),
+      rawTotalActual: Number(r.totalActual || 0),
+      totalPlan: scoped.totalPlan,
+      totalForecast: scoped.totalForecast,
+      totalActual: scoped.totalActual,
+      scopedPlan: scoped.totalPlan,
+      scopedForecast: scoped.totalForecast,
+      scopedActual: scoped.totalActual,
+    };
+  });
+}
+
+function filteredItems() {
+  return filterItemsByGlobalScope();
 }
 
 function getPerspectiveKey() {
@@ -112,15 +223,30 @@ function getPerspectiveKey() {
 
 function buildTimeSeries(items) {
   const bucket = {};
+  const addBucket = (key, values) => {
+    if (!bucket[key]) bucket[key] = { plan: 0, forecast: 0, actual: 0 };
+    bucket[key].plan += Number(values.plan || 0);
+    bucket[key].forecast += Number(values.forecast || 0);
+    bucket[key].actual += Number(values.actual || 0);
+  };
+
   items.forEach((item) => {
+    if (state.filters.periodMode === '通期') {
+      addBucket(item.fiscal_period_label || item.fiscal_period || state.filters.fiscalPeriod || '通期', {
+        plan: item.totalPlan,
+        forecast: item.totalForecast,
+        actual: item.totalActual,
+      });
+      return;
+    }
+
     Object.entries(item.monthly || {}).forEach(([ym, m]) => {
-      const key = state.filters.periodMode === '月次' ? ym : (state.filters.periodMode === '四半期' ? ymToQuarter(ym) : String(ym).slice(0, 4));
-      if (!bucket[key]) bucket[key] = { plan: 0, forecast: 0, actual: 0 };
-      bucket[key].plan += Number(m.plan || 0);
-      bucket[key].forecast += Number(m.forecast || 0);
-      bucket[key].actual += Number(m.actual || 0);
+      if (!ymInSelectedScope(ym, { includeHistory: true })) return;
+      const key = state.filters.periodMode === '月次' ? ym : ymToQuarter(ym);
+      addBucket(key, m);
     });
   });
+
   const labels = Object.keys(bucket).sort();
   return { labels, bucket };
 }
@@ -208,20 +334,29 @@ function initFilterBar() {
   const st = state.data.status || {};
   const depts = st.departments || [];
   const vendors = (st.vendors || []).slice(0, 20);
+  const periods = getPeriodOptions();
+  normalizeGlobalScopeFilters();
+  const yms = getYearMonthOptions();
   const targets = ['すべて', '継続案件', '新規案件', ...vendors.map(v => `ベンダー:${v}`)];
   const root = document.getElementById('globalFilters');
   root.innerHTML = `
-    <select id="fPeriod">${['月次', '四半期', '通期'].map(v => optionHtml(v, state.filters.periodMode)).join('')}</select>
+    <label>表示単位 <select id="fPeriodMode">${['月次', '四半期', '通期'].map(v => optionHtml(v, state.filters.periodMode)).join('')}</select></label>
+    <label>対象期 <select id="fFiscalPeriod">${periods.map(v => optionHtml(v, state.filters.fiscalPeriod)).join('')}</select></label>
+    <label>対象月 <select id="fTargetYM">${yms.map(v => optionHtml(v, state.filters.targetYearMonth)).join('')}</select></label>
     <select id="fDept"><option value="">全部門</option>${depts.map(v => optionHtml(v, state.filters.department)).join('')}</select>
     <select id="fPers">${['費目', 'システム', '固定・変動', '投資・運用'].map(v => optionHtml(v, state.filters.perspective)).join('')}</select>
     <select id="fTarget">${targets.map(v => optionHtml(v, state.filters.target)).join('')}</select>
   `;
-  ['fPeriod', 'fDept', 'fPers', 'fTarget'].forEach((id) => {
+  ['fPeriodMode', 'fFiscalPeriod', 'fTargetYM', 'fDept', 'fPers', 'fTarget'].forEach((id) => {
     root.querySelector(`#${id}`).onchange = () => {
-      state.filters.periodMode = root.querySelector('#fPeriod').value;
+      state.filters.periodMode = root.querySelector('#fPeriodMode').value;
+      state.filters.fiscalPeriod = root.querySelector('#fFiscalPeriod').value;
+      state.filters.targetYearMonth = root.querySelector('#fTargetYM').value;
       state.filters.department = root.querySelector('#fDept').value;
       state.filters.perspective = root.querySelector('#fPers').value;
       state.filters.target = root.querySelector('#fTarget').value;
+      normalizeGlobalScopeFilters();
+      initFilterBar();
       renderPage();
     };
   });
@@ -784,9 +919,69 @@ function renderDetail() {
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category };
-      const detail = row.monthly || {};
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
+      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => String(a).localeCompare(String(b)));
+      const relatedContracts = state.data.contracts.filter(c => (
+        (row.contract_no && c.contract_no === row.contract_no)
+        || (row.management_no && c.management_no === row.management_no)
+        || (row.contract_no && c.contract_id === row.contract_no)
+      ));
+      const commentHistory = state.data.items
+        .filter(item => item.management_no === row.management_no)
+        .flatMap(item => Object.entries(item.monthly || {}).map(([ym, m]) => {
+          const updatedMonth = firstPresent(m.comment_updated_month, m.commentUpdatedMonth, m.updated_month, m.updated_at, m.updatedAt);
+          return {
+            ym,
+            item_no: item.item_no,
+            updatedMonth,
+            sortMonth: updatedMonth || ym,
+            comment: firstPresent(m.comment, m.monthly_comment, m.note, m.memo, ''),
+          };
+        }))
+        .filter(entry => String(entry.comment || '').trim() || String(entry.updatedMonth || '').trim())
+        .sort((a, b) => String(a.sortMonth || '').localeCompare(String(b.sortMonth || '')) || String(a.ym).localeCompare(String(b.ym)));
+
+      document.getElementById('detailPane').innerHTML = `
+        <h4>詳細ペイン</h4>
+        <div class="detail-card-grid">
+          <div>
+            <h5>属性情報</h5>
+            <table><tbody>
+              ${[
+                ['管理番号', row.management_no],
+                ['項番', row.item_no],
+                ['案件名', row.project_name],
+                ['部門', row.department_name],
+                ['カテゴリ', row.budget_category],
+                ['ベンダー', row.vendor_name || row.payee_name],
+                ['支払区分', row.payment_category],
+                ['契約番号', row.contract_no],
+              ].map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '-')}</td></tr>`).join('')}
+            </tbody></table>
+          </div>
+          <div>
+            <h5>関連する契約情報</h5>
+            <div class="table-wrap"><table><thead><tr><th>契約番号</th><th>ベンダー</th><th>システム</th><th>更新月</th><th class="right">年額</th><th>判断状況</th><th>メモ</th></tr></thead><tbody>
+              ${relatedContracts.map(c => `<tr><td>${escapeHtml(c.contract_no || '-')}</td><td>${escapeHtml(c.vendor_name || '-')}</td><td>${escapeHtml(c.system_name || '-')}</td><td>${escapeHtml(formatYearMonth(c.renewal_month))}</td><td class="right">${yen(c.annual_amount)}</td><td>${escapeHtml(c.decision_status || '-')}</td><td>${displayOrUnentered(c.decision_note)}</td></tr>`).join('') || '<tr><td colspan="7">関連する契約情報はありません</td></tr>'}
+            </tbody></table></div>
+          </div>
+        </div>
+        <h5>月次(detail)</h5>
+        <div class="table-wrap"><table><thead><tr><th>対象年月</th><th class="right">予算</th><th class="right">見込み／実績</th><th class="right">差額</th><th class="right">差額率</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
+          ${monthlyRows.map(([ym, m]) => {
+            const plan = Number(m.plan || 0);
+            const forecast = Number(m.forecast || 0);
+            const actual = Number(m.actual || 0);
+            const comparable = actual || forecast;
+            const diff = plan - comparable;
+            const diffRate = plan ? diff / plan * 100 : 0;
+            const forecastActual = `見込み ${yen(forecast)} / 実績 ${yen(actual)}`;
+            return `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(plan)}</td><td class="right">${forecastActual}</td><td class="right">${yen(diff)}</td><td class="right">${pct(diffRate)}</td><td>${displayOrUnentered(firstPresent(m.reason_category, m.variance_reason_category, m.factor_type))}</td><td>${displayOrUnentered(firstPresent(m.variance_reason, m.reason, m.reason_detail))}</td><td>${displayOrUnentered(firstPresent(m.comment, m.monthly_comment, m.note, m.memo))}</td></tr>`;
+          }).join('') || '<tr><td colspan="8">月次データはありません</td></tr>'}
+        </tbody></table></div>
+        <h5>コメント履歴</h5>
+        <div class="table-wrap"><table><thead><tr><th>コメント更新月</th><th>対象年月</th><th>項番</th><th>コメント</th></tr></thead><tbody>
+          ${commentHistory.map(entry => `<tr><td>${escapeHtml(formatYearMonth(entry.updatedMonth))}</td><td>${escapeHtml(formatYearMonth(entry.ym))}</td><td>${escapeHtml(entry.item_no || '-')}</td><td>${displayOrUnentered(entry.comment)}</td></tr>`).join('') || '<tr><td colspan="4">コメント履歴はありません</td></tr>'}
+        </tbody></table></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
