@@ -8,7 +8,7 @@ const { once } = require('node:events');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-csv-viewer-'));
 process.env.BUDGET_CSV_VIEWER_STORE_FILE = path.join(tmpDir, 'store.json');
 
-const { parseCSV, startServer, stopServer } = require('../server');
+const { parseCSV, parseUnifiedBudgetLayout, normalizeAmount, normalizeDateString, safeString, startServer, stopServer } = require('../server');
 
 test('parseCSV handles quoted commas and quoted newlines', () => {
   const rows = parseCSV([
@@ -23,6 +23,30 @@ test('parseCSV handles quoted commas and quoted newlines', () => {
   assert.equal(rows[1]['案件名'], 'line1\nline2');
 });
 
+
+test('normalizers and unified layout report row-level import issues without throwing', () => {
+  assert.equal(safeString('　ＡＢＣ１２３　'), 'ABC123');
+  assert.deepEqual(normalizeDateString('２０２５/４').value, '202504');
+  assert.equal(normalizeAmount('￥１，２３４').value, 1234);
+  assert.equal(normalizeAmount('abc').valid, false);
+
+  const rows = parseCSV([
+    '管理番号,項番,期,案件名,契約金額,月額,65期4月計画,65期13月計画,65期4月見込',
+    'A-1,1,65,正常,１，０００, 100 ,1 234,badmonth,９００',
+    ',1,65,管理番号なし,1000,100,100,,',
+    'A-2,1,65,金額不正,abc,def,not-a-number,,',
+  ].join('\n'));
+
+  const result = parseUnifiedBudgetLayout(rows);
+  assert.equal(result.totalRows, 3);
+  assert.equal(result.successRows, 2);
+  assert.equal(result.skippedRows, 1);
+  assert.equal(result.master.length, 2);
+  assert.equal(result.detail.length, 2);
+  assert.equal(result.warningCount >= 3, true);
+  assert.equal(result.issues.some(issue => issue.level === 'skipped' && issue.field === '管理番号'), true);
+});
+
 test('upload and mutable records persist to the local store file', async () => {
   const server = startServer({ host: '127.0.0.1', port: 0 });
   if (!server.listening) await once(server, 'listening');
@@ -34,8 +58,21 @@ test('upload and mutable records persist to the local store file', async () => {
       'XSS-1,1,65,運用,"<img src=x onerror=alert(1)>",IT,Alice,Vendor A,C-1,1000,100,運用,固定,SYS1,System One,Hosting,Core,クラウド,1000,900',
     ].join('\n');
 
+    const dryRunForm = new FormData();
+    dryRunForm.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'upload.csv');
+    dryRunForm.append('dryRun', 'true');
+    const dryRunRes = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: dryRunForm });
+    assert.equal(dryRunRes.status, 200);
+    const dryRunJson = await dryRunRes.json();
+    assert.equal(dryRunJson.dryRun, true);
+    assert.equal(dryRunJson.successRows, 1);
+
+    const savedAfterDryRun = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
+    assert.notEqual(savedAfterDryRun.csvFileName, 'upload.csv');
+
     const form = new FormData();
     form.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'upload.csv');
+    form.append('confirmImport', 'true');
     const uploadRes = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: form });
     assert.equal(uploadRes.status, 200);
 
