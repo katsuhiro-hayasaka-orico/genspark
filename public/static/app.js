@@ -832,7 +832,7 @@ function renderImport() {
     const selectedType = fileTypeSelect.value;
     if (selectedType !== 'budget') {
       summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。結合キーは management_no（管理番号）を中心に既存明細へ補完します。</p></div>`;
-      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
+      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>新規案件個票.csv は指定レイアウト（区分,チーム名,管理番号,...,年月,予算金額,見込金額）で取り込みます。その他の追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
       uploadBtn.disabled = false;
       return;
     }
@@ -1154,30 +1154,78 @@ function renderCategory() {
   });
 }
 
-function renderProject() {
-  const rows = filteredItems().filter(r => isNewProject(r) || (r.payment_category || '').includes('投資'));
-  const scatter = rows.slice(0, 100).map(r => ({
-    x: Number(r.totalForecast || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100,
-    y: Number(r.totalActual || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100,
-  }));
+async function renderProject() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="panel"><p>新規案件データを読み込み中です...</p></div>';
 
-  document.getElementById('content').innerHTML = `
-    <div class="panel"><div class="controls"><input id="pSearch" type="text" placeholder="案件検索"></div><div style="height:300px"><canvas id="projectScatter"></canvas></div></div>
-    <div class="panel"><div class="table-wrap"><table><thead><tr><th>プロジェクト</th><th class="right">予算実績差異</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
+  const analysis = await api('/analysis/new-projects').catch(() => ({ data: null }));
+  const payload = analysis.data || { projects: [], groupSummary: [], hasNewProjectCsv: false, sourceRowCount: 0 };
+  const fallbackRows = filteredItems()
+    .filter(r => isNewProject(r) || (r.payment_category || '').includes('投資'))
+    .map(r => {
+      const plan = Number(r.totalPlan || 0);
+      const comparable = Number(r.totalActual || 0) > 0 ? Number(r.totalActual || 0) : Number(r.totalForecast || 0);
+      return {
+        ...r,
+        project_category: r.payment_category || r.budget_category || '',
+        it_strategy_category: r.system_classification || '',
+        progress_rate: plan ? comparable / Math.max(plan, 1) * 100 : 0,
+        cost_burn_rate: plan ? comparable / Math.max(plan, 1) * 100 : 0,
+        variance_amount: plan - comparable,
+        comparableAmount: comparable,
+      };
+    });
+  const rows = (payload.projects && payload.projects.length ? payload.projects : fallbackRows);
+  const scatter = rows.slice(0, 200).map(r => ({
+    x: Number(r.progress_rate || 0),
+    y: Number(r.cost_burn_rate || 0),
+  }));
+  const categoryRows = (payload.groupSummary || []).filter(r => r.type === 'project_category').slice(0, 8);
+  const strategyRows = (payload.groupSummary || []).filter(r => r.type === 'it_strategy_category').slice(0, 8);
+
+  content.innerHTML = `
+    <section class="panel">
+      <div class="card-title-row">
+        <div>
+          <h3>プロジェクト別予算実績差異（新規案件個票）</h3>
+          <p class="muted">新規案件個票.csv の「案件区分」と「区分_1（IT戦区分）」別に、予算金額と見込／実績の差額を確認します。</p>
+        </div>
+        <span class="badge">${payload.hasNewProjectCsv ? `新規案件CSV ${fmt(payload.sourceRowCount)}行` : '予実績管理データから抽出'}</span>
+      </div>
+      <div class="grid-2">
+        <div><h4>投資系／運用系など案件区分別</h4><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">予算</th><th class="right">見込／実績</th><th class="right">差額</th></tr></thead><tbody>${categoryRows.map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${yen(r.plan)}</td><td class="right">${yen(r.comparable)}</td><td class="right ${Math.abs(r.variance) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance)}</td></tr>`).join('') || '<tr><td colspan="4">分類データなし</td></tr>'}</tbody></table></div></div>
+        <div><h4>IT戦区分別</h4><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">予算</th><th class="right">見込／実績</th><th class="right">差額</th></tr></thead><tbody>${strategyRows.map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${yen(r.plan)}</td><td class="right">${yen(r.comparable)}</td><td class="right ${Math.abs(r.variance) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance)}</td></tr>`).join('') || '<tr><td colspan="4">分類データなし</td></tr>'}</tbody></table></div></div>
+      </div>
+    </section>
+    <div class="panel"><div class="controls"><input id="pSearch" type="text" placeholder="案件名・管理番号・担当者で検索"></div><div style="height:300px"><canvas id="projectScatter"></canvas></div></div>
+    <div class="panel"><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>プロジェクト</th><th>案件区分</th><th>IT戦区分</th><th class="right">予算実績差異</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th>差額理由分類</th><th>差額理由</th><th>memo/コメント</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
 
   const drawRows = (q = '') => {
-    const view = rows.filter(r => !q || (r.project_name || '').toLowerCase().includes(q.toLowerCase()));
-    document.getElementById('projectRows').innerHTML = view.slice(0, 200).map(r => {
-      const progress = Number(r.totalForecast || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
-      const burn = Number(r.totalActual || 0) / Math.max(Number(r.totalPlan || 1), 1) * 100;
-      return `<tr data-mid="${dataAttr(r.management_no)}"><td>${escapeHtml(r.project_name || '(名称未設定)')}</td><td class="right">${yen(Number(r.totalPlan || 0) - Number(r.totalActual || 0))}</td><td class="right">${pct(progress)}</td><td class="right">${pct(burn)}</td><td>${displayHtml(r.variance_reason_category)}</td><td>${displayHtml(r.variance_reason)}</td><td>${displayHtml(r.comment)}</td></tr>`;
-    }).join('');
+    const query = q.toLowerCase();
+    const view = rows.filter(r => !query || [r.project_name, r.management_no, r.owner_name, r.team_name].some(v => String(v || '').toLowerCase().includes(query)));
+    document.getElementById('projectRows').innerHTML = view.slice(0, 300).map(r => `
+      <tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}">
+        <td>${escapeHtml(r.management_no || '-')}</td>
+        <td>${escapeHtml(r.project_name || '(名称未設定)')}</td>
+        <td>${escapeHtml(r.project_category || '未設定')}</td>
+        <td>${escapeHtml(r.it_strategy_category || '未設定')}</td>
+        <td class="right ${Math.abs(Number(r.variance_amount || 0)) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance_amount)}</td>
+        <td class="right">${pct(r.progress_rate)}</td>
+        <td class="right">${pct(r.cost_burn_rate)}</td>
+        <td>${displayHtml(r.variance_reason_category)}</td>
+        <td>${displayHtml(r.variance_reason)}</td>
+        <td>${displayHtml(r.comment || r.memo)}</td>
+      </tr>`).join('') || '<tr><td colspan="10">対象なし</td></tr>';
     bindDetailFilterLinks(document.getElementById('projectRows'));
   };
 
   drawRows();
   document.getElementById('pSearch').oninput = e => drawRows(e.target.value);
-  new Chart(document.getElementById('projectScatter'), { type: 'scatter', data: { datasets: [{ label: '案件', data: scatter }] }, options: { scales: { x: { title: { display: true, text: '進捗率(%)' } }, y: { title: { display: true, text: 'コスト消化率(%)' } } } } });
+  new Chart(document.getElementById('projectScatter'), {
+    type: 'scatter',
+    data: { datasets: [{ label: '案件', data: scatter }] },
+    options: { scales: { x: { title: { display: true, text: '進捗率(%)' } }, y: { title: { display: true, text: 'コスト消化率(%)' } } } },
+  });
 }
 
 function renderAlert() {

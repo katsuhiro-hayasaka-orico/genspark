@@ -143,9 +143,30 @@ test('upload and mutable records persist to the local store file', async () => {
 });
 
 
+test('new project import normalizes 新規案件個票.csv layout', () => {
+  const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
+  const csv = [
+    '区分,チーム名,管理番号,電算処理№,案件名,案件担当者,本番開始予定日,IT投資ｼﾐｭﾚｰｼｮﾝ№,経費事象,進捗状況,予算有り,5年経費合計,案件区分,memo,区分_1,年月,予算金額,見込金額',
+    'IT戦,Team A,NP-1,DP-9,新規CRM,Alice,2026/10,SIM-1,クラウド,50%,有,5000,投資系,単価見直し,顧客接点,202604,1000,1200',
+  ].join('\n');
+  const result = parseUploadedFile(IMPORT_FILE_TYPES.NEW_PROJECT, csv);
+
+  assert.equal(result.status, 'imported');
+  assert.equal(result.message, '新規案件データを取り込みました');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].management_no, 'NP-1');
+  assert.equal(result.rows[0].project_category, '投資系');
+  assert.equal(result.rows[0].it_strategy_category, '顧客接点');
+  assert.equal(result.rows[0].target_year_month, '202604');
+  assert.equal(result.rows[0].fiscal_period, '66');
+  assert.equal(result.rows[0].budget_amount, 1000);
+  assert.equal(result.rows[0].forecast_amount, 1200);
+  assert.equal(result.rows[0].progress_rate, 50);
+});
+
 test('additional import types preserve not imported status when specs are unavailable', () => {
   const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
-  const result = parseUploadedFile(IMPORT_FILE_TYPES.NEW_PROJECT, 'management_no,name\nM-1,Sample');
+  const result = parseUploadedFile(IMPORT_FILE_TYPES.OASIS_ACTUAL, 'management_no,name\nM-1,Sample');
 
   assert.equal(result.status, 'not_imported');
   assert.equal(result.message, '追加データ未取込');
