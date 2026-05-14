@@ -28,6 +28,7 @@ const state = {
     detailSearch: '',
     detailFilter: null,
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
+    reportFiscalPeriod: '',
   },
 };
 
@@ -307,20 +308,79 @@ function buildTimeSeries(items) {
   return { labels, bucket };
 }
 
-function getComparableActual(itemOrMonthly) {
-  const actual = Number(itemOrMonthly?.actual ?? itemOrMonthly?.totalActual ?? 0);
-  const forecast = Number(itemOrMonthly?.forecast ?? itemOrMonthly?.totalForecast ?? 0);
-  return actual > 0 ? actual : forecast;
+
+function deriveFiscalYearFromFiscalPeriod(fiscalPeriod, items = []) {
+  const raw = String(fiscalPeriod ?? '').trim();
+  const matched = items.find(item => raw && String(item.fiscal_period || '') === raw && item.fiscal_year);
+  if (matched) return Number(matched.fiscal_year);
+
+  const numeric = Number(raw.replace(/^FY/i, ''));
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric >= 60 && numeric <= 99) return 1960 + numeric;
+    return numeric;
+  }
+
+  const yearFromMonthly = items
+    .flatMap(item => Object.keys(item.monthly || {}))
+    .map(ym => Number(String(ym).slice(0, 4)))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0];
+  return yearFromMonthly || new Date().getFullYear();
 }
 
-function calculateVariance(plan, comparable) {
-  const amount = Number(plan || 0) - Number(comparable || 0);
-  const rate = Number(plan || 0) ? amount / Number(plan || 0) * 100 : 0;
-  return { amount, rate };
+function buildFiscalYearMonths(fiscalYear) {
+  const fy = deriveFiscalYearFromFiscalPeriod(fiscalYear);
+  return Array.from({ length: 12 }, (_, idx) => {
+    const month = idx + 4 <= 12 ? idx + 4 : idx - 8;
+    const year = month >= 4 ? fy : fy + 1;
+    const key = `${year}${String(month).padStart(2, '0')}`;
+    return { key, label: `${year}/${String(month).padStart(2, '0')}` };
+  });
 }
 
-function calculateBurnRate(plan, comparable) {
-  return Number(plan || 0) ? Number(comparable || 0) / Number(plan || 0) * 100 : 0;
+function buildReportSeries(items, fiscalPeriod) {
+  const fiscalYear = deriveFiscalYearFromFiscalPeriod(fiscalPeriod, items);
+  const months = buildFiscalYearMonths(fiscalYear);
+  const period = String(fiscalPeriod ?? '').trim();
+  const rows = period
+    ? items.filter(item => String(item.fiscal_period || '') === period || Number(item.fiscal_year) === fiscalYear)
+    : items;
+  let planCumulative = 0;
+  let actualForecastCumulative = 0;
+
+  const series = months.map((month) => {
+    const totals = rows.reduce((acc, item) => {
+      const monthly = item.monthly?.[month.key] || {};
+      const actual = Number(monthly.actual || 0);
+      const forecast = Number(monthly.forecast || 0);
+      acc.plan += Number(monthly.plan || 0);
+      acc.actualForecast += actual || forecast;
+      return acc;
+    }, { plan: 0, actualForecast: 0 });
+
+    planCumulative += totals.plan;
+    actualForecastCumulative += totals.actualForecast;
+    return {
+      key: month.key,
+      label: month.label,
+      plan: totals.plan,
+      actualForecast: totals.actualForecast,
+      planCumulative,
+      actualForecastCumulative,
+    };
+  });
+
+  return {
+    fiscalPeriod: period,
+    fiscalYear,
+    labels: series.map(v => v.label),
+    keys: series.map(v => v.key),
+    plan: series.map(v => v.plan),
+    actualForecast: series.map(v => v.actualForecast),
+    planCumulative: series.map(v => v.planCumulative),
+    actualForecastCumulative: series.map(v => v.actualForecastCumulative),
+    rows: series,
+  };
 }
 
 function scopedPeriodSummary(items) {
@@ -540,6 +600,94 @@ function drawLine(canvasId, labels, datasets) {
   new Chart(el, { type: 'line', data: { labels, datasets }, options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { labels: { color: 'var(--text)' } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } } });
 }
 
+
+function drawReportComboChart(canvasId, reportSeries) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const gray = '#D7DCE2';
+  const grayLine = '#B9C0CA';
+  const blue = '#2F80ED';
+  new Chart(el, {
+    data: {
+      labels: reportSeries.labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: '月次計画',
+          data: reportSeries.plan,
+          yAxisID: 'y',
+          backgroundColor: 'rgba(215, 220, 226, 0.72)',
+          borderColor: gray,
+          borderWidth: 1,
+          order: 3,
+        },
+        {
+          type: 'bar',
+          label: '月次見込み／実績',
+          data: reportSeries.actualForecast,
+          yAxisID: 'y',
+          backgroundColor: 'rgba(47, 128, 237, 0.72)',
+          borderColor: blue,
+          borderWidth: 1,
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: '計画累計',
+          data: reportSeries.planCumulative,
+          yAxisID: 'y1',
+          borderColor: grayLine,
+          backgroundColor: grayLine,
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.25,
+          fill: false,
+          order: 1,
+        },
+        {
+          type: 'line',
+          label: '見込み／実績累計',
+          data: reportSeries.actualForecastCumulative,
+          yAxisID: 'y1',
+          borderColor: blue,
+          backgroundColor: blue,
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.25,
+          fill: false,
+          order: 0,
+        },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: 'var(--text)', usePointStyle: true } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${yen(ctx.parsed.y)}` } },
+      },
+      scales: {
+        x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } },
+        y: {
+          position: 'left',
+          title: { display: true, text: '単月値', color: 'var(--text)' },
+          ticks: { color: 'var(--text)', callback: value => fmt(value) },
+          grid: { color: 'var(--line)' },
+        },
+        y1: {
+          position: 'right',
+          title: { display: true, text: '累計値', color: 'var(--text)' },
+          ticks: { color: 'var(--text)', callback: value => fmt(value) },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
 function chartColors() {
   if (state.ui.theme === 'neon') return { c1: '#32E0FF', c2: '#AE7CFF', c3: '#FF4FD8', c4: '#7DFF9B', pie: ['#32E0FF','#AE7CFF','#FF4FD8','#7DFF9B','#FFD166','#6CF0FF','#D6A3FF','#FF8AE2','#9DFFB5','#7E89FF'] };
   if (state.ui.theme === 'dark') return { c1: '#FB5B01', c2: '#FFC199', c3: '#FFC700', c4: '#82D4A5', pie: ['#FB5B01','#FF8D44','#FFC199','#FFC700','#A58000','#82D4A5','#6BC7FF','#C8A2FF','#666','#999'] };
@@ -741,6 +889,17 @@ function renderSummary() {
     '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
     'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
   };
+  const reportPeriods = [...new Set(items.map(item => item.fiscal_period).filter(Boolean))]
+    .sort((a, b) => Number(a) - Number(b));
+  const defaultReportPeriod = reportPeriods[reportPeriods.length - 1] || state.data.status?.periods?.slice(-1)[0] || '';
+  if (!state.ui.reportFiscalPeriod || (reportPeriods.length && !reportPeriods.includes(state.ui.reportFiscalPeriod))) {
+    state.ui.reportFiscalPeriod = defaultReportPeriod;
+  }
+  const reportSeries = buildReportSeries(items, state.ui.reportFiscalPeriod || defaultReportPeriod);
+  const reportPeriodOptions = reportPeriods.map(period => {
+    const fy = deriveFiscalYearFromFiscalPeriod(period, items);
+    return `<option value="${dataAttr(period)}" ${period === state.ui.reportFiscalPeriod ? 'selected' : ''}>第${escapeHtml(period)}期（FY${fy}）</option>`;
+  }).join('');
 
   const kpiCards = state.settings.kpiOrder.map((name, idx) => {
     const displayName = name;
@@ -797,6 +956,16 @@ function renderSummary() {
         <div class="card-title-row"><h4>予算 vs 見込み／実績の推移</h4><span class="badge">最優先グラフ</span></div>
         <div class="chart-frame chart-frame--large"><canvas id="sumChart1"></canvas></div>
       </div>
+      <div class="bento-card bento-card--wide chart-card">
+        <div class="card-title-row">
+          <div>
+            <h4>報告用サマリー（単月・累計）</h4>
+            <p class="card-help">4月から翌年3月までの月次計画／見込み・実績と累計を同時に確認します。</p>
+          </div>
+          <label class="controls">期 ${reportPeriodOptions ? `<select id="reportFiscalPeriod">${reportPeriodOptions}</select>` : `<span class="badge">FY${reportSeries.fiscalYear}</span>`}</label>
+        </div>
+        <div class="chart-frame chart-frame--large"><canvas id="reportComboChart"></canvas></div>
+      </div>
       <div class="bento-card bento-card--tall chart-card">
         <div class="card-title-row"><h4>前年差グラフ</h4><span class="badge">前期差で代替</span></div>
         <p class="card-help">見込み／実績の急な増減を確認します。</p>
@@ -829,8 +998,16 @@ function renderSummary() {
   ]);
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.comparable - series[idx - 1].comparable);
   drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
+  drawReportComboChart('reportComboChart', reportSeries);
 
-  bindDetailFilterLinks();
+  const reportFiscalPeriodSelect = document.getElementById('reportFiscalPeriod');
+  if (reportFiscalPeriodSelect) {
+    reportFiscalPeriodSelect.onchange = () => {
+      state.ui.reportFiscalPeriod = reportFiscalPeriodSelect.value;
+      renderPage();
+    };
+  }
+  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
 }
 
 function renderTrend() {
