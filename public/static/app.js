@@ -48,6 +48,13 @@ const optionHtml = (value, selectedValue) => {
 const dataAttr = (value) => escapeHtml(value);
 const jsonForHtml = (value) => escapeHtml(JSON.stringify(value, null, 2));
 
+const displayContractDate = (value, status) => {
+  if (!value || status === 'blank') return '要確認';
+  if (status === 'invalid') return `要確認（${value}）`;
+  return value;
+};
+const displayContractValue = (value) => value === null || value === undefined || value === '' ? '-' : value;
+
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
   const json = await res.json().catch(() => ({}));
@@ -662,26 +669,25 @@ function renderVendor() {
   });
   const ranking = Object.values(map).sort((a, b) => b.amount - a.amount);
 
-  const now = new Date();
-  const currentYm = Number(`${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
-  const renewals = state.data.contracts.filter(c => {
-    const ym = Number(c.renewal_month || 0);
-    if (!ym) return false;
-    const diff = (Math.floor(ym / 100) - Math.floor(currentYm / 100)) * 12 + (ym % 100) - (currentYm % 100);
-    return diff >= 0 && diff <= 3;
-  }).sort((a, b) => String(a.renewal_month || '').localeCompare(String(b.renewal_month || '')));
+  const contractRows = (state.data.contracts || []).slice().sort((a, b) => {
+    const ar = a.review_required ? 0 : 1;
+    const br = b.review_required ? 0 : 1;
+    if (ar !== br) return ar - br;
+    const am = a.months_until_renewal ?? Number.MAX_SAFE_INTEGER;
+    const bm = b.months_until_renewal ?? Number.MAX_SAFE_INTEGER;
+    return am - bm || String(a.vendor_name || '').localeCompare(String(b.vendor_name || ''), 'ja');
+  });
 
   document.getElementById('content').innerHTML = `
     <section class="vendor-bento">
       <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
         ${ranking.map((v, idx) => `<tr><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
-      <div class="bento-card bento-card--tall"><div class="card-title-row"><h4>契約更新月一覧</h4><span class="badge">当月〜3か月先</span></div><div class="renewal-list">
-        ${renewals.map(r => `<article class="renewal-card"><span class="status-pill status-pill--warn">⚠️ 更新判断</span><strong>${escapeHtml(r.vendor_name)}</strong><span>${escapeHtml(r.contract_no)}</span><b>${escapeHtml(r.renewal_month)}</b></article>`).join('') || '<p>対象なし</p>'}
-      </div></div>
+      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>契約更新・見直し一覧</h4><span class="badge">契約属性とアラート</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー名</th><th>案件名</th><th>支払区分</th><th>契約開始日</th><th>契約終了日</th><th>次回更新予定月</th><th class="right">残月数</th><th>アラート区分</th><th>見直し要否</th><th>備考</th></tr></thead><tbody>
+        ${contractRows.map(r => `<tr class="${r.review_required ? 'warning-row' : ''}"><td>${escapeHtml(r.vendor_name || '未設定ベンダー')}</td><td>${escapeHtml(r.project_name || r.system_name || '-')}</td><td>${escapeHtml(displayContractValue(r.payment_category))}</td><td>${escapeHtml(displayContractDate(r.contract_start_date, r.contract_start_date_status))}</td><td>${escapeHtml(displayContractDate(r.contract_end_date, r.contract_end_date_status))}</td><td>${escapeHtml(displayContractValue(r.next_renewal_month || r.renewal_month))}</td><td class="right">${escapeHtml(r.months_until_renewal ?? '-')}</td><td>${escapeHtml(r.alert_type || '通常')}</td><td><span class="status-pill status-pill--${r.review_required ? 'warn' : 'neutral'}">${r.review_required ? '要見直し' : '不要'}</span></td><td>${escapeHtml(displayContractValue(r.note))}</td></tr>`).join('') || '<tr><td colspan="10">契約データなし</td></tr>'}
+      </tbody></table></div></div>
     </section>`;
 }
-
 function toCsv(rows) {
   if (!rows.length) return '';
   const cols = Object.keys(rows[0]);

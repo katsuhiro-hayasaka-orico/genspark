@@ -55,6 +55,9 @@ test('upload and mutable records persist to the local store file', async () => {
     });
     assert.equal(contractRes.status, 200);
 
+    const renewals = await fetch(`${baseUrl}/api/contracts/renewals?baseYearMonth=202605`).then(res => res.json());
+    assert.equal(renewals.data.some(row => row.contract_no === 'C-1' && 'alert_type' in row && 'review_required' in row && 'months_until_renewal' in row && 'note' in row), true);
+
     const saved = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
     assert.equal(saved.csvFileName, 'upload.csv');
     assert.equal(saved.master.length, 1);
@@ -62,4 +65,35 @@ test('upload and mutable records persist to the local store file', async () => {
   } finally {
     await stopServer();
   }
+});
+
+test('contract date normalization and renewal alerts preserve invalid inputs', () => {
+  const { parseCSV, parseUnifiedBudgetLayout, normalizeDateString, detectContractAlerts } = require('../server');
+  assert.deepEqual(normalizeDateString('2026/05/14'), { value: '2026-05-14', status: 'valid', warning: '' });
+
+  const invalidDate = normalizeDateString('更新時確認');
+  assert.equal(invalidDate.value, '更新時確認');
+  assert.equal(invalidDate.status, 'invalid');
+  assert.match(invalidDate.warning, /日付形式/);
+
+  const csv = [
+    '管理番号,項番,期,案件名,支払先,契約番号,契約開始日,契約終了日,契約期間,次回更新予定月,支払区分,備考,65期4月計画',
+    'C-ROW,1,65,契約案件,Vendor X,CON-1,2026/01/01,更新時確認,期間不明,2026/07,月払い,原契約確認,100',
+  ].join('\n');
+  const converted = parseUnifiedBudgetLayout(parseCSV(csv));
+  const master = converted.master[0];
+
+  assert.equal(master.contract_start_date, '2026-01-01');
+  assert.equal(master.contract_end_date, '更新時確認');
+  assert.equal(master.contract_end_date_status, 'invalid');
+  assert.equal(master.next_renewal_month, '202607');
+  assert.equal(master.payment_category, '月払い');
+  assert.equal(master.note, '原契約確認');
+
+  const alerts = detectContractAlerts(master, '202605');
+  assert.equal(alerts.months_until_renewal, 2);
+  assert.match(alerts.alert_type, /更新3か月以内/);
+  assert.match(alerts.alert_type, /月次見直し/);
+  assert.match(alerts.alert_type, /契約期間形式不正/);
+  assert.match(alerts.note, /原契約確認/);
 });
