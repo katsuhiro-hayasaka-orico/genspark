@@ -174,7 +174,10 @@
   .chart-frame--large { height: 340px; }
   .ranking-card .table-wrap { max-height: 390px; }
   .icon-button { width: 28px; height: 28px; padding: 0; border-radius: 999px; display: inline-grid; place-items: center; font-weight: 800; }
-  .popover-card { max-width: 280px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); }
+  .tooltip-wrap { position: relative; display: inline-grid; place-items: center; overflow: visible; }
+  .tooltip-wrap .popover-card { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; display: none; inline-size: max-content; max-width: min(280px, 70vw); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); font-size: 12px; font-weight: 400; text-align: left; }
+  .tooltip-wrap .popover-card::before { content: ''; position: absolute; top: -6px; right: 10px; width: 10px; height: 10px; transform: rotate(45deg); border-left: 1px solid var(--border); border-top: 1px solid var(--border); background: var(--surface-raised); }
+  .tooltip-wrap:hover .popover-card, .tooltip-wrap:focus-within .popover-card { display: block; }
   dialog { color: var(--text); padding: var(--space-5); max-width: 440px; }
   dialog::backdrop { background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
   .alert-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
@@ -199,6 +202,7 @@
   .detail-controls { align-items: end; }
   .search-field { display: grid; gap: 4px; min-width: min(360px, 100%); }
   .detail-card-grid { container-type: inline-size; display: grid; grid-template-columns: 1fr; gap: var(--space-3); }
+  .detail-json-grid { margin-top: var(--space-3); }
   body[data-theme="neon"] .theme-toggle, body[data-theme="neon"] .panel, body[data-theme="neon"] .kpi, body[data-theme="neon"] .sidebar, body[data-theme="neon"] th, body[data-theme="neon"] .bento-card { box-shadow: 0 0 0 1px rgba(50,224,255,0.12), 0 0 14px rgba(174,124,255,0.12); }
 }
 
