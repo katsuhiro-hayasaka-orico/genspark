@@ -752,6 +752,7 @@ function drawReportComboChart(canvasId, reportSeries) {
   const monthlyMax = Math.max(...reportSeries.plan, ...reportSeries.actualForecast, 0);
   const cumulativeMax = Math.max(...reportSeries.planCumulative, ...reportSeries.actualForecastCumulative, 0);
   new Chart(el, {
+    type: 'bar',
     data: {
       labels: reportSeries.labels,
       datasets: [
