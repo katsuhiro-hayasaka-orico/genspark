@@ -167,8 +167,9 @@
   .summary-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 14%, var(--surface)), var(--surface-raised)); }
   .eyebrow { margin: 0 0 var(--space-1); text-transform: uppercase; color: var(--primary); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
   .hero-metric { text-align: right; min-width: 220px; }
-  .hero-metric span { display: block; font-size: 12px; color: var(--text-muted); }
+  .hero-metric > span { display: block; font-size: 12px; color: var(--text-muted); }
   .hero-metric strong, .insight-card strong { display: block; font-size: clamp(28px, 8cqi, 48px); }
+  .hero-metric strong .animated-number { font: inherit; color: inherit; }
   .chart-card { min-height: 360px; }
   .chart-frame { height: 280px; }
   .chart-frame--large { height: 340px; }
