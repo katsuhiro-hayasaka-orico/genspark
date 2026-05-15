@@ -121,6 +121,16 @@ function bindDetailFilterLinks(scope = document) {
   });
 }
 
+function bindManagementNoDrilldowns(scope = document) {
+  scope.querySelectorAll('[data-mid]').forEach((el) => {
+    el.onclick = (event) => {
+      event.stopPropagation();
+      setDetailFilter('management_no', el.dataset.mid);
+      goPage('detail');
+    };
+  });
+}
+
 const displayContractDate = (value, status) => {
   if (!value || status === 'blank') return '要確認';
   if (status === 'invalid') return `要確認（${value}）`;
@@ -739,7 +749,10 @@ function drawReportComboChart(canvasId, reportSeries) {
   const gray = '#D7DCE2';
   const grayLine = '#B9C0CA';
   const blue = '#2F80ED';
+  const monthlyMax = Math.max(...reportSeries.plan, ...reportSeries.actualForecast, 0);
+  const cumulativeMax = Math.max(...reportSeries.planCumulative, ...reportSeries.actualForecastCumulative, 0);
   new Chart(el, {
+    type: 'bar',
     data: {
       labels: reportSeries.labels,
       datasets: [
@@ -748,11 +761,12 @@ function drawReportComboChart(canvasId, reportSeries) {
           label: '月次計画',
           data: reportSeries.plan,
           yAxisID: 'y',
-          backgroundColor: 'rgba(215, 220, 226, 0.72)',
+          backgroundColor: 'rgba(215, 220, 226, 0.88)',
           borderColor: gray,
           borderWidth: 1,
-          categoryPercentage: 0.72,
-          barPercentage: 0.86,
+          grouped: true,
+          categoryPercentage: 0.82,
+          barPercentage: 0.92,
           order: 3,
         },
         {
@@ -760,11 +774,12 @@ function drawReportComboChart(canvasId, reportSeries) {
           label: '月次見込み／実績',
           data: reportSeries.actualForecast,
           yAxisID: 'y',
-          backgroundColor: 'rgba(47, 128, 237, 0.72)',
+          backgroundColor: 'rgba(47, 128, 237, 0.88)',
           borderColor: blue,
           borderWidth: 1,
-          categoryPercentage: 0.72,
-          barPercentage: 0.86,
+          grouped: true,
+          categoryPercentage: 0.82,
+          barPercentage: 0.92,
           order: 2,
         },
         {
@@ -810,12 +825,17 @@ function drawReportComboChart(canvasId, reportSeries) {
         y: {
           position: 'left',
           title: { display: true, text: '単月値', color: 'var(--text)' },
+          beginAtZero: true,
+          suggestedMax: monthlyMax ? monthlyMax * 1.25 : undefined,
           ticks: { color: 'var(--text)', callback: value => fmt(value) },
           grid: { color: 'var(--line)' },
         },
         y1: {
           position: 'right',
+          display: cumulativeMax > 0,
           title: { display: true, text: '累計値', color: 'var(--text)' },
+          beginAtZero: true,
+          suggestedMax: cumulativeMax ? cumulativeMax * 1.08 : undefined,
           ticks: { color: 'var(--text)', callback: value => fmt(value) },
           grid: { drawOnChartArea: false },
         },
@@ -1053,8 +1073,10 @@ function renderSummary() {
     return `<article class="kpi kpi-card ${isHero ? 'kpi-card--priority' : ''}" aria-label="${dataAttr(displayName)}">
       <div class="kpi-head">
         <div class="label">${escapeHtml(displayName)}</div>
-        <button class="icon-button" type="button" popovertarget="${popId}" aria-label="${dataAttr(displayName)}の説明を開く">?</button>
-        <div id="${popId}" class="popover-card" popover role="note">${escapeHtml(kpiHelpText(displayName))}</div>
+        <span class="tooltip-wrap">
+          <button class="icon-button" type="button" aria-describedby="${popId}" aria-label="${dataAttr(displayName)}の説明を表示">?</button>
+          <span id="${popId}" class="popover-card" role="tooltip">${escapeHtml(kpiHelpText(displayName))}</span>
+        </span>
       </div>
       <div class="value ${status.tone === 'warn' ? 'warn' : ''}">${kpiDisplay[displayName] || ''}</div>
       <div class="kpi-meta">
@@ -1118,8 +1140,10 @@ function renderSummary() {
       <div class="bento-card bento-card--wide ranking-card">
         <div class="card-title-row">
           <h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
-          <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
-          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</div>
+          <span class="tooltip-wrap">
+            <button class="icon-button" type="button" aria-describedby="rankHelp" aria-label="差異ランキングの読み方を表示">?</button>
+            <span id="rankHelp" class="popover-card" role="tooltip">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</span>
+          </span>
         </div>
         <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
         ${top.map((r, i) => {
@@ -1152,7 +1176,7 @@ function renderSummary() {
       renderPage();
     };
   }
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+  bindManagementNoDrilldowns();
 }
 
 function renderTrend() {
@@ -1342,6 +1366,7 @@ function renderAlert() {
     </div>`;
 
   bindDetailFilterLinks();
+  bindManagementNoDrilldowns();
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
@@ -1455,7 +1480,7 @@ function renderDetail() {
         コメント: displayText(firstPresent(m.comment, row.comment)),
       }]));
       const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性（マスタ）</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次（明細）</h5><pre>${jsonForHtml(detail)}</pre></div></div><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div>`;
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div><div class="detail-card-grid detail-json-grid"><div><h5>属性（マスタJSON）</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次（明細JSON）</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
