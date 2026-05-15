@@ -121,6 +121,16 @@ function bindDetailFilterLinks(scope = document) {
   });
 }
 
+function bindManagementNoDrilldowns(scope = document) {
+  scope.querySelectorAll('[data-mid]').forEach((el) => {
+    el.onclick = (event) => {
+      event.stopPropagation();
+      setDetailFilter('management_no', el.dataset.mid);
+      goPage('detail');
+    };
+  });
+}
+
 const displayContractDate = (value, status) => {
   if (!value || status === 'blank') return '要確認';
   if (status === 'invalid') return `要確認（${value}）`;
@@ -129,6 +139,85 @@ const displayContractDate = (value, status) => {
 const displayContractValue = (value) => value === null || value === undefined || value === '' ? '-' : value;
 const escapedContractValueForHtml = (value) => escapeHtml(value || '-');
 const monthlyCommentHtml = (m = {}, item = {}) => displayOrUnentered(firstPresent(m.comment, item.comment));
+
+const DETAIL_COLUMN_LABELS = {
+  management_no: '管理番号',
+  item_no: '項番',
+  project_name: '案件名',
+  department_name: '部門名',
+  system_name: 'システム名',
+  owner_name: '担当者名',
+  vendor_name: 'ベンダー名',
+  payee_name: '支払先名',
+  budget_category: '予算カテゴリ',
+  fixed_variable_type: '固定費・変動費',
+  payment_category: '投資・運用区分',
+  totalPlan: '計画合計',
+  totalForecast: '見込み合計',
+  totalActual: '実績合計',
+  variance_reason_category: '差額理由分類',
+  variance_reason: '差額理由',
+  comment: 'コメント',
+  comment_updated_month: 'コメント更新月',
+  comment_updated_by: 'コメント更新者',
+  fiscal_period: '対象期',
+  fiscal_year: '会計年度',
+  system_classification: 'システム分類名',
+  expense_classification: '経費区分',
+  expense_item_name: '経費事象名',
+  contract_no: '契約番号',
+};
+
+const detailColumnLabel = (key) => DETAIL_COLUMN_LABELS[key] || key;
+const jsonForHtml = (value) => escapeHtml(JSON.stringify(value ?? {}, null, 2));
+
+const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const chartAnimationDuration = () => reduceMotion() ? 0 : 900;
+const animatedValueHtml = (value, formatter = 'yen', className = '') => {
+  const formatters = { yen, pct, fmt };
+  const display = (formatters[formatter] || yen)(value);
+  return `<span class="animated-number ${className}" data-animate-value="${dataAttr(Number(value || 0))}" data-animate-format="${dataAttr(formatter)}">${escapeHtml(display)}</span>`;
+};
+
+function animateNumericValues(root = document, duration = chartAnimationDuration()) {
+  const formatters = { yen, pct, fmt };
+  root.querySelectorAll('[data-animate-value]').forEach((el) => {
+    const target = Number(el.dataset.animateValue || 0);
+    const formatter = formatters[el.dataset.animateFormat] || yen;
+    if (!duration) {
+      el.textContent = formatter(target);
+      return;
+    }
+    const start = 0;
+    if (typeof requestAnimationFrame !== 'function' || typeof performance === 'undefined') {
+      el.textContent = formatter(target);
+      return;
+    }
+    const startTime = performance.now();
+    const tick = (now) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = formatter(start + (target - start) * eased);
+      if (progress < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function baseChartOptions(extra = {}) {
+  const duration = chartAnimationDuration();
+  return {
+    animation: {
+      duration,
+      easing: 'easeOutQuart',
+    },
+    transitions: {
+      active: { animation: { duration: Math.round(duration / 2) } },
+      resize: { animation: { duration: Math.round(duration / 2) } },
+    },
+    ...extra,
+  };
+}
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, opts);
@@ -650,7 +739,7 @@ function csvClientChecks(text) {
 function drawLine(canvasId, labels, datasets) {
   const el = document.getElementById(canvasId);
   if (!el) return;
-  new Chart(el, { type: 'line', data: { labels, datasets }, options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { labels: { color: 'var(--text)' } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } } });
+  new Chart(el, { type: 'line', data: { labels, datasets }, options: baseChartOptions({ maintainAspectRatio: false, responsive: true, plugins: { legend: { labels: { color: 'var(--text)' } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } }) });
 }
 
 
@@ -660,6 +749,8 @@ function drawReportComboChart(canvasId, reportSeries) {
   const gray = '#D7DCE2';
   const grayLine = '#B9C0CA';
   const blue = '#2F80ED';
+  const monthlyMax = Math.max(...reportSeries.plan, ...reportSeries.actualForecast, 0);
+  const cumulativeMax = Math.max(...reportSeries.planCumulative, ...reportSeries.actualForecastCumulative, 0);
   new Chart(el, {
     data: {
       labels: reportSeries.labels,
@@ -669,9 +760,12 @@ function drawReportComboChart(canvasId, reportSeries) {
           label: '月次計画',
           data: reportSeries.plan,
           yAxisID: 'y',
-          backgroundColor: 'rgba(215, 220, 226, 0.72)',
+          backgroundColor: 'rgba(215, 220, 226, 0.88)',
           borderColor: gray,
           borderWidth: 1,
+          grouped: true,
+          categoryPercentage: 0.82,
+          barPercentage: 0.92,
           order: 3,
         },
         {
@@ -679,9 +773,12 @@ function drawReportComboChart(canvasId, reportSeries) {
           label: '月次見込み／実績',
           data: reportSeries.actualForecast,
           yAxisID: 'y',
-          backgroundColor: 'rgba(47, 128, 237, 0.72)',
+          backgroundColor: 'rgba(47, 128, 237, 0.88)',
           borderColor: blue,
           borderWidth: 1,
+          grouped: true,
+          categoryPercentage: 0.82,
+          barPercentage: 0.92,
           order: 2,
         },
         {
@@ -691,7 +788,9 @@ function drawReportComboChart(canvasId, reportSeries) {
           yAxisID: 'y1',
           borderColor: grayLine,
           backgroundColor: grayLine,
-          borderWidth: 2,
+          borderWidth: 3,
+          showLine: true,
+          pointStyle: 'circle',
           pointRadius: 4,
           pointHoverRadius: 6,
           tension: 0.25,
@@ -705,7 +804,9 @@ function drawReportComboChart(canvasId, reportSeries) {
           yAxisID: 'y1',
           borderColor: blue,
           backgroundColor: blue,
-          borderWidth: 2,
+          borderWidth: 3,
+          showLine: true,
+          pointStyle: 'circle',
           pointRadius: 4,
           pointHoverRadius: 6,
           tension: 0.25,
@@ -714,7 +815,7 @@ function drawReportComboChart(canvasId, reportSeries) {
         },
       ],
     },
-    options: {
+    options: baseChartOptions({
       maintainAspectRatio: false,
       responsive: true,
       interaction: { mode: 'index', intersect: false },
@@ -727,17 +828,22 @@ function drawReportComboChart(canvasId, reportSeries) {
         y: {
           position: 'left',
           title: { display: true, text: '単月値', color: 'var(--text)' },
+          beginAtZero: true,
+          suggestedMax: monthlyMax ? monthlyMax * 1.25 : undefined,
           ticks: { color: 'var(--text)', callback: value => fmt(value) },
           grid: { color: 'var(--line)' },
         },
         y1: {
           position: 'right',
+          display: cumulativeMax > 0,
           title: { display: true, text: '累計値', color: 'var(--text)' },
+          beginAtZero: true,
+          suggestedMax: cumulativeMax ? cumulativeMax * 1.08 : undefined,
           ticks: { color: 'var(--text)', callback: value => fmt(value) },
           grid: { drawOnChartArea: false },
         },
       },
-    },
+    }),
   });
 }
 
@@ -943,12 +1049,12 @@ function renderSummary() {
     'コスト削減効果': reduction,
   };
   const kpiDisplay = {
-    '総予算': yen(s.totalPlan),
-    '見込み／実績': yen(s.comparable),
-    '予算消化率': pct(periodBurnRate),
-    '差額': yen(periodVariance.amount),
-    '着地見込み': s.totalForecast ? yen(s.totalForecast) : '未設定',
-    'コスト削減効果': `${yen(reduction)} / ${pct(reductionRate)}`,
+    '総予算': animatedValueHtml(s.totalPlan, 'yen'),
+    '見込み／実績': animatedValueHtml(s.comparable, 'yen'),
+    '予算消化率': animatedValueHtml(periodBurnRate, 'pct'),
+    '差額': animatedValueHtml(periodVariance.amount, 'yen'),
+    '着地見込み': s.totalForecast ? animatedValueHtml(s.totalForecast, 'yen') : '未設定',
+    'コスト削減効果': `${animatedValueHtml(reduction, 'yen')} / ${animatedValueHtml(reductionRate, 'pct')}`,
   };
   const reportPeriods = [...new Set(items.map(item => item.fiscal_period).filter(Boolean))]
     .sort((a, b) => Number(a) - Number(b));
@@ -970,8 +1076,10 @@ function renderSummary() {
     return `<article class="kpi kpi-card ${isHero ? 'kpi-card--priority' : ''}" aria-label="${dataAttr(displayName)}">
       <div class="kpi-head">
         <div class="label">${escapeHtml(displayName)}</div>
-        <button class="icon-button" type="button" popovertarget="${popId}" aria-label="${dataAttr(displayName)}の説明を開く">?</button>
-        <div id="${popId}" class="popover-card" popover role="note">${escapeHtml(kpiHelpText(displayName))}</div>
+        <span class="tooltip-wrap">
+          <button class="icon-button" type="button" aria-describedby="${popId}" aria-label="${dataAttr(displayName)}の説明を表示">?</button>
+          <span id="${popId}" class="popover-card" role="tooltip">${escapeHtml(kpiHelpText(displayName))}</span>
+        </span>
       </div>
       <div class="value ${status.tone === 'warn' ? 'warn' : ''}">${kpiDisplay[displayName] || ''}</div>
       <div class="kpi-meta">
@@ -991,7 +1099,7 @@ function renderSummary() {
           <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p>
         </div>
         <div class="hero-metric ${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
-          <span>差額</span><strong>${yen(periodVariance.amount)}</strong>
+          <span>差額</span><strong>${animatedValueHtml(periodVariance.amount, 'yen')}</strong>
         </div>
       </div>
       <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
@@ -999,18 +1107,18 @@ function renderSummary() {
         <h4>当月カード</h4>
         <p class="muted">選択スコープ: ${escapeHtml(s.label || '通期')}</p>
         <dl>
-          <dt>予算</dt><dd>${yen(s.totalPlan)}</dd>
-          <dt>見込み／実績</dt><dd>${yen(s.comparable)}</dd>
-          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(periodVariance.amount)}</dd>
-          <dt>差額率</dt><dd>${pct(periodVariance.rate)}</dd>
+          <dt>予算</dt><dd>${animatedValueHtml(s.totalPlan, 'yen')}</dd>
+          <dt>見込み／実績</dt><dd>${animatedValueHtml(s.comparable, 'yen')}</dd>
+          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${animatedValueHtml(periodVariance.amount, 'yen')}</dd>
+          <dt>差額率</dt><dd>${animatedValueHtml(periodVariance.rate, 'pct')}</dd>
         </dl>
       </div>
       <div class="bento-card bento-card--small insight-card">
         <h4>期全体カード</h4>
         <dl>
-          <dt>期全体の予算</dt><dd>${yen(fullPlan)}</dd>
-          <dt>期全体の見込み／実績</dt><dd>${yen(fullComparable)}</dd>
-          <dt>予算消化率</dt><dd>${pct(fullBurnRate)}</dd>
+          <dt>期全体の予算</dt><dd>${animatedValueHtml(fullPlan, 'yen')}</dd>
+          <dt>期全体の見込み／実績</dt><dd>${animatedValueHtml(fullComparable, 'yen')}</dd>
+          <dt>予算消化率</dt><dd>${animatedValueHtml(fullBurnRate, 'pct')}</dd>
         </dl>
       </div>
       <div class="bento-card bento-card--wide chart-card">
@@ -1035,8 +1143,10 @@ function renderSummary() {
       <div class="bento-card bento-card--wide ranking-card">
         <div class="card-title-row">
           <h4>差異が大きいカテゴリ／案件ランキング（Top10）</h4>
-          <button class="icon-button" type="button" popovertarget="rankHelp" aria-label="差異ランキングの読み方を開く">?</button>
-          <div id="rankHelp" class="popover-card" popover role="note">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</div>
+          <span class="tooltip-wrap">
+            <button class="icon-button" type="button" aria-describedby="rankHelp" aria-label="差異ランキングの読み方を表示">?</button>
+            <span id="rankHelp" class="popover-card" role="tooltip">絶対差額が大きい順です。行クリックで明細へドリルダウンします。</span>
+          </span>
         </div>
         <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
         ${top.map((r, i) => {
@@ -1046,7 +1156,7 @@ function renderSummary() {
         </tbody></table></div>
       </div>
       <div class="bento-card bento-card--small insight-card">
-        <h4>フィルター中の件数</h4><strong>${fmt(items.length)}</strong><span class="muted">案件</span>
+        <h4>フィルター中の件数</h4><strong>${animatedValueHtml(items.length, 'fmt')}</strong><span class="muted">案件</span>
       </div>
     </section>`;
 
@@ -1060,6 +1170,7 @@ function renderSummary() {
   const deltas = series.map((v, idx) => idx === 0 ? 0 : v.comparable - series[idx - 1].comparable);
   drawLine('sumChart2', labels, [{ label: '前年差(代替:前期差)', data: deltas, borderColor: cc.c3 }]);
   drawReportComboChart('reportComboChart', reportSeries);
+  animateNumericValues(document.getElementById('content'));
 
   const reportFiscalPeriodSelect = document.getElementById('reportFiscalPeriod');
   if (reportFiscalPeriodSelect) {
@@ -1068,7 +1179,7 @@ function renderSummary() {
       renderPage();
     };
   }
-  document.querySelectorAll('tr[data-mid]').forEach(tr => tr.onclick = () => { state.ui.detailSearch = tr.dataset.mid; goPage('detail'); });
+  bindManagementNoDrilldowns();
 }
 
 function renderTrend() {
@@ -1150,7 +1261,7 @@ function renderCategory() {
   new Chart(document.getElementById('catPie'), {
     type: 'doughnut',
     data: { labels: agg.slice(0, 10).map(v => v.key), datasets: [{ data: agg.slice(0, 10).map(v => v.comp), backgroundColor: palette.slice(0, Math.min(10, agg.length)), borderWidth: 1 }] },
-    options: { maintainAspectRatio: false, responsive: true }
+    options: baseChartOptions({ maintainAspectRatio: false, responsive: true })
   });
 }
 
@@ -1224,7 +1335,7 @@ async function renderProject() {
   new Chart(document.getElementById('projectScatter'), {
     type: 'scatter',
     data: { datasets: [{ label: '案件', data: scatter }] },
-    options: { scales: { x: { title: { display: true, text: '進捗率(%)' } }, y: { title: { display: true, text: 'コスト消化率(%)' } } } },
+    options: baseChartOptions({ scales: { x: { title: { display: true, text: '進捗率(%)' } }, y: { title: { display: true, text: 'コスト消化率(%)' } } } }),
   });
 }
 
@@ -1258,6 +1369,7 @@ function renderAlert() {
     </div>`;
 
   bindDetailFilterLinks();
+  bindManagementNoDrilldowns();
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
@@ -1324,12 +1436,12 @@ function renderDetail() {
     <section class="detail-layout">
       <div class="panel detail-tools">
         <div class="controls detail-controls">
-          <label class="search-field">検索<input type="text" id="dSearch" placeholder="管理番号・案件名・ベンダーで検索" value="${dataAttr(state.ui.detailSearch || '')}"></label>
+          <label class="search-field">検索<input type="text" id="dSearch" placeholder="管理番号・案件名・ベンダー名・部門名・担当者名で検索" value="${dataAttr(state.ui.detailSearch || '')}"></label>
           <button id="dExport" aria-label="表示中の明細をCSVで書き出す">表示結果をCSV書き出し</button>
           <span class="badge">キー項目は常時表示</span>
           ${drilldownBadge}
         </div>
-        <div class="col-picker" id="colPicker" aria-label="表示列の選択">${optionalCols.map(c => `<label class="col-chip" data-col="${dataAttr(c)}"><input type="checkbox" ${state.ui.extraDetailCols.includes(c) ? 'checked' : ''}>${escapeHtml(c)}</label>`).join('')}</div>
+        <div class="col-picker" id="colPicker" aria-label="表示列の選択">${optionalCols.map(c => `<label class="col-chip" data-col="${dataAttr(c)}"><input type="checkbox" ${state.ui.extraDetailCols.includes(c) ? 'checked' : ''}>${escapeHtml(detailColumnLabel(c))}</label>`).join('')}</div>
       </div>
       <div class="panel detail-table-card">
         <h4>明細テーブル</h4>
@@ -1344,15 +1456,34 @@ function renderDetail() {
     const cols = [...fixedCols, ...state.ui.extraDetailCols];
     const view = filteredItems().filter(r => itemMatchesDetailFilter(r)).filter(r => !q || JSON.stringify(r).toLowerCase().includes(q));
 
-    document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
+    document.getElementById('dHead').innerHTML = cols.map(c => `<th>${escapeHtml(detailColumnLabel(c))}</th>`).join('');
     document.getElementById('dBody').innerHTML = view.slice(0, 500).map((r, idx) => `<tr data-idx="${idx}" class="clickable-row">${cols.map(c => `<td>${['variance_reason_category', 'variance_reason', 'comment'].includes(c) ? displayHtml(r[c]) : escapeHtml(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const master = { management_no: row.management_no, item_no: row.item_no, project_name: row.project_name, department_name: row.department_name, owner_name: row.owner_name, vendor_name: row.vendor_name, system_name: row.system_name, budget_category: row.budget_category, variance_reason_category: displayText(row.variance_reason_category), variance_reason: displayText(row.variance_reason), comment: displayText(row.comment), comment_updated_month: displayText(row.comment_updated_month), comment_updated_by: displayText(row.comment_updated_by) };
-      const detail = row.monthly || {};
-      const monthlyRows = Object.entries(detail).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="detail-card-grid"><div><h5>属性(master)</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次(detail)</h5><pre>${jsonForHtml(detail)}</pre></div></div><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div>`;
+      const master = {
+        [detailColumnLabel('management_no')]: row.management_no,
+        [detailColumnLabel('item_no')]: row.item_no,
+        [detailColumnLabel('project_name')]: row.project_name,
+        [detailColumnLabel('department_name')]: row.department_name,
+        [detailColumnLabel('owner_name')]: row.owner_name,
+        [detailColumnLabel('vendor_name')]: row.vendor_name,
+        [detailColumnLabel('system_name')]: row.system_name,
+        [detailColumnLabel('budget_category')]: row.budget_category,
+        [detailColumnLabel('variance_reason_category')]: displayText(row.variance_reason_category),
+        [detailColumnLabel('variance_reason')]: displayText(row.variance_reason),
+        [detailColumnLabel('comment')]: displayText(row.comment),
+        [detailColumnLabel('comment_updated_month')]: displayText(row.comment_updated_month),
+        [detailColumnLabel('comment_updated_by')]: displayText(row.comment_updated_by),
+      };
+      const detail = Object.fromEntries(Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => [formatYearMonth(ym), {
+        計画: Number(m.plan || 0),
+        見込: Number(m.forecast || 0),
+        実績: Number(m.actual || 0),
+        コメント: displayText(firstPresent(m.comment, row.comment)),
+      }]));
+      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div><div class="detail-card-grid detail-json-grid"><div><h5>属性（マスタJSON）</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次（明細JSON）</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
