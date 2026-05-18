@@ -26,7 +26,15 @@
             <h2 id="pageTitle">データ取込</h2>
             <span id="statusBadge" class="status">データなし</span>
           </div>
-          <button id="themeToggle" class="theme-toggle" type="button">🌙 ダーク</button>
+          <div class="topbar-actions">
+            <div class="zoom-control" role="group" aria-label="表示倍率">
+              <button id="zoomOut" class="zoom-button" type="button" aria-label="表示倍率を下げる">−</button>
+              <span id="zoomValue" class="zoom-value" aria-live="polite">100%</span>
+              <button id="zoomIn" class="zoom-button" type="button" aria-label="表示倍率を上げる">＋</button>
+              <button id="zoomReset" class="zoom-reset" type="button">等倍</button>
+            </div>
+            <button id="themeToggle" class="theme-toggle" type="button">🌙 ダーク</button>
+          </div>
         </div>
         <div class="topbar-filters" id="globalFilters"></div>
       </header>
