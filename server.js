@@ -746,8 +746,72 @@ function parseOasisActualCsv() {
   return makeNotImportedParseResult(IMPORT_FILE_TYPES.OASIS_ACTUAL);
 }
 
-function parseDepreciationSimulationCsv() {
-  return makeNotImportedParseResult(IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION);
+function normalizeDepreciationPeriodType(value) {
+  const text = safeString(value).toLowerCase();
+  if (/^(month|monthly|月次|月)$/.test(text)) return 'month';
+  if (/^(half|halfyear|semiannual|半期|上期|下期|h1|h2)$/.test(text)) return 'half';
+  if (/^(full|fy|year|annual|通期|年次|年間)$/.test(text)) return 'full';
+  return text || '';
+}
+
+function normalizeDepreciationMonth(value) {
+  const raw = safeString(value);
+  const upper = raw.toUpperCase();
+  if (upper === 'H1' || /上期/.test(raw)) return { month: 'H1', month_key: '', month_order: 0 };
+  if (upper === 'H2' || /下期/.test(raw)) return { month: 'H2', month_key: '', month_order: 6 };
+  if (upper === 'FY' || /通期|年間|年次/.test(raw)) return { month: 'FY', month_key: '', month_order: 12 };
+
+  const normalizedDate = normalizeDateString(raw);
+  if (normalizedDate.valid && normalizedDate.value) {
+    const month = Number(normalizedDate.value.slice(4, 6));
+    return {
+      month: raw,
+      month_key: normalizedDate.value,
+      month_order: month >= 4 ? month - 4 : month + 8,
+    };
+  }
+
+  const monthMatch = raw.match(/^(\d{1,2})月?$/);
+  if (monthMatch) {
+    const month = Number(monthMatch[1]);
+    if (month >= 1 && month <= 12) {
+      return { month: `${month}月`, month_key: '', month_order: month >= 4 ? month - 4 : month + 8 };
+    }
+  }
+
+  return { month: raw, month_key: '', month_order: 99 };
+}
+
+function normalizeDepreciationSimulationRecord(row = {}) {
+  const amount = normalizeAmount(getFirstValue(row, ['金額', 'amount']));
+  const month = normalizeDepreciationMonth(getFirstValue(row, ['月', 'month', '年月']));
+  return {
+    division: getFirstValue(row, ['区分', 'division']),
+    depreciation_category: getFirstValue(row, ['償却展開区分', 'depreciation_category']),
+    depreciation_category_name: getFirstValue(row, ['償却展開区分名', 'depreciation_category_name']),
+    period_type: normalizeDepreciationPeriodType(getFirstValue(row, ['期間種別', 'period_type'])),
+    fiscal_period: getFirstValue(row, ['期', 'fiscal_period']).replace(/期$/, ''),
+    month: month.month,
+    month_key: month.month_key,
+    month_order: month.month_order,
+    amount: amount.valid ? amount.value : 0,
+    amount_valid: amount.valid,
+    raw_amount: getFirstValue(row, ['金額', 'amount']),
+  };
+}
+
+function parseDepreciationSimulationCsv(text) {
+  const rows = parseCSV(text).map(normalizeDepreciationSimulationRecord).filter((row) => (
+    row.division || row.depreciation_category || row.depreciation_category_name || row.fiscal_period || row.month || row.amount
+  ));
+  const normalizedRows = rows.filter(row => row.period_type && row.fiscal_period && row.depreciation_category_name);
+  return {
+    fileType: IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION,
+    status: normalizedRows.length > 0 ? 'imported' : 'not_imported',
+    message: normalizedRows.length > 0 ? '減価償却シミュレーションデータを取り込みました' : NOT_IMPORTED_MESSAGE,
+    rows: normalizedRows,
+    byManagementNo: {},
+  };
 }
 
 function parseUploadedFile(fileType, text) {
@@ -1725,7 +1789,7 @@ app.get('/api/status', (_, res) => {
   const data = buildUnifiedData();
   const agg = data ? getAggregations(data) : null;
   res.json({
-    hasData: store.master.length > 0 || store.detail.length > 0 || (store.additionalData?.new_project?.rows || []).length > 0,
+    hasData: store.master.length > 0 || store.detail.length > 0 || ADDITIONAL_IMPORT_FILE_TYPES.some(fileType => (store.additionalData?.[fileType]?.rows || []).length > 0),
     csvFileName: store.csvFileName,
     uploadedAt: store.uploadedAt,
     itemCount: data ? data.items.length : 0,
@@ -2035,6 +2099,22 @@ app.get('/api/analysis/classification-detail', (req, res) => {
       byPeriod: Object.values(byPeriod).sort((a, b) => a.period - b.period),
       items: clsItems,
     }
+  });
+});
+
+app.get('/api/additional-data/:fileType', (req, res) => {
+  const fileType = String(req.params.fileType || '');
+  if (!ADDITIONAL_IMPORT_FILE_TYPES.includes(fileType)) {
+    return res.status(404).json({ error: 'Unknown additional data type' });
+  }
+  const normalized = normalizeAdditionalDataStore(store.additionalData);
+  const entry = normalized[fileType] || { rows: [] };
+  res.json({
+    fileType,
+    status: entry.status || 'not_imported',
+    message: entry.message || NOT_IMPORTED_MESSAGE,
+    data: entry.rows || [],
+    rowCount: (entry.rows || []).length,
   });
 });
 

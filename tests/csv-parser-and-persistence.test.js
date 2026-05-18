@@ -191,3 +191,23 @@ test('budget import accepts tab-separated text with flexible header aliases and 
   assert.equal(parsed.detail.length, 3);
   assert.equal(parsed.detail.find(row => row.value_type === 'actual').amount, '900');
 });
+
+test('depreciation simulation import keeps long-form rows without management number', () => {
+  const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
+  const csv = [
+    '区分,償却展開区分,償却展開区分名,期間種別,期,月,金額',
+    'IT,A01,サーバー,month,65,2025/04/01,100',
+    'IT,A01,サーバー,half,65,H1,600',
+    'IT,A01,サーバー,full,65,FY,1200',
+  ].join('\n');
+  const result = parseUploadedFile(IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION, csv);
+
+  assert.equal(result.status, 'imported');
+  assert.equal(result.message, '減価償却シミュレーションデータを取り込みました');
+  assert.equal(result.rows.length, 3);
+  assert.equal(result.rows[0].depreciation_category_name, 'サーバー');
+  assert.equal(result.rows[0].period_type, 'month');
+  assert.equal(result.rows[0].month_key, '202504');
+  assert.equal(result.rows[0].month_order, 0);
+  assert.equal(result.rows[0].amount, 100);
+});
