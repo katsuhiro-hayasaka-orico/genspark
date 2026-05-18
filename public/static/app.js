@@ -864,9 +864,25 @@ function renderImport() {
         </label>
       </div>
       <p class="muted">追加データが未取込でも、予実績管理データをもとに各ページを表示します。データ仕様が未確定の追加データは、空の本番風モックを作らず「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として扱います。</p>
-      <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv"></div>
+      <div class="import-method-grid">
+        <section class="import-method-card">
+          <h4>CSVファイルから取り込む</h4>
+          <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv,text/csv"></div>
+          <div class="controls">
+            <button class="primary" id="uploadBtn" disabled>CSVを取り込む</button>
+          </div>
+        </section>
+        <section class="import-method-card">
+          <h4>Excelから貼り付けて取り込む</h4>
+          <p class="muted">Excelでヘッダー行を含む範囲をコピーし、下の欄へ貼り付けてください。タブ区切り・カンマ区切りを自動判定し、列名の表記ゆれも吸収します。</p>
+          <textarea id="pasteData" class="paste-data" rows="10" placeholder="例: 管理No<TAB>案件名<TAB>65期4月予算<TAB>65期4月見込み ..."></textarea>
+          <div class="controls">
+            <button id="pasteCheckBtn" disabled>貼り付けデータをチェック</button>
+            <button class="primary" id="pasteImportBtn" disabled>貼り付けデータを取り込む</button>
+          </div>
+        </section>
+      </div>
       <div class="controls">
-        <button class="primary" id="uploadBtn" disabled>取込前チェック</button>
         <button class="primary" id="confirmImportBtn" style="display:none">取込を続行する</button>
         <button id="cancelImportBtn" style="display:none">取込を中止する</button>
       </div>
@@ -878,6 +894,13 @@ function renderImport() {
   const fileInput = document.getElementById('csvFile');
   const uploadBtn = document.getElementById('uploadBtn');
   const fileTypeSelect = document.getElementById('fileTypeSelect');
+  const pasteData = document.getElementById('pasteData');
+  const pasteCheckBtn = document.getElementById('pasteCheckBtn');
+  const pasteImportBtn = document.getElementById('pasteImportBtn');
+  const summaryEl = document.getElementById('importSummary');
+  const errorsEl = document.getElementById('importErrors');
+  const confirmBtn = document.getElementById('confirmImportBtn');
+  const cancelBtn = document.getElementById('cancelImportBtn');
   let file = null;
   let lastInspection = null;
 
@@ -954,6 +977,48 @@ function renderImport() {
   const dz = document.getElementById('dropzone');
   dz.ondragover = e => e.preventDefault();
   dz.ondrop = e => { e.preventDefault(); e.dataTransfer.files[0] && preview(e.dataTransfer.files[0]); };
+
+  const updatePasteButtons = () => {
+    const hasText = Boolean(pasteData.value.trim());
+    pasteCheckBtn.disabled = !hasText;
+    pasteImportBtn.disabled = !hasText;
+  };
+
+  const submitPaste = async ({ dryRun = false } = {}) => {
+    const text = pasteData.value;
+    if (!text.trim()) return;
+    const selectedType = fileTypeSelect.value;
+    const result = await api('/paste', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        fileType: selectedType,
+        text,
+        fileName: 'Excel貼り付けデータ',
+        dryRun: dryRun ? 'true' : '',
+        confirmImport: dryRun ? '' : 'true',
+      }),
+    });
+
+    if (dryRun && selectedType === 'budget') {
+      renderInspection(result);
+      return;
+    }
+
+    await refreshAllData();
+    if (selectedType === 'budget') goPage('summary');
+    else {
+      renderImport();
+      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>貼り付け取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
+    }
+  };
+
+  pasteData.oninput = updatePasteButtons;
+  pasteData.onpaste = () => setTimeout(updatePasteButtons, 0);
+  pasteCheckBtn.onclick = () => submitPaste({ dryRun: true });
+  pasteImportBtn.onclick = () => submitPaste({ dryRun: false });
+  confirmBtn.onclick = () => submitPaste({ dryRun: false });
+  updatePasteButtons();
 
   uploadBtn.onclick = async () => {
     if (!file) return;

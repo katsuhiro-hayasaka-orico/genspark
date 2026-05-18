@@ -38,7 +38,7 @@ const upload = multer({
   }
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 
 // =============================================
@@ -136,24 +136,49 @@ function loadStoreFromDisk() {
 // =============================================
 // CSV Parsing
 // =============================================
-function parseCSV(text) {
+function parseDelimitedRows(text) {
   const normalized = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!normalized.trim()) return [];
 
-  const delimiter = detectDelimiter(readFirstCSVRecord(normalized));
-  const records = parseCSVRecords(normalized, delimiter);
-  if (records.length < 2) return [];
+  const delimiter = detectDelimiterFromText(normalized);
+  return parseCSVRecords(normalized, delimiter);
+}
 
-  const headers = records[0].map(h => h.trim());
-  return records.slice(1)
-    .filter(values => values.some(v => String(v || '').trim() !== ''))
+function looksLikeHeaderRecord(record) {
+  const headers = (record || []).map(h => safeString(h));
+  if (!headers.some(Boolean)) return false;
+  const joined = headers.join(' ');
+  const hasManagementNo = headers.some(h => /管理(?:番号|no|NO|No)|management/i.test(h));
+  const hasBudgetMonth = headers.some(h => canonicalBudgetMonthHeader(h));
+  const hasKnownBudgetColumn = /案件名|部署名|部門名|システム名|契約|支払先|担当者|項番/.test(joined);
+  return (hasManagementNo && (hasBudgetMonth || hasKnownBudgetColumn)) || (hasBudgetMonth && hasKnownBudgetColumn);
+}
+
+function recordsToObjects(records) {
+  if (!Array.isArray(records) || records.length < 2) return [];
+  const headerIndex = Math.max(0, records.findIndex(looksLikeHeaderRecord));
+  const headers = (records[headerIndex] || []).map(h => safeString(h));
+  const seen = {};
+  const normalizedHeaders = headers.map((header, idx) => {
+    const base = header || `__blank_${idx}`;
+    seen[base] = (seen[base] || 0) + 1;
+    return seen[base] === 1 ? base : `${base}_${seen[base] - 1}`;
+  });
+
+  return records.slice(headerIndex + 1)
+    .filter(values => values.some(v => safeString(v) !== ''))
     .map((values) => {
       const row = {};
-      headers.forEach((h, idx) => {
-        row[h] = String(values[idx] ?? '').trim();
+      normalizedHeaders.forEach((h, idx) => {
+        if (!h || /^__blank_/.test(h)) return;
+        row[h] = safeString(values[idx] ?? '');
       });
       return row;
     });
+}
+
+function parseCSV(text) {
+  return recordsToObjects(parseDelimitedRows(text));
 }
 
 function readFirstCSVRecord(text) {
@@ -177,6 +202,18 @@ function detectDelimiter(headerLine) {
   const commaCount = countDelimiterOutsideQuotes(headerLine, ',');
   const tabCount = countDelimiterOutsideQuotes(headerLine, '\t');
   return tabCount > commaCount ? '\t' : ',';
+}
+
+function detectDelimiterFromText(text) {
+  const sampleRecords = String(text || '').split('\n').slice(0, 8);
+  let commaMax = 0;
+  let tabMax = 0;
+  for (const record of sampleRecords) {
+    commaMax = Math.max(commaMax, countDelimiterOutsideQuotes(record, ','));
+    tabMax = Math.max(tabMax, countDelimiterOutsideQuotes(record, '\t'));
+  }
+  if (tabMax > commaMax) return '\t';
+  return detectDelimiter(readFirstCSVRecord(text));
 }
 
 function countDelimiterOutsideQuotes(text, delimiter) {
@@ -342,11 +379,95 @@ function makeImportIssue(level, rowNumber, field, message, rawValue = '') {
   return { level, rowNumber, field, message, rawValue };
 }
 
+function normalizeHeaderForMatch(value) {
+  return safeString(value).toLowerCase().replace(/[\/_\-・（）()\[\]【】\s]/g, '');
+}
+
+const BUDGET_HEADER_ALIASES = Object.freeze({
+  '管理番号': ['管理番号', '管理番号（統合）', '管理No', '管理NO', '管理番号統合', '案件管理番号', 'management_no', 'managementno', 'managementnumber'],
+  '項番': ['項番', '明細番号', '行番号', 'No', 'item_no', 'itemno'],
+  '期': ['期', '対象期', '会計期', 'fiscal_period', 'period'],
+  '予算区分': ['予算区分', '予算カテゴリ', 'カテゴリ', 'budget_category'],
+  '経費区分': ['経費区分', '費目区分', 'expense_classification'],
+  '案件名': ['案件名', '件名', 'プロジェクト名', 'project_name', 'projectname'],
+  '部署名': ['部署名', '部門名', '組織名', 'department_name', 'department'],
+  '担当者': ['担当者', '担当者名', '案件担当者', 'owner_name', 'owner'],
+  '支払先': ['支払先', 'ベンダー', 'ベンダー名', '取引先', 'vendor_name', 'payee_name'],
+  '契約番号': ['契約番号', '契約No', '契約NO', 'contract_no', 'contractno'],
+  '契約金額': ['契約金額', '契約額', '年額', 'annual_amount', 'contract_amount'],
+  '月額': ['月額', '月次金額', 'monthly_amount'],
+  '支払区分': ['支払区分', '投資運用区分', '投資・運用区分', 'payment_category'],
+  '固定変動': ['固定変動', '固定費変動費', '固定費・変動費', 'fixed_variable_type'],
+  '経費事象コード': ['経費事象コード', '経費事象CD', 'システムコード', 'system_code', 'expense_item_code'],
+  'システム名': ['システム名', 'サービス名', 'system_name'],
+  '経費事象名': ['経費事象名', '費目名', 'expense_item_name'],
+  'システム分類名': ['システム分類名', '分類名', 'system_classification_name'],
+});
+
+const BUDGET_HEADER_LOOKUP = Object.freeze(Object.entries(BUDGET_HEADER_ALIASES).reduce((acc, [canonical, aliases]) => {
+  aliases.forEach(alias => { acc[normalizeHeaderForMatch(alias)] = canonical; });
+  return acc;
+}, {}));
+
+function canonicalBudgetColumnHeader(header) {
+  const normalized = normalizeHeaderForMatch(header);
+  return BUDGET_HEADER_LOOKUP[normalized] || '';
+}
+
+function canonicalBudgetValueType(value) {
+  const text = safeString(value);
+  if (/^(計画|予算|budget|plan)$/i.test(text)) return '計画';
+  if (/^(見込|見込み|予測|forecast)$/i.test(text)) return '見込';
+  if (/^(実績|actual)$/i.test(text)) return '実績';
+  return '';
+}
+
+function canonicalBudgetMonthHeader(header, fallbackPeriod = '') {
+  const text = safeString(header).replace(/\s/g, '');
+  if (!text) return '';
+
+  let match = text.match(/^(\d{1,3})期0?(\d{1,2})月(計画|予算|見込|見込み|予測|実績|plan|budget|forecast|actual)$/i);
+  if (match) {
+    const type = canonicalBudgetValueType(match[3]);
+    return type ? `${Number(match[1])}期${Number(match[2])}月${type}` : '';
+  }
+
+  match = text.match(/^(\d{4})[\-/年]?(\d{1,2})月?[\-_/]*(計画|予算|見込|見込み|予測|実績|plan|budget|forecast|actual)$/i);
+  if (match) {
+    const ym = normalizeYearMonthString(`${match[1]}${String(Number(match[2])).padStart(2, '0')}`);
+    const period = deriveFiscalPeriodFromYearMonth(ym.value);
+    const type = canonicalBudgetValueType(match[3]);
+    return ym.valid && period && type ? `${period}期${Number(match[2])}月${type}` : '';
+  }
+
+  match = text.match(/^0?(\d{1,2})月(計画|予算|見込|見込み|予測|実績|plan|budget|forecast|actual)$/i);
+  const period = safeString(fallbackPeriod).replace(/期$/, '');
+  if (match && period) {
+    const type = canonicalBudgetValueType(match[2]);
+    return type ? `${Number(period)}期${Number(match[1])}月${type}` : '';
+  }
+
+  return '';
+}
+
+function canonicalizeBudgetRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const canonical = {};
+    for (const [header, value] of Object.entries(row || {})) {
+      const knownHeader = canonicalBudgetColumnHeader(header);
+      const targetHeader = knownHeader || canonicalBudgetMonthHeader(header, row['期'] || row['対象期'] || row['会計期']) || safeString(header);
+      if (!targetHeader) continue;
+      if (canonical[targetHeader] === undefined || canonical[targetHeader] === '') canonical[targetHeader] = value;
+    }
+    return { ...row, ...canonical };
+  });
+}
+
 function parseUnifiedBudgetLayout(rows) {
   const master = [];
   const detail = [];
   const issues = [];
-  const sourceRows = Array.isArray(rows) ? rows : [];
+  const sourceRows = canonicalizeBudgetRows(rows);
   const totalRows = sourceRows.length;
   let successRows = 0;
   let skippedRows = 0;
@@ -358,7 +479,7 @@ function parseUnifiedBudgetLayout(rows) {
   const headers = Object.keys(sourceRows[0] || {});
   const hasManagementNo = headers.includes('管理番号') || headers.includes('管理番号（統合）');
   const hasItemNo = headers.includes('項番');
-  const monthHeaders = headers.filter(h => /期\d{1,2}月(計画|見込)$/.test(safeString(h)));
+  const monthHeaders = headers.filter(h => /期\d{1,2}月(計画|見込|実績)$/.test(safeString(h)));
 
   if (!hasManagementNo) {
     issues.push(makeImportIssue('error', null, '管理番号', '必須列が不足しています（管理番号 または 管理番号（統合））'));
@@ -370,7 +491,7 @@ function parseUnifiedBudgetLayout(rows) {
     issues.push(makeImportIssue('error', null, '年月', '取込対象の年月列（例: 65期4月計画）が見つかりません'));
   }
 
-  const monthPattern = /^(\d+)期(\d{1,2})月(計画|見込)$/;
+  const monthPattern = /^(\d+)期(\d{1,2})月(計画|見込|実績)$/;
 
   sourceRows.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -457,7 +578,7 @@ function parseUnifiedBudgetLayout(rows) {
         system_code: safeString(row['経費事象コード'] || ''),
         fiscal_period: String(period),
         target_year_month: date.value,
-        value_type: typeLabel === '計画' ? 'plan' : 'forecast',
+        value_type: typeLabel === '計画' ? 'plan' : (typeLabel === '実績' ? 'actual' : 'forecast'),
         amount: String(amount.value),
       });
       validDetailCount++;
@@ -1461,123 +1582,156 @@ function summarizeTargetYearMonthRange(detailRows = []) {
 // =============================================
 
 // Upload CSV file by import type
-app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'CSVファイル（budget_csv）をアップロードしてください' });
-    }
+function budgetImportDryRunResponse({ parsed, fileType, fileName }) {
+  return {
+    dryRun: true,
+    fileType,
+    csvFileName: fileName,
+    totalRows: parsed.totalRows,
+    successRows: parsed.successRows,
+    warningCount: parsed.warningCount,
+    errorCount: parsed.errorCount,
+    skippedRows: parsed.skippedRows,
+    issues: parsed.issues || [],
+    targetPeriods: [...new Set((parsed.detail || []).map(row => row.fiscal_period).filter(Boolean))].sort(),
+    targetYearMonthRange: summarizeTargetYearMonthRange(parsed.detail || []),
+    message: parsed.message || '取込前チェックが完了しました',
+  };
+}
 
-    const fileType = String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET);
-    const text = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
-    const parsed = parseUploadedFile(fileType, text);
-    const uploadedAt = new Date().toISOString();
+function applyParsedImport({ fileType, parsed, fileName, uploadedAt }) {
+  if (fileType === IMPORT_FILE_TYPES.BUDGET) {
+    store.rawRows = parsed.rows;
+    store.master = parsed.master;
+    store.detail = parsed.detail;
+    store.csvFileName = fileName;
+    store.uploadedAt = uploadedAt;
 
-    if (fileType === IMPORT_FILE_TYPES.BUDGET) {
-      if (String(req.body.dryRun || '').toLowerCase() === 'true' && String(req.body.confirmImport || '').toLowerCase() !== 'true') {
-        persistStore();
-        return res.json({
-          dryRun: true,
-          fileType,
-          csvFileName: req.file.originalname,
-          totalRows: parsed.totalRows,
-          successRows: parsed.successRows,
-          warningCount: parsed.warningCount,
-          errorCount: parsed.errorCount,
-          skippedRows: parsed.skippedRows,
-          issues: parsed.issues || [],
-          targetPeriods: [...new Set((parsed.detail || []).map(row => row.fiscal_period).filter(Boolean))].sort(),
-          targetYearMonthRange: summarizeTargetYearMonthRange(parsed.detail || []),
-          message: parsed.message || '取込前チェックが完了しました',
-        });
-      }
-
-      store.rawRows = parsed.rows;
-      store.master = parsed.master;
-      store.detail = parsed.detail;
-      store.csvFileName = req.file.originalname;
-      store.uploadedAt = uploadedAt;
-
-      const data = buildUnifiedData();
-      const agg = data ? getAggregations(data) : null;
-      store.contracts = {};
-      if (data) {
-        data.items.filter(i => i.contract_no).forEach((item) => {
-          const id = item.contract_no;
-          if (store.contracts[id]) return;
-          store.contracts[id] = {
-            contract_id: id,
-            contract_no: item.contract_no,
-            vendor_name: item.vendor_name || '未設定ベンダー',
-            system_name: item.system_name || '',
-            renewal_month: data.sortedYMs[0] || '',
-            decision_status: '未判断',
-            decision_note: '',
-            annual_amount: item.contract_amount || item.totalPlan || 0,
-            updated_at: uploadedAt,
-          };
-        });
-      }
-
-      persistStore();
-
-      return res.json({
-        message: parsed.message || 'アップロード完了',
-        fileType,
-        csvFileName: store.csvFileName,
-        masterRows: store.master.length,
-        detailRows: store.detail.length,
-        itemCount: data ? data.items.length : 0,
-        systemCount: agg ? agg.systemNames.length : 0,
-        periodCount: agg ? agg.periods.length : 0,
-        classificationCount: agg ? agg.classifications.length : 0,
-        additionalData: summarizeAdditionalData(store.additionalData),
-      });
-    }
-
-    if (!ADDITIONAL_IMPORT_FILE_TYPES.includes(fileType)) {
-      return res.status(400).json({ error: `未対応のファイル種別です: ${fileType}` });
-    }
-
-    store.additionalData[fileType] = {
-      status: parsed.status,
-      message: parsed.message,
-      rows: parsed.rows || [],
-      byManagementNo: parsed.byManagementNo || {},
-      fileName: parsed.status === 'imported' ? req.file.originalname : null,
-      uploadedAt: parsed.status === 'imported' ? uploadedAt : null,
-    };
-
-    if (fileType === IMPORT_FILE_TYPES.VARIANCE_REASON && parsed.status === 'imported') {
-      for (const row of parsed.rows || []) {
-        if (!row.management_no) continue;
-        const key = makeItemKey(row.management_no, row.item_no, row.fiscal_period, row.target_year_month);
-        store.varianceReasons[key] = {
-          key,
-          management_no: row.management_no,
-          item_no: row.item_no || '',
-          fiscal_period: row.fiscal_period || '',
-          target_year_month: row.target_year_month || '',
-          reason_category: row.reason_category || '未分類',
-          factor_type: row.factor_type || '未分類',
-          comment: row.comment || '',
+    const data = buildUnifiedData();
+    const agg = data ? getAggregations(data) : null;
+    store.contracts = {};
+    if (data) {
+      data.items.filter(i => i.contract_no).forEach((item) => {
+        const id = item.contract_no;
+        if (store.contracts[id]) return;
+        store.contracts[id] = {
+          contract_id: id,
+          contract_no: item.contract_no,
+          vendor_name: item.vendor_name || '未設定ベンダー',
+          system_name: item.system_name || '',
+          renewal_month: data.sortedYMs[0] || '',
+          decision_status: '未判断',
+          decision_note: '',
+          annual_amount: item.contract_amount || item.totalPlan || 0,
           updated_at: uploadedAt,
         };
-      }
+      });
     }
 
     persistStore();
 
-    return res.json({
-      message: parsed.message,
+    return {
+      message: parsed.message || 'アップロード完了',
       fileType,
-      status: parsed.status,
-      rowCount: (parsed.rows || []).length,
+      csvFileName: store.csvFileName,
+      masterRows: store.master.length,
+      detailRows: store.detail.length,
+      itemCount: data ? data.items.length : 0,
+      systemCount: agg ? agg.systemNames.length : 0,
+      periodCount: agg ? agg.periods.length : 0,
+      classificationCount: agg ? agg.classifications.length : 0,
       additionalData: summarizeAdditionalData(store.additionalData),
-    });
-  } catch (e) {
-    console.error('Upload error:', e);
-    res.status(500).json({ error: 'CSV解析エラー: ' + e.message });
+    };
   }
+
+  if (!ADDITIONAL_IMPORT_FILE_TYPES.includes(fileType)) {
+    const error = new Error(`未対応のファイル種別です: ${fileType}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  store.additionalData[fileType] = {
+    status: parsed.status,
+    message: parsed.message,
+    rows: parsed.rows || [],
+    byManagementNo: parsed.byManagementNo || {},
+    fileName: parsed.status === 'imported' ? fileName : null,
+    uploadedAt: parsed.status === 'imported' ? uploadedAt : null,
+  };
+
+  if (fileType === IMPORT_FILE_TYPES.VARIANCE_REASON && parsed.status === 'imported') {
+    for (const row of parsed.rows || []) {
+      if (!row.management_no) continue;
+      const key = makeItemKey(row.management_no, row.item_no, row.fiscal_period, row.target_year_month);
+      store.varianceReasons[key] = {
+        key,
+        management_no: row.management_no,
+        item_no: row.item_no || '',
+        fiscal_period: row.fiscal_period || '',
+        target_year_month: row.target_year_month || '',
+        reason_category: row.reason_category || '未分類',
+        factor_type: row.factor_type || '未分類',
+        comment: row.comment || '',
+        updated_at: uploadedAt,
+      };
+    }
+  }
+
+  persistStore();
+
+  return {
+    message: parsed.message,
+    fileType,
+    status: parsed.status,
+    rowCount: (parsed.rows || []).length,
+    additionalData: summarizeAdditionalData(store.additionalData),
+  };
+}
+
+function handleParsedImport(req, res, { fileType, text, fileName }) {
+  try {
+    const parsed = parseUploadedFile(fileType, text);
+    const uploadedAt = new Date().toISOString();
+
+    if (fileType === IMPORT_FILE_TYPES.BUDGET
+      && String(req.body.dryRun || '').toLowerCase() === 'true'
+      && String(req.body.confirmImport || '').toLowerCase() !== 'true') {
+      persistStore();
+      return res.json(budgetImportDryRunResponse({ parsed, fileType, fileName }));
+    }
+
+    return res.json(applyParsedImport({ fileType, parsed, fileName, uploadedAt }));
+  } catch (e) {
+    console.error('Import error:', e);
+    res.status(e.statusCode || 500).json({ error: 'データ解析エラー: ' + e.message });
+  }
+}
+
+// Upload CSV file by import type
+app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'CSVファイル（budget_csv）をアップロードしてください' });
+  }
+
+  return handleParsedImport(req, res, {
+    fileType: String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET),
+    text: req.file.buffer.toString('utf-8').replace(/^\uFEFF/, ''),
+    fileName: req.file.originalname,
+  });
+});
+
+// Import delimited text pasted from Excel or spreadsheets.
+app.post('/api/paste', (req, res) => {
+  const text = String(req.body?.text || '').replace(/^\uFEFF/, '');
+  if (!text.trim()) {
+    return res.status(400).json({ error: 'Excelからコピーした表データを貼り付けてください' });
+  }
+
+  return handleParsedImport(req, res, {
+    fileType: String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET),
+    text,
+    fileName: safeString(req.body.fileName || 'Excel貼り付けデータ'),
+  });
 });
 
 // Status
@@ -2253,6 +2407,8 @@ module.exports = {
   stopServer,
   parseCSV,
   parseCSVLine,
+  parseDelimitedRows,
+  recordsToObjects,
   IMPORT_FILE_TYPES,
   parseUploadedFile,
   parseBudgetCsv,
@@ -2262,6 +2418,8 @@ module.exports = {
   parseDepreciationSimulationCsv,
   mergeAdditionalDataByManagementNo,
   parseUnifiedBudgetLayout,
+  canonicalizeBudgetRows,
+  canonicalBudgetMonthHeader,
   normalizeAmount,
   normalizeDateString,
   safeString,
