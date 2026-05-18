@@ -22,6 +22,7 @@ const IMPORT_FILE_TYPE_OPTIONS = [
 
 const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
 const NOT_IMPORTED_MESSAGE = '追加データ未取込';
+const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
 
 const state = {
   page: 'import',
@@ -34,6 +35,7 @@ const state = {
   },
   ui: {
     theme: localStorage.getItem('theme') || 'light',
+    displayZoom: normalizeZoomPercent(localStorage.getItem('displayZoom')),
     categoryTab: 'システム分類名別',
     trendMonths: 12,
     trendMetric: '総額',
@@ -247,6 +249,67 @@ async function api(path, opts = {}) {
   return json;
 }
 
+
+function normalizeZoomPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return APP_ZOOM.defaultValue;
+  const roundedToStep = Math.round(numeric / APP_ZOOM.step) * APP_ZOOM.step;
+  return Math.min(APP_ZOOM.max, Math.max(APP_ZOOM.min, roundedToStep));
+}
+
+function updateZoomControls() {
+  const zoomLabel = `${state.ui.displayZoom}%`;
+  const value = document.getElementById('zoomValue');
+  if (value) value.textContent = zoomLabel;
+
+  const zoomOut = document.getElementById('zoomOut');
+  if (zoomOut) zoomOut.disabled = state.ui.displayZoom <= APP_ZOOM.min;
+
+  const zoomIn = document.getElementById('zoomIn');
+  if (zoomIn) zoomIn.disabled = state.ui.displayZoom >= APP_ZOOM.max;
+
+  const range = document.getElementById('zoomRange');
+  if (range) range.value = state.ui.displayZoom;
+
+  const number = document.getElementById('zoomNumber');
+  if (number) number.value = state.ui.displayZoom;
+
+  const settingLabel = document.getElementById('zoomSettingValue');
+  if (settingLabel) settingLabel.textContent = zoomLabel;
+}
+
+function applyDisplayZoom() {
+  state.ui.displayZoom = normalizeZoomPercent(state.ui.displayZoom);
+  document.body.style.zoom = String(state.ui.displayZoom / 100);
+  document.documentElement.style.setProperty('--app-zoom', String(state.ui.displayZoom / 100));
+  localStorage.setItem('displayZoom', String(state.ui.displayZoom));
+  updateZoomControls();
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+}
+
+function setDisplayZoom(value) {
+  state.ui.displayZoom = normalizeZoomPercent(value);
+  applyDisplayZoom();
+}
+
+function changeDisplayZoom(delta) {
+  setDisplayZoom(state.ui.displayZoom + delta);
+}
+
+function handleZoomShortcut(event) {
+  if (!(event.ctrlKey || event.metaKey)) return;
+  if (event.key === '+' || event.key === '=' || event.key === 'Add') {
+    event.preventDefault();
+    changeDisplayZoom(APP_ZOOM.step);
+  } else if (event.key === '-' || event.key === '_' || event.key === 'Subtract') {
+    event.preventDefault();
+    changeDisplayZoom(-APP_ZOOM.step);
+  } else if (event.key === '0') {
+    event.preventDefault();
+    setDisplayZoom(APP_ZOOM.defaultValue);
+  }
+}
+
 function withViewTransition(update) {
   if (document.startViewTransition) {
     document.startViewTransition(update);
@@ -267,6 +330,7 @@ function toggleTheme() {
 
 function applyTheme() {
   document.body.dataset.theme = state.ui.theme;
+  updateZoomControls();
   localStorage.setItem('theme', state.ui.theme);
   const themeLabel = { light: '☀️ ライト', dark: '🌙 ダーク', neon: '🌈 ネオン' };
   document.getElementById('themeToggle').textContent = `${themeLabel[state.ui.theme]}（切替）`;
@@ -585,7 +649,7 @@ function recomputeSummary(items) {
 
 function initNav() {
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${!state.hasData && !['import', 'manual'].includes(p.key) ? 'disabled' : ''}>${escapeHtml(p.label)}</button>`).join('');
+  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${!state.hasData && !['import', 'settings', 'manual'].includes(p.key) ? 'disabled' : ''}>${escapeHtml(p.label)}</button>`).join('');
   nav.querySelectorAll('.nav-item').forEach(b => b.onclick = () => goPage(b.dataset.page));
 }
 
@@ -1501,6 +1565,17 @@ function renderSettings() {
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', `
     <div class="panel">
+      <h4>表示倍率</h4>
+      <p class="muted">Electron版でブラウザのZoomが使えない場合でも、ダッシュボード全体を75%〜150%の範囲で拡大・縮小できます。Ctrl/Cmd + +・-・0 のショートカットにも対応しています。</p>
+      <div class="controls zoom-settings">
+        <label class="zoom-range-label">全体表示倍率 <span id="zoomSettingValue" class="badge">${state.ui.displayZoom}%</span>
+          <input id="zoomRange" type="range" min="${APP_ZOOM.min}" max="${APP_ZOOM.max}" step="${APP_ZOOM.step}" value="${state.ui.displayZoom}">
+        </label>
+        <label>倍率（%） <input id="zoomNumber" type="number" min="${APP_ZOOM.min}" max="${APP_ZOOM.max}" step="${APP_ZOOM.step}" value="${state.ui.displayZoom}"></label>
+        <button id="zoomSettingReset" type="button">100%に戻す</button>
+      </div>
+    </div>
+    <div class="panel">
       <h4>テーマ設定</h4>
       <div class="controls">
         <label>表示テーマ
@@ -1511,6 +1586,10 @@ function renderSettings() {
       </div>
     </div>
   `);
+  document.getElementById('zoomRange').oninput = (e) => setDisplayZoom(e.target.value);
+  document.getElementById('zoomNumber').onchange = (e) => setDisplayZoom(e.target.value);
+  document.getElementById('zoomSettingReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
+  updateZoomControls();
   document.getElementById('themeSelect').value = state.ui.theme;
   document.getElementById('themeSelect').onchange = (e) => { state.ui.theme = e.target.value; applyTheme(); renderPage(); };
 
@@ -1549,7 +1628,7 @@ function renderManual() {
       <h4>8. 明細（検索・ドリルダウン）</h4>
       <ul><li><b>見るポイント：</b>案件単位の実績・見込・担当者・ベンダー情報。</li><li><b>操作：</b>キーワード検索、列表示切替、他画面からのドリルダウン確認。</li></ul>
       <h4>9. 表示設定</h4>
-      <ul><li><b>見るポイント：</b>アラート判定に使うしきい値とKPI表示順。</li><li><b>操作：</b>しきい値・KPI順・テーマ（ライト/ダーク/ネオン）を変更して反映。</li></ul>
+      <ul><li><b>見るポイント：</b>アラート判定に使うしきい値、KPI表示順、表示倍率。</li><li><b>操作：</b>しきい値・KPI順・表示倍率（75%〜150%）・テーマ（ライト/ダーク/ネオン）を変更して反映。表示倍率は上部バーやCtrl/Cmd + +・-・0でも操作できます。</li></ul>
       <h4>10. 取扱説明書（マニュアル）</h4>
       <ul><li><b>見るポイント：</b>運用手順、FAQ、画面別の活用方法。</li><li><b>操作：</b>不明点は本画面に戻り、該当する画面説明を確認。</li></ul>
     </div>
@@ -1757,6 +1836,7 @@ function renderDepreciation() {
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
   if (state.page === 'import') return renderImport();
+  if (state.page === 'settings') return renderSettings();
   if (state.page === 'manual') return renderManual();
   const hasDepreciationData = (state.data.depreciation || []).length > 0 || state.data.status?.additionalData?.depreciation_simulation?.status === 'imported';
   if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData)) return goPage('import');
@@ -1767,7 +1847,6 @@ async function renderPage() {
   else if (state.page === 'alert') renderAlert();
   else if (state.page === 'vendor') renderVendor();
   else if (state.page === 'detail') renderDetail();
-  else if (state.page === 'settings') renderSettings();
   else if (state.page === 'depreciation') renderDepreciation();
   showAdditionalDataNotice();
 }
@@ -1791,8 +1870,13 @@ function showManualHintDialog() {
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
   document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
+  document.getElementById('zoomOut').onclick = () => changeDisplayZoom(-APP_ZOOM.step);
+  document.getElementById('zoomIn').onclick = () => changeDisplayZoom(APP_ZOOM.step);
+  document.getElementById('zoomReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
+  document.addEventListener('keydown', handleZoomShortcut);
 
   applyTheme();
+  applyDisplayZoom();
   initNav();
   renderPage();
 
