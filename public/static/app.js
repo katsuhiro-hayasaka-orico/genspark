@@ -9,6 +9,7 @@ const NAV_PAGES = [
   { key: 'detail', label: '8. 明細（検索・ドリルダウン）' },
   { key: 'settings', label: '9. 表示設定' },
   { key: 'manual', label: '10. 取扱説明書（マニュアル）' },
+  { key: 'depreciation', label: '11. 減価償却シミュレーション' },
 ];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
@@ -25,7 +26,7 @@ const NOT_IMPORTED_MESSAGE = '追加データ未取込';
 const state = {
   page: 'import',
   hasData: false,
-  data: { status: null, items: [], contracts: [] },
+  data: { status: null, items: [], contracts: [], depreciation: [] },
   filters: { periodMode: '月次', department: '', perspective: '費目', target: 'すべて', fiscalPeriod: '', targetYearMonth: '' },
   settings: {
     thresholds: { varianceRate: 10, amountGap: 1000, momRate: 10, yoyRate: 10 },
@@ -39,6 +40,7 @@ const state = {
     detailSearch: '',
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
     importFileType: 'budget',
+    depreciationFilters: { fiscalPeriod: '', categoryName: '' },
   },
 };
 
@@ -609,15 +611,17 @@ function setStatus() {
 }
 
 async function refreshAllData() {
-  const [status, itemsRes, contractsRes] = await Promise.all([
+  const [status, itemsRes, contractsRes, depreciationRes] = await Promise.all([
     api('/status'),
     api('/items'),
     api('/contracts').catch(() => ({ data: [] })),
+    api('/additional-data/depreciation_simulation').catch(() => ({ data: [] })),
   ]);
   state.hasData = !!status.hasData;
   state.data.status = status;
   state.data.items = itemsRes.items || [];
   state.data.contracts = contractsRes.data || [];
+  state.data.depreciation = depreciationRes.data || [];
   initNav();
   initFilterBar();
   setStatus();
@@ -895,8 +899,9 @@ function renderImport() {
     file = f;
     const selectedType = fileTypeSelect.value;
     if (selectedType !== 'budget') {
-      summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。結合キーは management_no（管理番号）を中心に既存明細へ補完します。</p></div>`;
-      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>新規案件個票.csv は指定レイアウト（区分,チーム名,管理番号,...,年月,予算金額,見込金額）で取り込みます。その他の追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。</div>`;
+      const isDep = selectedType === 'depreciation_simulation';
+      summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。${isDep ? 'CSVのロング形式（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）をそのまま専用ビューで集計します。' : '結合キーは management_no（管理番号）を中心に既存明細へ補完します。'}</p></div>`;
+      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${isDep ? '減価償却シミュレーション.csv は指定レイアウト（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）で取り込みます。' : `新規案件個票.csv は指定レイアウト（区分,チーム名,管理番号,...,年月,予算金額,見込金額）で取り込みます。その他の追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。`}</div>`;
       uploadBtn.disabled = false;
       return;
     }
@@ -921,6 +926,7 @@ function renderImport() {
     const result = await api('/upload', { method: 'POST', body: fd });
     await refreshAllData();
     if (selectedType === 'budget') goPage('summary');
+    else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
     else {
       renderImport();
       document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
@@ -1542,11 +1548,189 @@ function showAdditionalDataNotice() {
   if (content && notice && state.page !== 'import') content.insertAdjacentHTML('afterbegin', notice);
 }
 
+
+function depreciationAmount(row) {
+  return Number(row.amount || 0);
+}
+
+function depreciationPeriodSortValue(value) {
+  const n = Number(String(value || '').replace(/期$/, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function depreciationMonthSortValue(row = {}) {
+  if (Number.isFinite(Number(row.month_order))) return Number(row.month_order);
+  const monthKey = String(row.month_key || '').trim();
+  if (/^\d{6}$/.test(monthKey)) {
+    const month = Number(monthKey.slice(4, 6));
+    return month >= 4 ? month - 4 : month + 8;
+  }
+  const raw = String(row.month || '').trim().toUpperCase();
+  if (raw === 'H1') return 0;
+  if (raw === 'H2') return 6;
+  if (raw === 'FY') return 12;
+  return 99;
+}
+
+function depreciationMonthLabel(row = {}) {
+  const monthKey = String(row.month_key || '').trim();
+  if (/^\d{6}$/.test(monthKey)) return `${Number(monthKey.slice(4, 6))}月`;
+  return String(row.month || '-');
+}
+
+function normalizeDepreciationFilters(rows) {
+  const periods = [...new Set(rows.map(r => String(r.fiscal_period || '')).filter(Boolean))]
+    .sort((a, b) => depreciationPeriodSortValue(a) - depreciationPeriodSortValue(b));
+  const names = [...new Set(rows.map(r => r.depreciation_category_name || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+  const filters = state.ui.depreciationFilters || (state.ui.depreciationFilters = { fiscalPeriod: '', categoryName: '' });
+  if (!filters.fiscalPeriod || (periods.length && !periods.includes(filters.fiscalPeriod))) filters.fiscalPeriod = periods.includes('70') ? '70' : (periods[periods.length - 1] || '');
+  if (filters.categoryName && !names.includes(filters.categoryName)) filters.categoryName = '';
+  return { periods, names, filters };
+}
+
+function depreciationRowsForFilter(rows, filters) {
+  return rows.filter(row => {
+    if (filters.fiscalPeriod && String(row.fiscal_period || '') !== String(filters.fiscalPeriod)) return false;
+    if (filters.categoryName && String(row.depreciation_category_name || '') !== String(filters.categoryName)) return false;
+    return true;
+  });
+}
+
+function sumDepreciation(rows, periodType, fiscalPeriod) {
+  return rows
+    .filter(row => (!periodType || row.period_type === periodType) && (!fiscalPeriod || String(row.fiscal_period || '') === String(fiscalPeriod)))
+    .reduce((sum, row) => sum + depreciationAmount(row), 0);
+}
+
+function buildDepreciationDetailRows(allRows, fiscalPeriod, categoryName) {
+  const selectedRows = allRows.filter(row => String(row.fiscal_period || '') === String(fiscalPeriod) && (!categoryName || row.depreciation_category_name === categoryName));
+  const previousPeriod = String(depreciationPeriodSortValue(fiscalPeriod) - 1);
+  const previousRows = allRows.filter(row => String(row.fiscal_period || '') === previousPeriod && (!categoryName || row.depreciation_category_name === categoryName));
+  const bucket = new Map();
+  const keyFor = row => [row.division || '', row.depreciation_category || '', row.depreciation_category_name || '未入力'].join('\u0001');
+  const ensure = (row) => {
+    const key = keyFor(row);
+    if (!bucket.has(key)) bucket.set(key, {
+      division: row.division || '',
+      depreciation_category: row.depreciation_category || '',
+      depreciation_category_name: row.depreciation_category_name || '未入力',
+      h1: 0,
+      h2: 0,
+      full: 0,
+      previousFull: 0,
+    });
+    return bucket.get(key);
+  };
+  selectedRows.forEach(row => {
+    const item = ensure(row);
+    if (row.period_type === 'half' && String(row.month || '').toUpperCase() === 'H1') item.h1 += depreciationAmount(row);
+    if (row.period_type === 'half' && String(row.month || '').toUpperCase() === 'H2') item.h2 += depreciationAmount(row);
+    if (row.period_type === 'full') item.full += depreciationAmount(row);
+  });
+  previousRows.filter(row => row.period_type === 'full').forEach(row => { ensure(row).previousFull += depreciationAmount(row); });
+  return [...bucket.values()].map(item => ({
+    ...item,
+    previousDiff: item.full - item.previousFull,
+    previousDiffRate: item.previousFull ? (item.full - item.previousFull) / item.previousFull * 100 : 0,
+  })).sort((a, b) => Math.abs(b.previousDiff) - Math.abs(a.previousDiff));
+}
+
+function drawDepreciationMonthlyChart(canvasId, rows) {
+  const monthly = [...rows.filter(row => row.period_type === 'month')].sort((a, b) => depreciationMonthSortValue(a) - depreciationMonthSortValue(b));
+  const bucket = new Map();
+  monthly.forEach(row => {
+    const key = row.month_key || row.month;
+    if (!bucket.has(key)) bucket.set(key, { label: depreciationMonthLabel(row), order: depreciationMonthSortValue(row), amount: 0 });
+    bucket.get(key).amount += depreciationAmount(row);
+  });
+  let cumulative = 0;
+  const series = [...bucket.values()].sort((a, b) => a.order - b.order).map(item => {
+    cumulative += item.amount;
+    return { ...item, cumulative };
+  });
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const colors = chartColors();
+  new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: series.map(v => v.label),
+      datasets: [
+        { type: 'bar', label: '月次償却費', data: series.map(v => v.amount), backgroundColor: colors.c1, borderColor: colors.c1, yAxisID: 'y', order: 2 },
+        { type: 'line', label: '累計償却費', data: series.map(v => v.cumulative), borderColor: colors.c3, backgroundColor: colors.c3, yAxisID: 'y1', tension: 0.25, order: 1 },
+      ],
+    },
+    options: baseChartOptions({ maintainAspectRatio: false, responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: 'var(--text)' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${yen(ctx.parsed.y)}` } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { beginAtZero: true, ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { color: 'var(--line)' } }, y1: { beginAtZero: true, position: 'right', ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { drawOnChartArea: false } } } }),
+  });
+}
+
+function drawDepreciationBarChart(canvasId, labels, values, label) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const colors = chartColors();
+  new Chart(el, { type: 'bar', data: { labels, datasets: [{ label, data: values, backgroundColor: colors.c2, borderColor: colors.c1, borderWidth: 1 }] }, options: baseChartOptions({ indexAxis: labels.length > 8 ? 'y' : 'x', maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => yen(ctx.parsed.x ?? ctx.parsed.y) } } }, scales: { x: { beginAtZero: true, ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { color: 'var(--line)' } }, y: { beginAtZero: true, ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } }) });
+}
+
+function renderDepreciation() {
+  const rows = state.data.depreciation || [];
+  const content = document.getElementById('content');
+  if (!rows.length) {
+    content.innerHTML = `<div class="notice notice--empty">減価償却シミュレーションCSVが未取込です。「1. データ取込」でファイル種別「減価償却シミュレーション」を選択してCSVを取り込んでください。</div>`;
+    return;
+  }
+
+  const { periods, names, filters } = normalizeDepreciationFilters(rows);
+  const scoped = depreciationRowsForFilter(rows, filters);
+  const selectedPeriod = filters.fiscalPeriod;
+  const previousPeriod = String(depreciationPeriodSortValue(selectedPeriod) - 1);
+  const full = sumDepreciation(scoped, 'full', selectedPeriod);
+  const h1 = scoped.filter(row => row.period_type === 'half' && String(row.month || '').toUpperCase() === 'H1').reduce((s, r) => s + depreciationAmount(r), 0);
+  const h2 = scoped.filter(row => row.period_type === 'half' && String(row.month || '').toUpperCase() === 'H2').reduce((s, r) => s + depreciationAmount(r), 0);
+  const previousFull = sumDepreciation(rows.filter(row => !filters.categoryName || row.depreciation_category_name === filters.categoryName), 'full', previousPeriod);
+  const detailRows = buildDepreciationDetailRows(rows, selectedPeriod, filters.categoryName);
+  const topCategory = [...detailRows].sort((a, b) => b.full - a.full)[0];
+  const transitionPeriods = periods.filter(p => depreciationPeriodSortValue(p) >= 65 && depreciationPeriodSortValue(p) <= 70);
+  const transitionValues = transitionPeriods.map(p => sumDepreciation(rows.filter(row => !filters.categoryName || row.depreciation_category_name === filters.categoryName), 'full', p));
+  const top10 = [...detailRows].sort((a, b) => b.full - a.full).slice(0, 10);
+  const diffTop = [...detailRows].sort((a, b) => Math.abs(b.previousDiff) - Math.abs(a.previousDiff)).slice(0, 10);
+
+  content.innerHTML = `
+    <div class="panel depreciation-dashboard">
+      <div class="card-title-row"><div><p class="eyebrow">Depreciation Simulation</p><h3>減価償却シミュレーション専用ビュー</h3><p class="muted">CSVをロング形式のまま保持し、選択期・償却展開区分名でフロント側集計します。</p></div></div>
+      <div class="controls detail-controls">
+        <label>期 <select id="depFiscalPeriod">${periods.map(v => optionHtml(v, selectedPeriod)).join('')}</select></label>
+        <label>償却展開区分名 <select id="depCategoryName"><option value="">全区分</option>${names.map(v => optionHtml(v, filters.categoryName)).join('')}</select></label>
+      </div>
+      <div class="kpi-strip">
+        <article class="kpi"><div class="label">通期償却費</div><div class="value">${animatedValueHtml(full)}</div><div class="kpi-note">${escapeHtml(selectedPeriod)}期 FY</div></article>
+        <article class="kpi"><div class="label">上期償却費</div><div class="value">${animatedValueHtml(h1)}</div><div class="kpi-note">H1</div></article>
+        <article class="kpi"><div class="label">下期償却費</div><div class="value">${animatedValueHtml(h2)}</div><div class="kpi-note">H2</div></article>
+        <article class="kpi"><div class="label">上期下期差</div><div class="value">${animatedValueHtml(h2 - h1)}</div><div class="kpi-note">下期 - 上期</div></article>
+        <article class="kpi"><div class="label">前期差</div><div class="value ${full - previousFull < 0 ? 'ok' : 'warn'}">${animatedValueHtml(full - previousFull)}</div><div class="kpi-note">前期通期 ${yen(previousFull)}</div></article>
+        <article class="kpi"><div class="label">最大区分</div><div class="value">${escapeHtml(topCategory?.depreciation_category_name || '-')}</div><div class="kpi-note">${topCategory ? yen(topCategory.full) : '-'}</div></article>
+      </div>
+    </div>
+    <div class="dashboard-bento depreciation-bento">
+      <section class="panel bento-card bento-card--wide chart-card"><h3>月次推移（4月〜翌年3月）</h3><div class="chart-frame chart-frame--large"><canvas id="depMonthlyChart"></canvas></div></section>
+      <section class="panel bento-card bento-card--small chart-card"><h3>65期〜70期 通期推移</h3><div class="chart-frame"><canvas id="depPeriodChart"></canvas></div></section>
+      <section class="panel bento-card bento-card--small ranking-card"><h3>償却展開区分別 Top10</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">通期償却費</th></tr></thead><tbody>${top10.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${yen(row.full)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card bento-card--small ranking-card"><h3>前期差ランキング</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">前期差</th><th class="right">差率</th></tr></thead><tbody>${diffTop.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${yen(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card bento-card--wide"><h3>半期・通期 / 明細一覧</h3><div class="table-wrap"><table><thead><tr><th>区分</th><th>償却展開区分</th><th>償却展開区分名</th><th class="right">選択期上期</th><th class="right">選択期下期</th><th class="right">選択期通期</th><th class="right">前期通期</th><th class="right">前期差</th><th class="right">前期差率</th></tr></thead><tbody>${detailRows.map(row => `<tr><td>${escapeHtml(row.division)}</td><td>${escapeHtml(row.depreciation_category)}</td><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${yen(row.h1)}</td><td class="right">${yen(row.h2)}</td><td class="right">${yen(row.full)}</td><td class="right">${yen(row.previousFull)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${yen(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
+    </div>`;
+
+  document.getElementById('depFiscalPeriod').onchange = (event) => { state.ui.depreciationFilters.fiscalPeriod = event.target.value; renderPage(); };
+  document.getElementById('depCategoryName').onchange = (event) => { state.ui.depreciationFilters.categoryName = event.target.value; renderPage(); };
+  animateNumericValues(content);
+  drawDepreciationMonthlyChart('depMonthlyChart', scoped);
+  drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費');
+}
+
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
   if (state.page === 'import') return renderImport();
   if (state.page === 'manual') return renderManual();
-  if (!state.hasData) return goPage('import');
+  const hasDepreciationData = (state.data.depreciation || []).length > 0 || state.data.status?.additionalData?.depreciation_simulation?.status === 'imported';
+  if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData)) return goPage('import');
   if (state.page === 'summary') renderSummary();
   else if (state.page === 'trend') renderTrend();
   else if (state.page === 'category') renderCategory();
@@ -1555,6 +1739,7 @@ async function renderPage() {
   else if (state.page === 'vendor') renderVendor();
   else if (state.page === 'detail') renderDetail();
   else if (state.page === 'settings') renderSettings();
+  else if (state.page === 'depreciation') renderDepreciation();
   showAdditionalDataNotice();
 }
 
