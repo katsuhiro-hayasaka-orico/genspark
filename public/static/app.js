@@ -169,7 +169,6 @@ const DETAIL_COLUMN_LABELS = {
 };
 
 const detailColumnLabel = (key) => DETAIL_COLUMN_LABELS[key] || key;
-const jsonForHtml = (value) => escapeHtml(JSON.stringify(value ?? {}, null, 2));
 
 const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const chartAnimationDuration = () => reduceMotion() ? 0 : 900;
@@ -870,21 +869,9 @@ function renderImport() {
           <div class="dropzone" id="dropzone">ドラッグ＆ドロップ または <input id="csvFile" type="file" accept=".csv,text/csv"></div>
           <div class="controls">
             <button class="primary" id="uploadBtn" disabled>CSVを取り込む</button>
+            <button id="clearBrowserDataBtn" type="button">ブラウザ保存データをクリア</button>
           </div>
         </section>
-        <section class="import-method-card">
-          <h4>Excelから貼り付けて取り込む</h4>
-          <p class="muted">Excelでヘッダー行を含む範囲をコピーし、下の欄へ貼り付けてください。タブ区切り・カンマ区切りを自動判定し、列名の表記ゆれも吸収します。</p>
-          <textarea id="pasteData" class="paste-data" rows="10" placeholder="例: 管理No<TAB>案件名<TAB>65期4月予算<TAB>65期4月見込み ..."></textarea>
-          <div class="controls">
-            <button id="pasteCheckBtn" disabled>貼り付けデータをチェック</button>
-            <button class="primary" id="pasteImportBtn" disabled>貼り付けデータを取り込む</button>
-          </div>
-        </section>
-      </div>
-      <div class="controls">
-        <button class="primary" id="confirmImportBtn" style="display:none">取込を続行する</button>
-        <button id="cancelImportBtn" style="display:none">取込を中止する</button>
       </div>
       <div id="importSummary"></div>
       <div id="importErrors"></div>
@@ -894,63 +881,10 @@ function renderImport() {
   const fileInput = document.getElementById('csvFile');
   const uploadBtn = document.getElementById('uploadBtn');
   const fileTypeSelect = document.getElementById('fileTypeSelect');
-  const pasteData = document.getElementById('pasteData');
-  const pasteCheckBtn = document.getElementById('pasteCheckBtn');
-  const pasteImportBtn = document.getElementById('pasteImportBtn');
   const summaryEl = document.getElementById('importSummary');
   const errorsEl = document.getElementById('importErrors');
-  const confirmBtn = document.getElementById('confirmImportBtn');
-  const cancelBtn = document.getElementById('cancelImportBtn');
+  const clearBrowserDataBtn = document.getElementById('clearBrowserDataBtn');
   let file = null;
-  let lastInspection = null;
-
-  const issueLabel = (level) => ({ warning: '警告', error: 'エラー', skipped: '対象外' }[level] || level);
-  const issueHtml = (issue) => {
-    const row = issue.rowNumber ? `${fmt(issue.rowNumber)}行目` : 'ファイル全体';
-    const raw = issue.rawValue !== undefined && issue.rawValue !== '' ? `（値: ${escapeHtml(issue.rawValue)}）` : '';
-    return `<li class="${issue.level === 'error' || issue.level === 'skipped' ? 'warn' : ''}"><b>${escapeHtml(issueLabel(issue.level))}</b> ${escapeHtml(row)} / ${escapeHtml(issue.field || '-')}: ${escapeHtml(issue.message || '')}${raw}</li>`;
-  };
-
-  const renderInspection = (result) => {
-    lastInspection = result;
-    const warnings = (result.issues || []).filter(i => i.level === 'warning');
-    const errors = (result.issues || []).filter(i => i.level === 'error');
-    const skipped = (result.issues || []).filter(i => i.level === 'skipped');
-    const mainWarnings = warnings.concat(skipped).slice(0, 10);
-    const mainErrors = errors.slice(0, 10);
-    const targetPeriods = (result.targetPeriods || []).length ? result.targetPeriods.map(p => `第${p}期`).join(', ') : '-';
-
-    summaryEl.innerHTML = `
-      <div class="panel">
-        <h4>${result.dryRun ? '取込前チェック結果' : '取込結果'}</h4>
-        <ul>
-          <li>取込ファイル名: ${escapeHtml(result.csvFileName || file?.name || '-')}</li>
-          <li>対象年月: ${escapeHtml(result.targetYearMonthRange || '-')}</li>
-          <li>対象期: ${escapeHtml(targetPeriods)}</li>
-          <li>総レコード数: ${fmt(result.totalRows)}</li>
-          <li>正常取込件数: ${fmt(result.successRows)}</li>
-          <li>警告件数: ${fmt(result.warningCount)}</li>
-          <li>エラー件数: ${fmt(result.errorCount)}</li>
-          <li>取込対象外件数: ${fmt(result.skippedRows)}</li>
-        </ul>
-      </div>`;
-
-    errorsEl.innerHTML = `
-      <div class="panel">
-        <h4>主な警告</h4>
-        ${mainWarnings.length ? `<ul>${mainWarnings.map(issueHtml).join('')}</ul>` : '<p>警告はありません。</p>'}
-      </div>
-      <div class="panel">
-        <h4>主なエラー</h4>
-        ${mainErrors.length ? `<ul>${mainErrors.map(issueHtml).join('')}</ul>` : '<p>エラーはありません。</p>'}
-      </div>`;
-
-    const hasIssues = Number(result.warningCount || 0) > 0 || Number(result.errorCount || 0) > 0 || Number(result.skippedRows || 0) > 0;
-    uploadBtn.style.display = result.dryRun ? 'none' : '';
-    confirmBtn.style.display = result.dryRun ? '' : 'none';
-    cancelBtn.style.display = result.dryRun && hasIssues ? '' : 'none';
-    confirmBtn.textContent = hasIssues ? '取込を続行する' : '取込を確定する';
-  };
 
   fileTypeSelect.onchange = () => {
     state.ui.importFileType = fileTypeSelect.value;
@@ -978,48 +912,6 @@ function renderImport() {
   dz.ondragover = e => e.preventDefault();
   dz.ondrop = e => { e.preventDefault(); e.dataTransfer.files[0] && preview(e.dataTransfer.files[0]); };
 
-  const updatePasteButtons = () => {
-    const hasText = Boolean(pasteData.value.trim());
-    pasteCheckBtn.disabled = !hasText;
-    pasteImportBtn.disabled = !hasText;
-  };
-
-  const submitPaste = async ({ dryRun = false } = {}) => {
-    const text = pasteData.value;
-    if (!text.trim()) return;
-    const selectedType = fileTypeSelect.value;
-    const result = await api('/paste', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        fileType: selectedType,
-        text,
-        fileName: 'Excel貼り付けデータ',
-        dryRun: dryRun ? 'true' : '',
-        confirmImport: dryRun ? '' : 'true',
-      }),
-    });
-
-    if (dryRun && selectedType === 'budget') {
-      renderInspection(result);
-      return;
-    }
-
-    await refreshAllData();
-    if (selectedType === 'budget') goPage('summary');
-    else {
-      renderImport();
-      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>貼り付け取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
-    }
-  };
-
-  pasteData.oninput = updatePasteButtons;
-  pasteData.onpaste = () => setTimeout(updatePasteButtons, 0);
-  pasteCheckBtn.onclick = () => submitPaste({ dryRun: true });
-  pasteImportBtn.onclick = () => submitPaste({ dryRun: false });
-  confirmBtn.onclick = () => submitPaste({ dryRun: false });
-  updatePasteButtons();
-
   uploadBtn.onclick = async () => {
     if (!file) return;
     const selectedType = fileTypeSelect.value;
@@ -1035,13 +927,17 @@ function renderImport() {
     }
   };
 
-  cancelBtn.onclick = () => {
-    lastInspection = null;
-    confirmBtn.style.display = 'none';
-    cancelBtn.style.display = 'none';
-    uploadBtn.style.display = '';
-    uploadBtn.disabled = !file;
-    errorsEl.innerHTML = '<div class="panel"><h4>取込を中止しました</h4><p>ストアには反映していません。</p></div>';
+  clearBrowserDataBtn.onclick = async () => {
+    if (!window.confirm('ブラウザ保存データと取込済みデータをクリアします。よろしいですか？')) return;
+    localStorage.clear();
+    state.ui.theme = 'light';
+    state.ui.importFileType = 'budget';
+    state.ui.detailSearch = '';
+    state.ui.detailFilter = null;
+    await api('/clear', { method: 'POST' });
+    await refreshAllData();
+    renderImport();
+    document.getElementById('importSummary').innerHTML = '<div class="panel"><h4>クリア完了</h4><p>ブラウザ保存データと取込済みデータをクリアしました。</p></div>';
   };
 }
 
@@ -1513,7 +1409,7 @@ function renderDetail() {
         <h4>明細テーブル</h4>
         <div class="table-wrap"><table><thead><tr id="dHead"></tr></thead><tbody id="dBody"></tbody></table></div>
       </div>
-      <div class="panel detail-pane" id="detailPane"><h4>詳細ペイン</h4><p>行クリックで属性(master)+月次(detail)を並列表示します。</p></div>
+      <div class="panel detail-pane" id="detailPane"><h4>詳細ペイン</h4><p>行クリックで月次データを表示します。</p></div>
     </section>`;
 
   const renderRows = () => {
@@ -1527,29 +1423,8 @@ function renderDetail() {
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const master = {
-        [detailColumnLabel('management_no')]: row.management_no,
-        [detailColumnLabel('item_no')]: row.item_no,
-        [detailColumnLabel('project_name')]: row.project_name,
-        [detailColumnLabel('department_name')]: row.department_name,
-        [detailColumnLabel('owner_name')]: row.owner_name,
-        [detailColumnLabel('vendor_name')]: row.vendor_name,
-        [detailColumnLabel('system_name')]: row.system_name,
-        [detailColumnLabel('budget_category')]: row.budget_category,
-        [detailColumnLabel('variance_reason_category')]: displayText(row.variance_reason_category),
-        [detailColumnLabel('variance_reason')]: displayText(row.variance_reason),
-        [detailColumnLabel('comment')]: displayText(row.comment),
-        [detailColumnLabel('comment_updated_month')]: displayText(row.comment_updated_month),
-        [detailColumnLabel('comment_updated_by')]: displayText(row.comment_updated_by),
-      };
-      const detail = Object.fromEntries(Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => [formatYearMonth(ym), {
-        計画: Number(m.plan || 0),
-        見込: Number(m.forecast || 0),
-        実績: Number(m.actual || 0),
-        コメント: displayText(firstPresent(m.comment, row.comment)),
-      }]));
       const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div><div class="detail-card-grid detail-json-grid"><div><h5>属性（マスタJSON）</h5><pre>${jsonForHtml(master)}</pre></div><div><h5>月次（明細JSON）</h5><pre>${jsonForHtml(detail)}</pre></div></div>`;
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
