@@ -47,6 +47,26 @@ const state = {
 const fmt = (n) => Number(n || 0).toLocaleString('ja-JP');
 const pct = (n) => `${(Number(n || 0)).toFixed(1)}%`;
 const yen = (n) => `${fmt(Math.round(Number(n || 0)))} 千円`;
+const OKU_YEN_DIVISOR_IN_THOUSAND_YEN = 100000;
+const toOkuYen = (thousandYen) => Number(thousandYen || 0) / OKU_YEN_DIVISOR_IN_THOUSAND_YEN;
+const formatOkuYenValue = (n) => Number(n || 0).toLocaleString('ja-JP', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+const okuYen = (n) => `${formatOkuYenValue(n)}億円`;
+const formatFixedOneDecimal = (n) => Number(n || 0).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const okuYenFixed = (n) => `${formatFixedOneDecimal(n)}億円`;
+const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
+const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
+const fixedOkuYenTicks = (scaleConfig) => ({
+  color: 'var(--text)',
+  autoSkip: false,
+  stepSize: scaleConfig.stepSize,
+  callback: value => okuYen(value),
+});
+const forceFixedAxisTicks = (scaleConfig) => (scale) => {
+  scale.ticks = Array.from(
+    { length: Math.floor((scaleConfig.max - scaleConfig.min) / scaleConfig.stepSize) + 1 },
+    (_, idx) => ({ value: scaleConfig.min + idx * scaleConfig.stepSize }),
+  );
+};
 const isNewProject = (r) => /新規|new/i.test(r.project_name || '');
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
   '&': '&amp;',
@@ -752,8 +772,10 @@ function drawReportComboChart(canvasId, reportSeries) {
   const gray = '#D7DCE2';
   const grayLine = '#B9C0CA';
   const blue = '#2F80ED';
-  const monthlyMax = Math.max(...reportSeries.plan, ...reportSeries.actualForecast, 0);
-  const cumulativeMax = Math.max(...reportSeries.planCumulative, ...reportSeries.actualForecastCumulative, 0);
+  const monthlyPlan = reportSeries.plan.map(toOkuYen);
+  const monthlyActualForecast = reportSeries.actualForecast.map(toOkuYen);
+  const planCumulative = reportSeries.planCumulative.map(toOkuYen);
+  const actualForecastCumulative = reportSeries.actualForecastCumulative.map(toOkuYen);
   new Chart(el, {
     type: 'bar',
     data: {
@@ -761,8 +783,8 @@ function drawReportComboChart(canvasId, reportSeries) {
       datasets: [
         {
           type: 'bar',
-          label: '月次計画',
-          data: reportSeries.plan,
+          label: '月次計画（億円）',
+          data: monthlyPlan,
           yAxisID: 'y',
           backgroundColor: 'rgba(215, 220, 226, 0.88)',
           borderColor: gray,
@@ -774,8 +796,8 @@ function drawReportComboChart(canvasId, reportSeries) {
         },
         {
           type: 'bar',
-          label: '月次見込み／実績',
-          data: reportSeries.actualForecast,
+          label: '月次見込み／実績（億円）',
+          data: monthlyActualForecast,
           yAxisID: 'y',
           backgroundColor: 'rgba(47, 128, 237, 0.88)',
           borderColor: blue,
@@ -787,8 +809,8 @@ function drawReportComboChart(canvasId, reportSeries) {
         },
         {
           type: 'line',
-          label: '計画累計',
-          data: reportSeries.planCumulative,
+          label: '計画累計（億円）',
+          data: planCumulative,
           yAxisID: 'y1',
           borderColor: grayLine,
           backgroundColor: grayLine,
@@ -803,9 +825,10 @@ function drawReportComboChart(canvasId, reportSeries) {
         },
         {
           type: 'line',
-          label: '見込み／実績累計',
-          data: reportSeries.actualForecastCumulative,
+          label: '見込み／実績累計（億円）',
+          data: actualForecastCumulative,
           yAxisID: 'y1',
+          hidden: false,
           borderColor: blue,
           backgroundColor: blue,
           borderWidth: 3,
@@ -825,25 +848,29 @@ function drawReportComboChart(canvasId, reportSeries) {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: true, labels: { color: 'var(--text)', usePointStyle: true } },
-        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${yen(ctx.parsed.y)}` } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${okuYenFixed(ctx.parsed.y)}` } },
       },
       scales: {
         x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } },
         y: {
           position: 'left',
-          title: { display: true, text: '単月値', color: 'var(--text)' },
+          title: { display: true, text: '単月値（億円）', color: 'var(--text)' },
           beginAtZero: true,
-          suggestedMax: monthlyMax ? monthlyMax * 1.25 : undefined,
-          ticks: { color: 'var(--text)', callback: value => fmt(value) },
+          min: MONTHLY_AXIS_SCALE_OKU_YEN.min,
+          max: MONTHLY_AXIS_SCALE_OKU_YEN.max,
+          ticks: fixedOkuYenTicks(MONTHLY_AXIS_SCALE_OKU_YEN),
+          afterBuildTicks: forceFixedAxisTicks(MONTHLY_AXIS_SCALE_OKU_YEN),
           grid: { color: 'var(--line)' },
         },
         y1: {
           position: 'right',
-          display: cumulativeMax > 0,
-          title: { display: true, text: '累計値', color: 'var(--text)' },
+          display: true,
+          title: { display: true, text: '累計値（億円）', color: 'var(--text)' },
           beginAtZero: true,
-          suggestedMax: cumulativeMax ? cumulativeMax * 1.08 : undefined,
-          ticks: { color: 'var(--text)', callback: value => fmt(value) },
+          min: CUMULATIVE_AXIS_SCALE_OKU_YEN.min,
+          max: CUMULATIVE_AXIS_SCALE_OKU_YEN.max,
+          ticks: fixedOkuYenTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN),
+          afterBuildTicks: forceFixedAxisTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN),
           grid: { drawOnChartArea: false },
         },
       },
@@ -1650,17 +1677,19 @@ function drawDepreciationMonthlyChart(canvasId, rows) {
   });
   const el = document.getElementById(canvasId);
   if (!el) return;
+  const monthlyAmounts = series.map(v => toOkuYen(v.amount));
+  const cumulativeAmounts = series.map(v => toOkuYen(v.cumulative));
   const colors = chartColors();
   new Chart(el, {
     type: 'bar',
     data: {
       labels: series.map(v => v.label),
       datasets: [
-        { type: 'bar', label: '月次償却費', data: series.map(v => v.amount), backgroundColor: colors.c1, borderColor: colors.c1, yAxisID: 'y', order: 2 },
-        { type: 'line', label: '累計償却費', data: series.map(v => v.cumulative), borderColor: colors.c3, backgroundColor: colors.c3, yAxisID: 'y1', tension: 0.25, order: 1 },
+        { type: 'bar', label: '月次償却費（億円）', data: monthlyAmounts, backgroundColor: colors.c1, borderColor: colors.c1, yAxisID: 'y', order: 2 },
+        { type: 'line', label: '累計償却費（億円）', data: cumulativeAmounts, borderColor: colors.c3, backgroundColor: colors.c3, yAxisID: 'y1', hidden: false, tension: 0.25, order: 1 },
       ],
     },
-    options: baseChartOptions({ maintainAspectRatio: false, responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: 'var(--text)' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${yen(ctx.parsed.y)}` } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { beginAtZero: true, ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { color: 'var(--line)' } }, y1: { beginAtZero: true, position: 'right', ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { drawOnChartArea: false } } } }),
+    options: baseChartOptions({ maintainAspectRatio: false, responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, labels: { color: 'var(--text)' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${okuYenFixed(ctx.parsed.y)}` } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { position: 'left', title: { display: true, text: '単月値（億円）', color: 'var(--text)' }, beginAtZero: true, min: MONTHLY_AXIS_SCALE_OKU_YEN.min, max: MONTHLY_AXIS_SCALE_OKU_YEN.max, ticks: fixedOkuYenTicks(MONTHLY_AXIS_SCALE_OKU_YEN), afterBuildTicks: forceFixedAxisTicks(MONTHLY_AXIS_SCALE_OKU_YEN), grid: { color: 'var(--line)' } }, y1: { beginAtZero: true, position: 'right', title: { display: true, text: '累計値（億円）', color: 'var(--text)' }, min: CUMULATIVE_AXIS_SCALE_OKU_YEN.min, max: CUMULATIVE_AXIS_SCALE_OKU_YEN.max, ticks: fixedOkuYenTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN), afterBuildTicks: forceFixedAxisTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN), grid: { drawOnChartArea: false } } } }),
   });
 }
 
