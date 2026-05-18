@@ -49,12 +49,17 @@ test('report combo chart converts thousand-yen data to oku-yen display scales', 
   assert.deepEqual(Array.from(chart.data.datasets[0].data), [1, 123.4]);
   assert.deepEqual(Array.from(chart.data.datasets[1].data), [2, 5.1]);
   assert.deepEqual(Array.from(chart.data.datasets[2].data), [1, 124.4]);
-  assert.equal(chart.options.scales.y.max, 125);
+  assert.equal(chart.options.scales.y.min, 0);
+  assert.equal(chart.options.scales.y.max, 40);
   assert.equal(chart.options.scales.y.ticks.stepSize, 5);
-  assert.equal(chart.options.scales.y1.max, 150);
+  assert.equal(chart.options.scales.y1.display, true);
+  assert.equal(chart.options.scales.y1.min, 0);
+  assert.equal(chart.options.scales.y1.max, 400);
   assert.equal(chart.options.scales.y1.ticks.stepSize, 50);
-  assert.equal(chart.options.scales.y.ticks.callback(123.4), '123.4億円');
-  assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '月次計画（億円）' }, parsed: { y: 123.4 } }), '月次計画（億円）: 123.4億円');
+  assert.equal(chart.data.datasets[3].hidden, false);
+  assert.equal(chart.options.plugins.legend.display, true);
+  assert.equal(chart.options.scales.y.ticks.callback(40), '40億円');
+  assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '月次計画（億円）' }, parsed: { y: 123 } }), '月次計画（億円）: 123.0億円');
 });
 
 test('depreciation monthly chart converts values immediately before rendering', () => {
@@ -69,10 +74,14 @@ test('depreciation monthly chart converts values immediately before rendering', 
   const chart = context.__charts.at(-1).config;
   assert.deepEqual(Array.from(chart.data.datasets[0].data), [1, 62]);
   assert.deepEqual(Array.from(chart.data.datasets[1].data), [1, 63]);
-  assert.equal(chart.options.scales.y.max, 65);
+  assert.equal(chart.options.scales.y.min, 0);
+  assert.equal(chart.options.scales.y.max, 40);
   assert.equal(chart.options.scales.y.ticks.stepSize, 5);
-  assert.equal(chart.options.scales.y1.max, 100);
+  assert.equal(chart.options.scales.y1.min, 0);
+  assert.equal(chart.options.scales.y1.max, 400);
   assert.equal(chart.options.scales.y1.ticks.stepSize, 50);
   assert.equal(chart.options.scales.y1.ticks.callback(50), '50億円');
+  assert.equal(chart.options.plugins.legend.display, true);
+  assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '累計償却費（億円）' }, parsed: { y: 63 } }), '累計償却費（億円）: 63.0億円');
   assert.equal(rows[0].amount, 100000);
 });
