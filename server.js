@@ -1720,20 +1720,6 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
   });
 });
 
-// Import delimited text pasted from Excel or spreadsheets.
-app.post('/api/paste', (req, res) => {
-  const text = String(req.body?.text || '').replace(/^\uFEFF/, '');
-  if (!text.trim()) {
-    return res.status(400).json({ error: 'Excelからコピーした表データを貼り付けてください' });
-  }
-
-  return handleParsedImport(req, res, {
-    fileType: String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET),
-    text,
-    fileName: safeString(req.body.fileName || 'Excel貼り付けデータ'),
-  });
-});
-
 // Status
 app.get('/api/status', (_, res) => {
   const data = buildUnifiedData();

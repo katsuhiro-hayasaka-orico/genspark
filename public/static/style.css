@@ -138,14 +138,12 @@
   .panel:has(.warn) { border-color: color-mix(in srgb, var(--danger) 42%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 10%, transparent), var(--shadow-sm); }
   input[type="file"], input[type="text"], input[type="number"], select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface); color: var(--text); }
   .topbar-filters select { width: 100%; }
-  .topbar-filters:has(select:focus-visible), .controls:has(select:focus-visible), .controls:has(input:focus-visible), .import-method-card:has(textarea:focus-visible) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+  .topbar-filters:has(select:focus-visible), .controls:has(select:focus-visible), .controls:has(input:focus-visible) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
   .controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); align-items: center; border-radius: var(--radius-lg); }
   .dropzone { border: 2px dashed color-mix(in srgb, var(--primary) 35%, var(--border)); padding: var(--space-5); text-align: center; border-radius: var(--radius-lg); color: var(--text-muted); background: var(--surface-muted); }
   .dropzone:has(input[type="file"]:focus-visible) { border-color: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 14%, transparent); }
-  .import-method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
+  .import-method-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-3); margin-bottom: var(--space-3); }
   .import-method-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-muted); }
-  .paste-data { width: 100%; min-height: 220px; resize: vertical; color: var(--text); background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
-  .paste-data::placeholder { color: var(--text-muted); }
   .tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap; }
   .tabs button.active { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); color: var(--primary); font-weight: 700; }
   .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
@@ -206,8 +204,6 @@
   .col-chip:has(input:checked), .col-chip.active { border-color: var(--primary); color: var(--primary); font-weight: 700; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
   .detail-controls { align-items: end; }
   .search-field { display: grid; gap: 4px; min-width: min(360px, 100%); }
-  .detail-card-grid { container-type: inline-size; display: grid; grid-template-columns: 1fr; gap: var(--space-3); }
-  .detail-json-grid { margin-top: var(--space-3); }
   body[data-theme="neon"] .theme-toggle, body[data-theme="neon"] .panel, body[data-theme="neon"] .kpi, body[data-theme="neon"] .sidebar, body[data-theme="neon"] th, body[data-theme="neon"] .bento-card { box-shadow: 0 0 0 1px rgba(50,224,255,0.12), 0 0 14px rgba(174,124,255,0.12); }
 }
 
@@ -218,10 +214,8 @@
   .right, .kpi .value, .status, .badge, .status-pill, input[type="number"] { font-family: Arial, "Noto Sans JP", sans-serif; }
   @container (min-width: 230px) { .kpi-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); } }
   @container (min-width: 320px) { .kpi-note { display: block; } .kpi { padding: var(--space-4); } }
-  @container (min-width: 620px) { .detail-card-grid { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 1200px) {
     .grid-6 { grid-template-columns: repeat(3,1fr); }
-    .import-method-grid { grid-template-columns: 1fr; }
     .dashboard-bento, .vendor-bento { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .bento-card--wide, .bento-card--tall, .bento-card--small { grid-column: span 6; }
     .bento-card.kpi-strip { grid-column: span 6; }
