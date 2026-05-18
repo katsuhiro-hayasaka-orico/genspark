@@ -172,3 +172,58 @@ test('additional import types preserve not imported status when specs are unavai
   assert.equal(result.message, '追加データ未取込');
   assert.deepEqual(result.rows, []);
 });
+
+test('budget import accepts Excel pasted TSV with flexible header aliases and preamble rows', async () => {
+  const { parseBudgetCsv, canonicalBudgetMonthHeader } = require('../server');
+  assert.equal(canonicalBudgetMonthHeader('2025/04 予算'), '65期4月計画');
+
+  const pasted = [
+    '予実績管理 エクスポート',
+    '管理No\tNo\t対象期\t予算カテゴリ\t件名\t部門名\t担当者名\tベンダー名\t契約No\t年額\t月次金額\t投資・運用区分\t固定費・変動費\tシステムコード\tサービス名\t費目名\t分類名\t2025/04 予算\t2025/04 見込み\t2025/04 実績',
+    'PASTE-1\t1\t65\t運用\tExcel貼付案件\tIT\tAlice\tVendor X\tCX-1\t1200\t100\t運用\t固定\tSYS-X\tSystem X\tHosting\tCore\t1000\t950\t900',
+  ].join('\n');
+
+  const parsed = parseBudgetCsv(pasted);
+  assert.equal(parsed.totalRows, 1);
+  assert.equal(parsed.successRows, 1);
+  assert.equal(parsed.master[0].management_no, 'PASTE-1');
+  assert.equal(parsed.master[0].project_name, 'Excel貼付案件');
+  assert.equal(parsed.detail.length, 3);
+  assert.equal(parsed.detail.find(row => row.value_type === 'actual').amount, '900');
+});
+
+test('paste API imports Excel copied budget text without requiring a CSV file', async () => {
+  const server = startServer({ host: '127.0.0.1', port: 0 });
+  if (!server.listening) await once(server, 'listening');
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const pasted = [
+      '管理No\tNo\t対象期\t件名\t部門名\t65期4月予算\t65期4月見込み',
+      'PASTE-API-1\t1\t65\t貼付API案件\tIT\t2000\t1800',
+    ].join('\n');
+
+    const dryRunRes = await fetch(`${baseUrl}/api/paste`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileType: 'budget', text: pasted, dryRun: 'true' }),
+    });
+    assert.equal(dryRunRes.status, 200);
+    const dryRunJson = await dryRunRes.json();
+    assert.equal(dryRunJson.dryRun, true);
+    assert.equal(dryRunJson.successRows, 1);
+
+    const importRes = await fetch(`${baseUrl}/api/paste`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileType: 'budget', text: pasted, confirmImport: 'true' }),
+    });
+    assert.equal(importRes.status, 200);
+
+    const status = await fetch(`${baseUrl}/api/status`).then(res => res.json());
+    assert.equal(status.hasData, true);
+    assert.equal(status.csvFileName, 'Excel貼り付けデータ');
+  } finally {
+    await stopServer();
+  }
+});
