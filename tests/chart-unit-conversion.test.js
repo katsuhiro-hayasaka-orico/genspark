@@ -52,14 +52,23 @@ test('report combo chart converts thousand-yen data to oku-yen display scales', 
   assert.equal(chart.options.scales.y.min, 0);
   assert.equal(chart.options.scales.y.max, 40);
   assert.equal(chart.options.scales.y.ticks.stepSize, 5);
+  assert.equal(chart.options.scales.y.ticks.autoSkip, false);
+  const monthlyScale = { ticks: [] };
+  chart.options.scales.y.afterBuildTicks(monthlyScale);
+  assert.deepEqual(Array.from(monthlyScale.ticks.map(t => t.value)), [0, 5, 10, 15, 20, 25, 30, 35, 40]);
   assert.equal(chart.options.scales.y1.display, true);
   assert.equal(chart.options.scales.y1.min, 0);
   assert.equal(chart.options.scales.y1.max, 400);
   assert.equal(chart.options.scales.y1.ticks.stepSize, 50);
+  assert.equal(chart.options.scales.y1.ticks.autoSkip, false);
+  const cumulativeScale = { ticks: [] };
+  chart.options.scales.y1.afterBuildTicks(cumulativeScale);
+  assert.deepEqual(Array.from(cumulativeScale.ticks.map(t => t.value)), [0, 50, 100, 150, 200, 250, 300, 350, 400]);
   assert.equal(chart.data.datasets[3].hidden, false);
   assert.equal(chart.options.plugins.legend.display, true);
   assert.equal(chart.options.scales.y.ticks.callback(40), '40億円');
   assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '月次計画（億円）' }, parsed: { y: 123 } }), '月次計画（億円）: 123.0億円');
+  assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '計画累計（億円）' }, parsed: { y: 1234 } }), '計画累計（億円）: 1,234.0億円');
 });
 
 test('depreciation monthly chart converts values immediately before rendering', () => {
@@ -77,9 +86,17 @@ test('depreciation monthly chart converts values immediately before rendering', 
   assert.equal(chart.options.scales.y.min, 0);
   assert.equal(chart.options.scales.y.max, 40);
   assert.equal(chart.options.scales.y.ticks.stepSize, 5);
+  assert.equal(chart.options.scales.y.ticks.autoSkip, false);
+  const monthlyScale = { ticks: [] };
+  chart.options.scales.y.afterBuildTicks(monthlyScale);
+  assert.deepEqual(Array.from(monthlyScale.ticks.map(t => t.value)), [0, 5, 10, 15, 20, 25, 30, 35, 40]);
   assert.equal(chart.options.scales.y1.min, 0);
   assert.equal(chart.options.scales.y1.max, 400);
   assert.equal(chart.options.scales.y1.ticks.stepSize, 50);
+  assert.equal(chart.options.scales.y1.ticks.autoSkip, false);
+  const cumulativeScale = { ticks: [] };
+  chart.options.scales.y1.afterBuildTicks(cumulativeScale);
+  assert.deepEqual(Array.from(cumulativeScale.ticks.map(t => t.value)), [0, 50, 100, 150, 200, 250, 300, 350, 400]);
   assert.equal(chart.options.scales.y1.ticks.callback(50), '50億円');
   assert.equal(chart.options.plugins.legend.display, true);
   assert.equal(chart.options.plugins.tooltip.callbacks.label({ dataset: { label: '累計償却費（億円）' }, parsed: { y: 63 } }), '累計償却費（億円）: 63.0億円');

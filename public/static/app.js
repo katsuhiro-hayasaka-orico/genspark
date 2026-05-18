@@ -51,9 +51,22 @@ const OKU_YEN_DIVISOR_IN_THOUSAND_YEN = 100000;
 const toOkuYen = (thousandYen) => Number(thousandYen || 0) / OKU_YEN_DIVISOR_IN_THOUSAND_YEN;
 const formatOkuYenValue = (n) => Number(n || 0).toLocaleString('ja-JP', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const okuYen = (n) => `${formatOkuYenValue(n)}億円`;
-const okuYenFixed = (n) => `${Number(n || 0).toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}億円`;
+const formatFixedOneDecimal = (n) => Number(n || 0).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const okuYenFixed = (n) => `${formatFixedOneDecimal(n)}億円`;
 const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
 const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
+const fixedOkuYenTicks = (scaleConfig) => ({
+  color: 'var(--text)',
+  autoSkip: false,
+  stepSize: scaleConfig.stepSize,
+  callback: value => okuYen(value),
+});
+const forceFixedAxisTicks = (scaleConfig) => (scale) => {
+  scale.ticks = Array.from(
+    { length: Math.floor((scaleConfig.max - scaleConfig.min) / scaleConfig.stepSize) + 1 },
+    (_, idx) => ({ value: scaleConfig.min + idx * scaleConfig.stepSize }),
+  );
+};
 const isNewProject = (r) => /新規|new/i.test(r.project_name || '');
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
   '&': '&amp;',
@@ -845,7 +858,8 @@ function drawReportComboChart(canvasId, reportSeries) {
           beginAtZero: true,
           min: MONTHLY_AXIS_SCALE_OKU_YEN.min,
           max: MONTHLY_AXIS_SCALE_OKU_YEN.max,
-          ticks: { color: 'var(--text)', stepSize: MONTHLY_AXIS_SCALE_OKU_YEN.stepSize, callback: value => okuYen(value) },
+          ticks: fixedOkuYenTicks(MONTHLY_AXIS_SCALE_OKU_YEN),
+          afterBuildTicks: forceFixedAxisTicks(MONTHLY_AXIS_SCALE_OKU_YEN),
           grid: { color: 'var(--line)' },
         },
         y1: {
@@ -855,7 +869,8 @@ function drawReportComboChart(canvasId, reportSeries) {
           beginAtZero: true,
           min: CUMULATIVE_AXIS_SCALE_OKU_YEN.min,
           max: CUMULATIVE_AXIS_SCALE_OKU_YEN.max,
-          ticks: { color: 'var(--text)', stepSize: CUMULATIVE_AXIS_SCALE_OKU_YEN.stepSize, callback: value => okuYen(value) },
+          ticks: fixedOkuYenTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN),
+          afterBuildTicks: forceFixedAxisTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN),
           grid: { drawOnChartArea: false },
         },
       },
@@ -1674,7 +1689,7 @@ function drawDepreciationMonthlyChart(canvasId, rows) {
         { type: 'line', label: '累計償却費（億円）', data: cumulativeAmounts, borderColor: colors.c3, backgroundColor: colors.c3, yAxisID: 'y1', hidden: false, tension: 0.25, order: 1 },
       ],
     },
-    options: baseChartOptions({ maintainAspectRatio: false, responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, labels: { color: 'var(--text)' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${okuYenFixed(ctx.parsed.y)}` } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { position: 'left', title: { display: true, text: '単月値（億円）', color: 'var(--text)' }, beginAtZero: true, min: MONTHLY_AXIS_SCALE_OKU_YEN.min, max: MONTHLY_AXIS_SCALE_OKU_YEN.max, ticks: { color: 'var(--text)', stepSize: MONTHLY_AXIS_SCALE_OKU_YEN.stepSize, callback: value => okuYen(value) }, grid: { color: 'var(--line)' } }, y1: { beginAtZero: true, position: 'right', title: { display: true, text: '累計値（億円）', color: 'var(--text)' }, min: CUMULATIVE_AXIS_SCALE_OKU_YEN.min, max: CUMULATIVE_AXIS_SCALE_OKU_YEN.max, ticks: { color: 'var(--text)', stepSize: CUMULATIVE_AXIS_SCALE_OKU_YEN.stepSize, callback: value => okuYen(value) }, grid: { drawOnChartArea: false } } } }),
+    options: baseChartOptions({ maintainAspectRatio: false, responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, labels: { color: 'var(--text)' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${okuYenFixed(ctx.parsed.y)}` } } }, scales: { x: { ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } }, y: { position: 'left', title: { display: true, text: '単月値（億円）', color: 'var(--text)' }, beginAtZero: true, min: MONTHLY_AXIS_SCALE_OKU_YEN.min, max: MONTHLY_AXIS_SCALE_OKU_YEN.max, ticks: fixedOkuYenTicks(MONTHLY_AXIS_SCALE_OKU_YEN), afterBuildTicks: forceFixedAxisTicks(MONTHLY_AXIS_SCALE_OKU_YEN), grid: { color: 'var(--line)' } }, y1: { beginAtZero: true, position: 'right', title: { display: true, text: '累計値（億円）', color: 'var(--text)' }, min: CUMULATIVE_AXIS_SCALE_OKU_YEN.min, max: CUMULATIVE_AXIS_SCALE_OKU_YEN.max, ticks: fixedOkuYenTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN), afterBuildTicks: forceFixedAxisTicks(CUMULATIVE_AXIS_SCALE_OKU_YEN), grid: { drawOnChartArea: false } } } }),
   });
 }
 
