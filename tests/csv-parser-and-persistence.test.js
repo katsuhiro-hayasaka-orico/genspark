@@ -164,13 +164,19 @@ test('new project import normalizes 新規案件個票.csv layout', () => {
   assert.equal(result.rows[0].progress_rate, 50);
 });
 
-test('additional import types preserve not imported status when specs are unavailable', () => {
+test('oacis actual import parses japanese columns and falls back amount from 借方-貸方', () => {
   const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
-  const result = parseUploadedFile(IMPORT_FILE_TYPES.OASIS_ACTUAL, 'management_no,name\nM-1,Sample');
-
-  assert.equal(result.status, 'not_imported');
-  assert.equal(result.message, '追加データ未取込');
-  assert.deepEqual(result.rows, []);
+  const csv = [
+    '経費事象コード,経費事象名,会計日,実績部店名,借方金額,貸方金額,残高,サプライヤ,予実番号',
+    'E01,通信費,2025/04/30,本部,1200,200,, ,',
+  ].join('\n');
+  const result = parseUploadedFile(IMPORT_FILE_TYPES.OASIS_ACTUAL, csv);
+  assert.equal(result.status, 'imported');
+  assert.equal(result.message, 'OACIS実績データを取り込みました');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].actual_amount, 1000);
+  assert.equal(result.rows[0].supplier, 'サプライヤ未設定');
+  assert.equal(result.rows[0].yojitsu_no, '予実番号未設定');
 });
 
 test('budget import accepts tab-separated text with flexible header aliases and preamble rows', async () => {
