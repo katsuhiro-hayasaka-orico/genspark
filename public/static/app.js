@@ -8,19 +8,20 @@ const NAV_PAGES = [
   { key: 'vendor', label: '7. ベンダー／契約更新' },
   { key: 'detail', label: '8. 明細（検索・ドリルダウン）' },
   { key: 'settings', label: '9. 表示設定' },
-  { key: 'manual', label: '10. 取扱説明書（マニュアル）' },
   { key: 'depreciation', label: '11. 減価償却シミュレーション' },
   { key: 'oacis', label: '12. OACIS実績' },
+  { key: 'manual', label: '99. 取扱説明書（マニュアル）' },
 ];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
   { value: 'variance_reason', label: '差額理由' },
-  { value: 'new_project_actual_forecast', label: '新規案件予算見込CSV' },
+  { value: 'new_project_actual_forecast', label: '新規案件CSV' },
   { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
 ];
 
+const IMPORT_STATUS_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.map(t => t.value);
 const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
 const NOT_IMPORTED_MESSAGE = '追加データ未取込';
 const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
@@ -791,7 +792,7 @@ function additionalDataNoticeHtml() {
 
 function additionalStatusListHtml() {
   const additionalData = state.data.status?.additionalData || {};
-  return `<div class="additional-status-grid">${ADDITIONAL_FILE_TYPES.map((fileType) => {
+  return `<div class="additional-status-grid">${IMPORT_STATUS_FILE_TYPES.map((fileType) => {
     const option = IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === fileType);
     const st = additionalData[fileType] || { status: 'not_imported', message: NOT_IMPORTED_MESSAGE, rowCount: 0 };
     const imported = st.status === 'imported';
@@ -973,7 +974,7 @@ function renderImport() {
       </div>
       <div id="importSummary"></div>
       <div id="importErrors"></div>
-      <div class="panel"><h4>追加データ取込状況</h4>${additionalStatusListHtml()}</div>
+      <div class="panel"><h4>取込状況</h4>${additionalStatusListHtml()}</div>
     </div>`;
 
   const fileInput = document.getElementById('csvFile');
@@ -1017,15 +1018,55 @@ function renderImport() {
     const fd = new FormData();
     fd.append('budget_csv', file);
     fd.append('fileType', selectedType);
-    const result = await api('/upload', { method: 'POST', body: fd });
-    await refreshAllData();
-    if (selectedType === 'budget') goPage('summary');
-    else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
-    else if (selectedType === 'oasis_actual' && result.status === 'imported') goPage('oacis');
-    else if (selectedType === 'new_project_actual_forecast' && result.status === 'imported') goPage('project');
-    else {
-      renderImport();
-      document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
+
+    const sizeMb = (file.size || 0) / (1024 * 1024);
+    const showProgress = sizeMb >= 5;
+    uploadBtn.disabled = true;
+    if (showProgress) {
+      summaryEl.innerHTML = `<div class="panel"><h4>取込進捗</h4><p id="uploadProgressText">アップロード準備中…</p><progress id="uploadProgressBar" max="100" value="0" style="width:100%"></progress></div>`;
+    }
+
+    const postUploadWithProgress = () => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.responseType = 'json';
+      xhr.upload.onprogress = (event) => {
+        if (!showProgress || !event.lengthComputable) return;
+        const ratio = Math.min(100, Math.round((event.loaded / event.total) * 100));
+        const bar = document.getElementById('uploadProgressBar');
+        const text = document.getElementById('uploadProgressText');
+        if (bar) bar.value = ratio;
+        if (text) text.textContent = `アップロード中… ${ratio}% (${fmt(Math.round(event.loaded / 1024))}KB / ${fmt(Math.round(event.total / 1024))}KB)`;
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response || JSON.parse(xhr.responseText || '{}'));
+        else reject(new Error((xhr.response && xhr.response.error) || `API Error ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('アップロードに失敗しました'));
+      xhr.send(fd);
+    });
+
+    try {
+      const result = await postUploadWithProgress();
+      if (showProgress) {
+        const text = document.getElementById('uploadProgressText');
+        const bar = document.getElementById('uploadProgressBar');
+        if (bar) bar.value = 100;
+        if (text) text.textContent = 'アップロード完了。データを反映中…';
+      }
+      await refreshAllData();
+      if (selectedType === 'budget') goPage('summary');
+      else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
+      else if (selectedType === 'oasis_actual' && result.status === 'imported') goPage('oacis');
+      else if (selectedType === 'new_project_actual_forecast' && result.status === 'imported') goPage('project');
+      else {
+        renderImport();
+        document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
+      }
+    } catch (error) {
+      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル</h4><p class="warn">${escapeHtml(error.message || '取込に失敗しました')}</p></div>`;
+    } finally {
+      uploadBtn.disabled = false;
     }
   };
 
@@ -1621,7 +1662,11 @@ function renderManual() {
       <ul><li><b>見るポイント：</b>案件単位の実績・見込・担当者・ベンダー情報。</li><li><b>操作：</b>キーワード検索、列表示切替、他画面からのドリルダウン確認。</li></ul>
       <h4>9. 表示設定</h4>
       <ul><li><b>見るポイント：</b>アラート判定に使うしきい値、KPI表示順、表示倍率。</li><li><b>操作：</b>しきい値・KPI順・表示倍率（75%〜150%）・テーマ（ライト/ダーク/ネオン）を変更して反映。表示倍率は上部バーやCtrl/Cmd + +・-・0でも操作できます。</li></ul>
-      <h4>10. 取扱説明書（マニュアル）</h4>
+      <h4>11. 減価償却シミュレーション</h4>
+      <ul><li><b>見るポイント：</b>減価償却の展開区分ごとの月次推移と期別合計。</li><li><b>操作：</b>対象期・区分を切替えて、償却影響の山谷を確認。</li></ul>
+      <h4>12. OACIS実績</h4>
+      <ul><li><b>見るポイント：</b>OACIS取り込み実績と費目/取引先の集計。</li><li><b>操作：</b>実績データの偏りや未紐づき行を確認し、明細精査へ連携。</li></ul>
+      <h4>99. 取扱説明書（マニュアル）</h4>
       <ul><li><b>見るポイント：</b>運用手順、FAQ、画面別の活用方法。</li><li><b>操作：</b>不明点は本画面に戻り、該当する画面説明を確認。</li></ul>
     </div>
     <div class="panel"><h3>使い方チュートリアル（ステップ形式）</h3>
@@ -1875,7 +1920,7 @@ function showManualHintDialog() {
   document.body.insertAdjacentHTML('beforeend', `
     <dialog id="manualHintDialog" aria-labelledby="manualHintTitle" aria-describedby="manualHintDesc">
       <h3 id="manualHintTitle">初回チュートリアル</h3>
-      <p id="manualHintDesc">チュートリアルは「10. 取扱説明書（マニュアル）」から確認できます。</p>
+      <p id="manualHintDesc">チュートリアルは「99. 取扱説明書（マニュアル）」から確認できます。</p>
       <form method="dialog" class="controls">
         <button class="primary" value="ok">始める</button>
       </form>
