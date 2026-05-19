@@ -21,7 +21,6 @@ const IMPORT_FILE_TYPES = Object.freeze({
 
 const ADDITIONAL_IMPORT_FILE_TYPES = Object.freeze([
   IMPORT_FILE_TYPES.VARIANCE_REASON,
-  IMPORT_FILE_TYPES.NEW_PROJECT,
   IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST,
   IMPORT_FILE_TYPES.OASIS_ACTUAL,
   IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION,
@@ -939,7 +938,7 @@ function parseUploadedFile(fileType, text) {
     case IMPORT_FILE_TYPES.VARIANCE_REASON:
       return parseVarianceReasonCsv(text);
     case IMPORT_FILE_TYPES.NEW_PROJECT:
-      return parseNewProjectCsv(text);
+      throw new Error('新規案件CSV（旧形式）は廃止されました。新規案件予算見込CSVを取り込んでください。');
     case IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST:
       return parseNewProjectCostCsv(text);
     case IMPORT_FILE_TYPES.OASIS_ACTUAL:
