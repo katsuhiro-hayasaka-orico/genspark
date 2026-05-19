@@ -743,7 +743,52 @@ function parseNewProjectCsv(text) {
 }
 
 function parseOasisActualCsv() {
-  return makeNotImportedParseResult(IMPORT_FILE_TYPES.OASIS_ACTUAL);
+  const rows = parseCSV(arguments[0] || '').map((row) => {
+    const balance = normalizeAmount(getFirstValue(row, ['残高', 'balance']));
+    const debit = normalizeAmount(getFirstValue(row, ['借方金額', 'debit_amount', 'debit']));
+    const credit = normalizeAmount(getFirstValue(row, ['貸方金額', 'credit_amount', 'credit']));
+    const fallbackAmount = debit.value - credit.value;
+    const amount = balance.valid && !balance.blank ? balance.value : fallbackAmount;
+    const accountingDate = normalizeDateString(getFirstValue(row, ['会計日', 'accounting_date', 'date']));
+    const supplier = getFirstValue(row, ['サプライヤ', 'supplier']) || 'サプライヤ未設定';
+    const yojitsuNo = getFirstValue(row, ['予実番号', 'yojitsu_no']) || '予実番号未設定';
+    return {
+      ...row,
+      expense_event_code: getFirstValue(row, ['経費事象コード', 'expense_event_code']),
+      expense_event_name: getFirstValue(row, ['経費事象名', 'expense_event_name']),
+      expense_event_detail_code: getFirstValue(row, ['経費事象細目コード', 'expense_event_detail_code']),
+      expense_event_detail_name: getFirstValue(row, ['経費事象細目名', 'expense_event_detail_name']),
+      accounting_date: accountingDate.valid ? accountingDate.value : safeString(getFirstValue(row, ['会計日', 'accounting_date', 'date'])),
+      budget_department_code: getFirstValue(row, ['予算部店コード', 'budget_department_code']),
+      budget_department_name: getFirstValue(row, ['予算部店名', 'budget_department_name']),
+      actual_department_code: getFirstValue(row, ['実績部店コード', 'actual_department_code']),
+      actual_department_name: getFirstValue(row, ['実績部店名', 'actual_department_name']),
+      debit_amount: debit.value,
+      credit_amount: credit.value,
+      balance_amount: balance.valid ? balance.value : 0,
+      actual_amount: amount,
+      supplier,
+      journal_summary: getFirstValue(row, ['仕訳摘要', 'journal_summary']),
+      journal_detail_summary: getFirstValue(row, ['仕訳明細摘要', 'journal_detail_summary']),
+      invoice_no: getFirstValue(row, ['請求書番号', 'invoice_no']),
+      payment_base_date: getFirstValue(row, ['支払起算日', 'payment_base_date']),
+      number: getFirstValue(row, ['番号', 'number']),
+      detail_code: getFirstValue(row, ['細目コード', 'detail_code']),
+      major_classification: getFirstValue(row, ['大分類', 'major_classification']),
+      yojitsu_no: yojitsuNo,
+      yojitsu_no_missing: yojitsuNo === '予実番号未設定',
+    };
+  }).filter((row) => (
+    row.expense_event_code || row.expense_event_name || row.accounting_date || row.actual_department_name || row.supplier || row.actual_amount
+  ));
+
+  return {
+    fileType: IMPORT_FILE_TYPES.OASIS_ACTUAL,
+    status: rows.length > 0 ? 'imported' : 'not_imported',
+    message: rows.length > 0 ? 'OACIS実績データを取り込みました' : NOT_IMPORTED_MESSAGE,
+    rows,
+    byManagementNo: {},
+  };
 }
 
 function normalizeDepreciationPeriodType(value) {
@@ -1874,6 +1919,73 @@ app.get('/api/items', (req, res) => {
 // Analysis: new projects from 新規案件個票.csv
 app.get('/api/analysis/new-projects', (_, res) => {
   res.json({ data: buildNewProjectAnalysis() });
+});
+
+app.get('/api/analysis/oacis-actual', (_, res) => {
+  const rows = normalizeAdditionalDataStore(store.additionalData)[IMPORT_FILE_TYPES.OASIS_ACTUAL]?.rows || [];
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.actual_amount || 0), 0);
+  const expenseSet = new Set();
+  const supplierSet = new Set();
+  let yojitsuNoPresentCount = 0;
+  let yojitsuNoMissingCount = 0;
+  let yojitsuNoPresentAmount = 0;
+  let yojitsuNoMissingAmount = 0;
+  const byExpenseMap = new Map();
+  const bySupplierMap = new Map();
+  const byYojitsuMap = new Map();
+  const missingYojitsuNoRows = [];
+  const bump = (container, key) => { container.set(key, (container.get(key) || 0) + 1); };
+  for (const row of rows) {
+    const amount = Number(row.actual_amount || 0);
+    const expenseCode = row.expense_event_code || '未設定';
+    const expenseName = row.expense_event_name || '未設定';
+    const supplier = row.supplier || 'サプライヤ未設定';
+    const yojitsuNo = row.yojitsu_no || '予実番号未設定';
+    expenseSet.add(`${expenseCode}\u0001${expenseName}`);
+    supplierSet.add(supplier);
+    const expenseKey = `${expenseCode}\u0001${expenseName}`;
+    if (!byExpenseMap.has(expenseKey)) byExpenseMap.set(expenseKey, { expense_event_code: expenseCode, expense_event_name: expenseName, amount: 0, rowCount: 0 });
+    const expenseItem = byExpenseMap.get(expenseKey);
+    expenseItem.amount += amount; expenseItem.rowCount += 1;
+    if (!bySupplierMap.has(supplier)) bySupplierMap.set(supplier, { supplier, amount: 0, rowCount: 0, eventCounter: new Map() });
+    const supplierItem = bySupplierMap.get(supplier);
+    supplierItem.amount += amount; supplierItem.rowCount += 1; bump(supplierItem.eventCounter, expenseName);
+    if (!byYojitsuMap.has(yojitsuNo)) byYojitsuMap.set(yojitsuNo, { yojitsu_no: yojitsuNo, amount: 0, rowCount: 0, eventCounter: new Map(), supplierCounter: new Map() });
+    const yojitsuItem = byYojitsuMap.get(yojitsuNo);
+    yojitsuItem.amount += amount; yojitsuItem.rowCount += 1; bump(yojitsuItem.eventCounter, expenseName); bump(yojitsuItem.supplierCounter, supplier);
+    if (yojitsuNo === '予実番号未設定') {
+      yojitsuNoMissingCount += 1;
+      yojitsuNoMissingAmount += amount;
+      if (missingYojitsuNoRows.length < 100) {
+        missingYojitsuNoRows.push({
+          accounting_date: row.accounting_date || '',
+          actual_department_name: row.actual_department_name || '',
+          expense_event_name: expenseName,
+          expense_event_detail_name: row.expense_event_detail_name || '',
+          supplier,
+          amount,
+          journal_summary: row.journal_summary || '',
+          journal_detail_summary: row.journal_detail_summary || '',
+          invoice_no: row.invoice_no || '',
+        });
+      }
+    } else {
+      yojitsuNoPresentCount += 1;
+      yojitsuNoPresentAmount += amount;
+    }
+  }
+  const topFromCounter = (counter) => [...counter.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '未設定';
+  const ranked = (arr) => arr.sort((a, b) => b.amount - a.amount).slice(0, 20);
+  const byExpenseEvent = ranked([...byExpenseMap.values()]).map(item => ({ ...item, shareRate: totalAmount ? item.amount / totalAmount * 100 : 0 }));
+  const bySupplier = ranked([...bySupplierMap.values()]).map(item => ({ supplier: item.supplier, amount: item.amount, rowCount: item.rowCount, shareRate: totalAmount ? item.amount / totalAmount * 100 : 0, mainExpenseEventName: topFromCounter(item.eventCounter) }));
+  const byYojitsuNo = ranked([...byYojitsuMap.values()]).map(item => ({ yojitsu_no: item.yojitsu_no, amount: item.amount, rowCount: item.rowCount, mainExpenseEventName: topFromCounter(item.eventCounter), mainSupplier: topFromCounter(item.supplierCounter) }));
+  res.json({
+    summary: { totalAmount, rowCount: rows.length, expenseEventCount: expenseSet.size, supplierCount: supplierSet.size, yojitsuNoPresentCount, yojitsuNoMissingCount, yojitsuNoPresentAmount, yojitsuNoMissingAmount },
+    byExpenseEvent,
+    bySupplier,
+    byYojitsuNo,
+    missingYojitsuNoRows,
+  });
 });
 
 // Analysis: by system

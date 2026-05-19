@@ -5,7 +5,7 @@ const fs = require('node:fs');
 test('manual route is checked before no-data gate in renderPage', () => {
   const appJs = fs.readFileSync('public/static/app.js', 'utf8');
   const manualCheck = "if (state.page === 'manual') return renderManual();";
-  const dataGate = "if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData)) return goPage('import');";
+  const dataGate = "if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData) && !(state.page === 'oacis' && hasOacisData)) return goPage('import');";
 
   const manualIndex = appJs.indexOf(manualCheck);
   const dataGateIndex = appJs.indexOf(dataGate);
