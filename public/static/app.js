@@ -1351,14 +1351,16 @@ async function renderProject() {
         </div>
         <span class="badge">新規案件予算見込CSV</span>
       </div>
-      <div class="dashboard-bento">
-        <div class="bento-card"><div class="kpi"><small>新規案件数</small><b>${fmt(summary.projectCount || 0)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>予算金額合計</small><b>${yen(summary.totalBudget || 0)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>見込金額合計</small><b>${yen(summary.totalForecast || 0)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>差額合計</small><b>${yen(summary.totalVariance || 0)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>差額率</small><b>${pct((summary.varianceRate || 0) * 100)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>5年経費合計</small><b>${yen(summary.totalFiveYearCost || 0)}</b></div></div>
-        <div class="bento-card"><div class="kpi"><small>要確認案件数</small><b>${fmt(summary.alertProjectCount || 0)}</b></div></div>
+      <div class="panel">
+        <div class="kpi-strip oacis-kpi-strip">
+          <article class="kpi oacis-summary-card"><div class="label">新規案件数</div><div class="value">${fmt(summary.projectCount || 0)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">予算金額合計</div><div class="value">${yen(summary.totalBudget || 0)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">見込金額合計</div><div class="value">${yen(summary.totalForecast || 0)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">差額合計</div><div class="value">${yen(summary.totalVariance || 0)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">差額率</div><div class="value">${pct((summary.varianceRate || 0) * 100)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">5年経費合計</div><div class="value">${yen(summary.totalFiveYearCost || 0)}</div></article>
+          <article class="kpi oacis-summary-card"><div class="label">要確認案件数</div><div class="value">${fmt(summary.alertProjectCount || 0)}</div></article>
+        </div>
       </div>
       <div class="grid-2">
         <div><h4>案件区分別比較</h4><div class="table-wrap"><table><thead><tr><th>案件区分</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th></tr></thead><tbody>${(payload.byProjectCategory || []).map(r => `<tr><td>${escapeHtml(r.projectCategory)}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right">${yen(r.varianceAmount)}</td></tr>`).join('')}</tbody></table></div></div>
