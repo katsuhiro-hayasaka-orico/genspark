@@ -735,6 +735,7 @@ function goPage(page) {
   withViewTransition(() => {
     state.page = page;
     initNav();
+    initFilterBar();
     renderPage();
   });
 }
