@@ -3,14 +3,14 @@ const NAV_PAGES = [
   { key: 'summary', label: '2. 全体サマリー（月次レポート）' },
   { key: 'trend', label: '3. 推移（前年差／トレンド）' },
   { key: 'category', label: '4. カテゴリ別分析' },
-  { key: 'project', label: '5. プロジェクト別コスト管理（新規案件）' },
-  { key: 'alert', label: '6. アラート（乖離・変動）' },
-  { key: 'vendor', label: '7. ベンダー／契約更新' },
-  { key: 'detail', label: '8. 明細（検索・ドリルダウン）' },
-  { key: 'settings', label: '9. 表示設定' },
-  { key: 'depreciation', label: '11. 減価償却シミュレーション' },
-  { key: 'oacis', label: '12. OACIS実績' },
-  { key: 'manual', label: '99. 取扱説明書（マニュアル）' },
+  { key: 'alert', label: '5. アラート（乖離・変動）' },
+  { key: 'vendor', label: '6. ベンダー／契約更新' },
+  { key: 'detail', label: '7. 明細（検索・ドリルダウン）' },
+  { key: 'project', label: '8. プロジェクト別コスト管理（新規案件）' },
+  { key: 'depreciation', label: '9. 減価償却シミュレーション' },
+  { key: 'oacis', label: '10. OACIS実績' },
+  { key: 'settings', label: 'A1. 表示設定（共通）' },
+  { key: 'manual', label: 'A2. 取扱説明書（マニュアル）' },
 ];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
@@ -100,6 +100,13 @@ const formatYearMonth = (ym) => {
   return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}/${s.slice(4, 6)}` : (s || '-');
 };
 const firstPresent = (...values) => values.find(value => value !== undefined && value !== null && String(value).trim() !== '');
+
+
+const GLOBAL_FILTER_VISIBLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail'];
+
+function shouldShowGlobalFilters(page = state.page) {
+  return GLOBAL_FILTER_VISIBLE_PAGES.includes(page);
+}
 
 const DETAIL_FILTER_LABELS = {
   management_no: '管理番号',
@@ -658,6 +665,14 @@ function initNav() {
 }
 
 function initFilterBar() {
+  const root = document.getElementById('globalFilters');
+  if (!shouldShowGlobalFilters()) {
+    root.innerHTML = '';
+    root.style.display = 'none';
+    return;
+  }
+  root.style.display = '';
+
   const st = state.data.status || {};
   const depts = st.departments || [];
   const vendors = (st.vendors || []).slice(0, 20);
@@ -665,7 +680,6 @@ function initFilterBar() {
   normalizeGlobalScopeFilters();
   const yms = getYearMonthOptions();
   const targets = ['すべて', '継続案件', '新規案件', ...vendors.map(v => `ベンダー:${v}`)];
-  const root = document.getElementById('globalFilters');
   root.innerHTML = `
     <label>表示単位 <select id="fPeriodMode">${['月次', '四半期', '通期'].map(v => optionHtml(v, state.filters.periodMode)).join('')}</select></label>
     <label>対象期 <select id="fFiscalPeriod">${periods.map(v => optionHtml(v, state.filters.fiscalPeriod)).join('')}</select></label>
