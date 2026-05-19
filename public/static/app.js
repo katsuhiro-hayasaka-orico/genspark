@@ -3,7 +3,7 @@ const NAV_PAGES = [
   { key: 'summary', label: '2. 全体サマリー（月次レポート）' },
   { key: 'trend', label: '3. 推移（前年差／トレンド）' },
   { key: 'category', label: '4. カテゴリ別分析' },
-  { key: 'project', label: '5. プロジェクト別（新規案件）' },
+  { key: 'project', label: '5. プロジェクト別コスト管理（新規案件）' },
   { key: 'alert', label: '6. アラート（乖離・変動）' },
   { key: 'vendor', label: '7. ベンダー／契約更新' },
   { key: 'detail', label: '8. 明細（検索・ドリルダウン）' },
@@ -17,6 +17,7 @@ const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
   { value: 'variance_reason', label: '差額理由' },
   { value: 'new_project', label: '新規案件' },
+  { value: 'new_project_actual_forecast', label: '新規案件予算見込CSV' },
   { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
 ];
@@ -1022,6 +1023,7 @@ function renderImport() {
     if (selectedType === 'budget') goPage('summary');
     else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
     else if (selectedType === 'oasis_actual' && result.status === 'imported') goPage('oacis');
+    else if (selectedType === 'new_project_actual_forecast' && result.status === 'imported') goPage('project');
     else {
       renderImport();
       document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
@@ -1331,64 +1333,49 @@ function renderCategory() {
 async function renderProject() {
   const content = document.getElementById('content');
   content.innerHTML = '<div class="panel"><p>新規案件データを読み込み中です...</p></div>';
-
-  const analysis = await api('/analysis/new-projects').catch(() => ({ data: null }));
-  const payload = analysis.data || { projects: [], groupSummary: [], hasNewProjectCsv: false, sourceRowCount: 0 };
-  const fallbackRows = filteredItems()
-    .filter(r => isNewProject(r) || (r.payment_category || '').includes('投資'))
-    .map(r => {
-      const plan = Number(r.totalPlan || 0);
-      const comparable = Number(r.totalActual || 0) > 0 ? Number(r.totalActual || 0) : Number(r.totalForecast || 0);
-      return {
-        ...r,
-        project_category: r.payment_category || r.budget_category || '',
-        it_strategy_category: r.system_classification || '',
-        progress_rate: plan ? comparable / Math.max(plan, 1) * 100 : 0,
-        cost_burn_rate: plan ? comparable / Math.max(plan, 1) * 100 : 0,
-        variance_amount: plan - comparable,
-        comparableAmount: comparable,
-      };
-    });
-  const rows = (payload.projects && payload.projects.length ? payload.projects : fallbackRows);
-  const scatter = rows.slice(0, 200).map(r => ({
-    x: Number(r.progress_rate || 0),
-    y: Number(r.cost_burn_rate || 0),
-  }));
-  const categoryRows = (payload.groupSummary || []).filter(r => r.type === 'project_category').slice(0, 8);
-  const strategyRows = (payload.groupSummary || []).filter(r => r.type === 'it_strategy_category').slice(0, 8);
+  const payload = await api('/analysis/new-project-costs').catch(() => null);
+  if (!payload) {
+    content.innerHTML = '<div class="panel"><p>新規案件予算見込CSVが未取込です。</p></div>';
+    return;
+  }
+  const rows = payload.projectRanking || [];
+  const summary = payload.summary || {};
+  const detailRows = payload.detailRows || [];
+  const scatter = (payload.progressCostMatrix || []).map(r => ({ x: Number(r.progressRate || 0), y: Number(r.costConsumptionRate || 0) * 100 }));
 
   content.innerHTML = `
     <section class="panel">
       <div class="card-title-row">
         <div>
-          <h3>プロジェクト別予算実績差異（新規案件個票）</h3>
-          <p class="muted">新規案件個票.csv の「案件区分」と「区分_1（IT戦区分）」別に、予算金額と見込／実績の差額を確認します。</p>
+          <h3>プロジェクト別コスト管理（新規案件）</h3>
+          <p class="muted">進捗率は進捗状況からの簡易換算、差額理由は進捗状況/memoからの簡易分類です。</p>
         </div>
-        <span class="badge">${payload.hasNewProjectCsv ? `新規案件CSV ${fmt(payload.sourceRowCount)}行` : '予実績管理データから抽出'}</span>
+        <span class="badge">新規案件予算見込CSV</span>
+      </div>
+      <div class="dashboard-bento">
+        <div class="bento-card"><div class="kpi"><small>新規案件数</small><b>${fmt(summary.projectCount || 0)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>予算金額合計</small><b>${yen(summary.totalBudget || 0)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>見込金額合計</small><b>${yen(summary.totalForecast || 0)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>差額合計</small><b>${yen(summary.totalVariance || 0)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>差額率</small><b>${pct((summary.varianceRate || 0) * 100)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>5年経費合計</small><b>${yen(summary.totalFiveYearCost || 0)}</b></div></div>
+        <div class="bento-card"><div class="kpi"><small>要確認案件数</small><b>${fmt(summary.alertProjectCount || 0)}</b></div></div>
       </div>
       <div class="grid-2">
-        <div><h4>投資系／運用系など案件区分別</h4><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">予算</th><th class="right">見込／実績</th><th class="right">差額</th></tr></thead><tbody>${categoryRows.map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${yen(r.plan)}</td><td class="right">${yen(r.comparable)}</td><td class="right ${Math.abs(r.variance) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance)}</td></tr>`).join('') || '<tr><td colspan="4">分類データなし</td></tr>'}</tbody></table></div></div>
-        <div><h4>IT戦区分別</h4><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">予算</th><th class="right">見込／実績</th><th class="right">差額</th></tr></thead><tbody>${strategyRows.map(r => `<tr><td>${escapeHtml(r.key)}</td><td class="right">${yen(r.plan)}</td><td class="right">${yen(r.comparable)}</td><td class="right ${Math.abs(r.variance) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance)}</td></tr>`).join('') || '<tr><td colspan="4">分類データなし</td></tr>'}</tbody></table></div></div>
+        <div><h4>案件区分別比較</h4><div class="table-wrap"><table><thead><tr><th>案件区分</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th></tr></thead><tbody>${(payload.byProjectCategory || []).map(r => `<tr><td>${escapeHtml(r.projectCategory)}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right">${yen(r.varianceAmount)}</td></tr>`).join('')}</tbody></table></div></div>
+        <div><h4>差額理由サマリー</h4><div class="table-wrap"><table><thead><tr><th>差額理由</th><th class="right">件数</th><th class="right">差額</th></tr></thead><tbody>${(payload.byVarianceReason || []).map(r => `<tr><td>${escapeHtml(r.varianceReason)}</td><td class="right">${fmt(r.projectCount)}</td><td class="right">${yen(r.varianceAmount)}</td></tr>`).join('')}</tbody></table></div></div>
       </div>
     </section>
-    <div class="panel"><div class="controls"><input id="pSearch" type="text" placeholder="案件名・管理番号・担当者で検索"></div><div style="height:300px"><canvas id="projectScatter"></canvas></div></div>
-    <div class="panel"><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>プロジェクト</th><th>案件区分</th><th>IT戦区分</th><th class="right">予算実績差異</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th>差額理由分類</th><th>差額理由</th><th>memo/コメント</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
+    <div class="panel"><div class="controls"><input id="pSearch" type="text" placeholder="管理番号 / 案件名 / 担当者検索"></div><div style="height:300px"><canvas id="projectScatter"></canvas></div></div>
+    <div class="panel new-project-detail-table"><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>案件名</th><th>案件区分</th><th>進捗状況</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">コスト消化率</th><th>差額理由</th><th>memo</th></tr></thead><tbody id="projectRows"></tbody></table></div></div>`;
 
   const drawRows = (q = '') => {
     const query = q.toLowerCase();
-    const view = rows.filter(r => !query || [r.project_name, r.management_no, r.owner_name, r.team_name].some(v => String(v || '').toLowerCase().includes(query)));
+    const view = rows.filter(r => !query || [r.projectName, r.managementNo, r.owner].some(v => String(v || '').toLowerCase().includes(query)));
     document.getElementById('projectRows').innerHTML = view.slice(0, 300).map(r => `
-      <tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}">
-        <td>${escapeHtml(r.management_no || '-')}</td>
-        <td>${escapeHtml(r.project_name || '(名称未設定)')}</td>
-        <td>${escapeHtml(r.project_category || '未設定')}</td>
-        <td>${escapeHtml(r.it_strategy_category || '未設定')}</td>
-        <td class="right ${Math.abs(Number(r.variance_amount || 0)) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${yen(r.variance_amount)}</td>
-        <td class="right">${pct(r.progress_rate)}</td>
-        <td class="right">${pct(r.cost_burn_rate)}</td>
-        <td>${displayHtml(r.variance_reason_category)}</td>
-        <td>${displayHtml(r.variance_reason)}</td>
-        <td>${displayHtml(r.comment || r.memo)}</td>
+      <tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.managementNo)}">
+        <td>${escapeHtml(r.managementNo || '-')}</td><td>${escapeHtml(r.projectName || '(名称未設定)')}</td><td>${escapeHtml(r.projectCategory || '未設定')}</td><td>${escapeHtml(r.progressStatus || '未設定')}</td>
+        <td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right">${yen(r.varianceAmount)}</td><td class="right">${pct((r.varianceRate || 0) * 100)}</td><td class="right">${pct((r.costConsumptionRate || 0) * 100)}</td><td>${displayHtml(r.varianceReason)}</td><td>${displayHtml(r.memo)}</td>
       </tr>`).join('') || '<tr><td colspan="10">対象なし</td></tr>';
     bindDetailFilterLinks(document.getElementById('projectRows'));
   };
@@ -1623,7 +1610,7 @@ function renderManual() {
       <ul><li><b>見るポイント：</b>異常に増減した月、前年同月比の跳ね。</li><li><b>操作：</b>表示月数や指標を切替え、異常月を起点に原因を深掘り。</li></ul>
       <h4>4. カテゴリ別分析</h4>
       <ul><li><b>見るポイント：</b>費目・システム・固定変動など切り口別の構成比。</li><li><b>操作：</b>タブ切替で観点を変更し、寄与度の高いカテゴリを確認。</li></ul>
-      <h4>5. プロジェクト別（新規案件）</h4>
+      <h4>5. プロジェクト別コスト管理（新規案件）</h4>
       <ul><li><b>見るポイント：</b>新規案件の予算規模、見込乖離、進捗。</li><li><b>操作：</b>対象フィルタで新規案件に絞り、案件別に優先度を判断。</li></ul>
       <h4>6. アラート（乖離・変動）</h4>
       <ul><li><b>見るポイント：</b>乖離率・差額・前月比・前年比のしきい値超過。</li><li><b>操作：</b>9. 表示設定でしきい値を調整し、重要アラートのみ抽出。</li></ul>
