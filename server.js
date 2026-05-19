@@ -13,6 +13,8 @@ const STORE_FILE = process.env.BUDGET_CSV_VIEWER_STORE_FILE || path.join(APP_DAT
 const IMPORT_FILE_TYPES = Object.freeze({
   BUDGET: 'budget',
   VARIANCE_REASON: 'variance_reason',
+  NEW_PROJECT_MASTER: 'new_project_master',
+  NEW_PROJECT_MONTHLY_COST: 'new_project_monthly_cost',
   NEW_PROJECT: 'new_project',
   NEW_PROJECT_ACTUAL_FORECAST: 'new_project_actual_forecast',
   OASIS_ACTUAL: 'oasis_actual',
@@ -21,6 +23,9 @@ const IMPORT_FILE_TYPES = Object.freeze({
 
 const ADDITIONAL_IMPORT_FILE_TYPES = Object.freeze([
   IMPORT_FILE_TYPES.VARIANCE_REASON,
+  IMPORT_FILE_TYPES.NEW_PROJECT_MASTER,
+  IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST,
+  IMPORT_FILE_TYPES.NEW_PROJECT,
   IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST,
   IMPORT_FILE_TYPES.OASIS_ACTUAL,
   IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION,
@@ -814,6 +819,47 @@ function parseNewProjectCostCsv(text) {
   return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST, rows, '新規案件予算見込CSVを取り込みました');
 }
 
+function parseNewProjectMasterCsv(text) {
+  const rows = parseCSV(text).map((row, idx) => {
+    const managementNo = normalizeManagementNo(row) || `NO-${idx + 1}`;
+    return {
+      management_no: managementNo,
+      project_name: getFirstValue(row, ['案件名', 'project_name']) || `(案件名未設定:${managementNo})`,
+      owner_name: getFirstValue(row, ['案件担当者', '担当者', 'owner_name']),
+      production_start_date: getFirstValue(row, ['本番開始予定日', 'production_start_date']),
+      it_investment_simulation_no: getFirstValue(row, ['IT投資シミュレーション№', 'IT投資ｼﾐｭﾚｰｼｮﾝ№', 'it_investment_simulation_no']),
+      progress_status: getFirstValue(row, ['進捗状況', 'progress_status']) || '未設定',
+      progress_rate: deriveProgressRateFromStatus(getFirstValue(row, ['進捗状況', 'progress_status'])),
+      has_budget: getFirstValue(row, ['予算有り', 'has_budget']),
+      five_year_expense_total: normalizeAmount(getFirstValue(row, ['5年経費合計', 'five_year_expense_total'])).value,
+      project_category: getFirstValue(row, ['案件区分', 'project_category']) || '未設定',
+      memo: getFirstValue(row, ['memo', 'メモ']),
+    };
+  });
+  return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT_MASTER, rows, '新規案件マスタCSVを取り込みました');
+}
+
+function parseNewProjectMonthlyCostCsv(text) {
+  const rows = parseCSV(text).map((row, idx) => {
+    const budget = normalizeAmount(getFirstValue(row, ['予算金額', 'budget_amount'])).value;
+    const forecast = normalizeAmount(getFirstValue(row, ['見込金額', '見込み金額', 'forecast_amount'])).value;
+    const varianceAmount = forecast - budget;
+    const month = normalizeYearMonthString(getFirstValue(row, ['対象年月', '年月', 'target_year_month']));
+    const managementNo = normalizeManagementNo(row) || `NO-${idx + 1}`;
+    return {
+      management_no: managementNo,
+      expense_event: getFirstValue(row, ['経費事象', 'expense_event']) || '未設定',
+      target_year_month: month.valid ? month.value : '',
+      budget_amount: budget,
+      forecast_amount: forecast,
+      variance_amount: varianceAmount,
+      variance_rate: budget ? varianceAmount / budget : null,
+      cost_group: deriveCostGroup(getFirstValue(row, ['投資運用区分']), getFirstValue(row, ['経費事象'])),
+    };
+  });
+  return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST, rows, '新規案件月次金額CSVを取り込みました');
+}
+
 function parseOasisActualCsv() {
   const rows = parseCSV(arguments[0] || '').map((row) => {
     const balance = normalizeAmount(getFirstValue(row, ['残高', 'balance']));
@@ -938,7 +984,11 @@ function parseUploadedFile(fileType, text) {
     case IMPORT_FILE_TYPES.VARIANCE_REASON:
       return parseVarianceReasonCsv(text);
     case IMPORT_FILE_TYPES.NEW_PROJECT:
-      throw new Error('新規案件CSV（旧形式）は廃止されました。新規案件予算見込CSVを取り込んでください。');
+      return parseNewProjectCsv(text);
+    case IMPORT_FILE_TYPES.NEW_PROJECT_MASTER:
+      return parseNewProjectMasterCsv(text);
+    case IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST:
+      return parseNewProjectMonthlyCostCsv(text);
     case IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST:
       return parseNewProjectCostCsv(text);
     case IMPORT_FILE_TYPES.OASIS_ACTUAL:
@@ -1997,7 +2047,47 @@ app.get('/api/analysis/new-projects', (_, res) => {
 
 app.get('/api/analysis/new-project-costs', (_, res) => {
   const normalizedAdditional = normalizeAdditionalDataStore(store.additionalData);
-  const rows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST]?.rows || [];
+  const masterRows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT_MASTER]?.rows || [];
+  const monthlyRows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST]?.rows || [];
+  const legacyRows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST]?.rows || [];
+  const useTwoFileMode = masterRows.length > 0 || monthlyRows.length > 0;
+  if (useTwoFileMode && (!masterRows.length || !monthlyRows.length)) {
+    return res.status(400).json({
+      error: '新規案件データは2ファイル構成です。new_project_master.csv と new_project_monthly_cost.csv の両方を取り込んでください。',
+      missing: {
+        new_project_master: masterRows.length === 0,
+        new_project_monthly_cost: monthlyRows.length === 0,
+      },
+    });
+  }
+  const rows = useTwoFileMode
+    ? monthlyRows.map((m) => {
+      const master = masterRows.find((x) => x.management_no === m.management_no) || {};
+      const status = master.progress_status || '未設定';
+      const memo = master.memo || '';
+      return {
+        management_no: m.management_no,
+        team_name: '',
+        project_name: master.project_name || `(案件名未設定:${m.management_no})`,
+        owner_name: master.owner_name || '',
+        production_start_date: master.production_start_date || '',
+        it_investment_simulation_no: master.it_investment_simulation_no || '未設定',
+        expense_event: m.expense_event,
+        cost_group: m.cost_group,
+        progress_status: status,
+        progress_rate: master.progress_rate ?? deriveProgressRateFromStatus(status),
+        project_category: master.project_category || '未設定',
+        memo,
+        target_year_month: m.target_year_month,
+        budget_amount: Number(m.budget_amount || 0),
+        forecast_amount: Number(m.forecast_amount || 0),
+        variance_amount: Number(m.variance_amount || 0),
+        variance_rate: m.variance_rate ?? (Number(m.budget_amount || 0) ? Number(m.variance_amount || 0) / Number(m.budget_amount || 0) : null),
+        five_year_expense_total: Number(master.five_year_expense_total || 0),
+        variance_reason: deriveVarianceReason(status, memo, Number(m.variance_amount || 0)),
+      };
+    })
+    : legacyRows;
   const projectMap = new Map();
   const monthlyMap = new Map();
   const byCostGroup = {};
