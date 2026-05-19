@@ -14,6 +14,7 @@ const IMPORT_FILE_TYPES = Object.freeze({
   BUDGET: 'budget',
   VARIANCE_REASON: 'variance_reason',
   NEW_PROJECT: 'new_project',
+  NEW_PROJECT_ACTUAL_FORECAST: 'new_project_actual_forecast',
   OASIS_ACTUAL: 'oasis_actual',
   DEPRECIATION_SIMULATION: 'depreciation_simulation',
 });
@@ -21,6 +22,7 @@ const IMPORT_FILE_TYPES = Object.freeze({
 const ADDITIONAL_IMPORT_FILE_TYPES = Object.freeze([
   IMPORT_FILE_TYPES.VARIANCE_REASON,
   IMPORT_FILE_TYPES.NEW_PROJECT,
+  IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST,
   IMPORT_FILE_TYPES.OASIS_ACTUAL,
   IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION,
 ]);
@@ -742,6 +744,77 @@ function parseNewProjectCsv(text) {
   return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT, rows, '新規案件データを取り込みました');
 }
 
+function deriveCostGroup(costGroupRaw, expenseEvent) {
+  const v = safeString(costGroupRaw);
+  if (v) return v;
+  const e = safeString(expenseEvent);
+  if (/A\.日本IBM投資|B\.キンドリル社投資|開発費|他社開発/.test(e)) return '投資系';
+  if (/運用費|リース料|保守料|外部委託|回線料|事務用品/.test(e)) return '運用系';
+  return '未分類';
+}
+function deriveProgressRateFromStatus(status) {
+  const s = safeString(status);
+  if (!s) return null;
+  if (/01\.未着手|未着手/.test(s) || /取下げ|削除/.test(s)) return 0;
+  if (/今期中に案件組成|来期案件組成予定/.test(s)) return 20;
+  if (/組成予定/.test(s)) return 40;
+  if (/組成済/.test(s)) return 60;
+  if (/予算計画通り/.test(s)) return 80;
+  if (/完了/.test(s)) return 100;
+  return null;
+}
+function deriveVarianceReason(status, memo, varianceAmount) {
+  const text = `${safeString(status)} ${safeString(memo)}`;
+  if (/見込精緻化/.test(text)) return '見込精緻化';
+  if (/コスト削減/.test(text)) return 'コスト削減';
+  if (/遅延/.test(text)) return '遅延';
+  if (/取下げ|取下/.test(text)) return '取下げ';
+  if (/削除/.test(text)) return '削除';
+  if (/計上年度/.test(text)) return '計上年度誤り';
+  if (/予算計画通り/.test(text)) return '予算計画通り';
+  if (/未着手/.test(text)) return '未着手';
+  if (Number(varianceAmount || 0) === 0) return '差額なし';
+  return 'その他';
+}
+function parseNewProjectCostCsv(text) {
+  const rows = parseCSV(text).map((row, idx) => {
+    const budget = normalizeAmount(getFirstValue(row, ['予算金額'])).value;
+    const forecast = normalizeAmount(getFirstValue(row, ['見込金額', '見込み金額'])).value;
+    const varianceRaw = normalizeAmount(getFirstValue(row, ['差額']));
+    const varianceAmount = varianceRaw.blank ? (forecast - budget) : varianceRaw.value;
+    const varianceRateRaw = normalizeAmount(getFirstValue(row, ['差額率']));
+    const varianceRate = varianceRateRaw.blank ? (budget ? varianceAmount / budget : null) : varianceRateRaw.value;
+    const month = normalizeYearMonthString(getFirstValue(row, ['対象年月', '年月']));
+    const status = getFirstValue(row, ['進捗状況']);
+    const memo = getFirstValue(row, ['memo', 'メモ']);
+    const costGroup = deriveCostGroup(getFirstValue(row, ['投資運用区分']), getFirstValue(row, ['経費事象']));
+    const managementNo = normalizeManagementNo(row) || `NO-${idx + 1}`;
+    const projectName = getFirstValue(row, ['案件名']) || `(案件名未設定:${managementNo})`;
+    return {
+      management_no: managementNo,
+      team_name: getFirstValue(row, ['チーム名']),
+      project_name: projectName,
+      owner_name: getFirstValue(row, ['案件担当者', '担当者']),
+      production_start_date: getFirstValue(row, ['本番開始予定日']),
+      it_investment_simulation_no: getFirstValue(row, ['IT投資シミュレーション№', 'IT投資ｼﾐｭﾚｰｼｮﾝ№']) || '未設定',
+      expense_event: getFirstValue(row, ['経費事象']) || '未設定',
+      cost_group: costGroup,
+      progress_status: status || '未設定',
+      progress_rate: deriveProgressRateFromStatus(status),
+      project_category: getFirstValue(row, ['案件区分']) || '未設定',
+      memo,
+      target_year_month: month.valid ? month.value : '',
+      budget_amount: budget,
+      forecast_amount: forecast,
+      variance_amount: varianceAmount,
+      variance_rate: varianceRate,
+      five_year_expense_total: normalizeAmount(getFirstValue(row, ['5年経費合計'])).value,
+      variance_reason: deriveVarianceReason(status, memo, varianceAmount),
+    };
+  });
+  return makeImportedParseResult(IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST, rows, '新規案件予算見込CSVを取り込みました');
+}
+
 function parseOasisActualCsv() {
   const rows = parseCSV(arguments[0] || '').map((row) => {
     const balance = normalizeAmount(getFirstValue(row, ['残高', 'balance']));
@@ -867,6 +940,8 @@ function parseUploadedFile(fileType, text) {
       return parseVarianceReasonCsv(text);
     case IMPORT_FILE_TYPES.NEW_PROJECT:
       return parseNewProjectCsv(text);
+    case IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST:
+      return parseNewProjectCostCsv(text);
     case IMPORT_FILE_TYPES.OASIS_ACTUAL:
       return parseOasisActualCsv(text);
     case IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION:
@@ -1919,6 +1994,47 @@ app.get('/api/items', (req, res) => {
 // Analysis: new projects from 新規案件個票.csv
 app.get('/api/analysis/new-projects', (_, res) => {
   res.json({ data: buildNewProjectAnalysis() });
+});
+
+app.get('/api/analysis/new-project-costs', (_, res) => {
+  const normalizedAdditional = normalizeAdditionalDataStore(store.additionalData);
+  const rows = normalizedAdditional[IMPORT_FILE_TYPES.NEW_PROJECT_ACTUAL_FORECAST]?.rows || [];
+  const projectMap = new Map();
+  const monthlyMap = new Map();
+  const byCostGroup = {};
+  const byProjectCategory = {};
+  const byItStrategy = {};
+  const byVarianceReason = {};
+  const detailRows = rows.map((r) => ({
+    managementNo: r.management_no, teamName: r.team_name, projectName: r.project_name, owner: r.owner_name,
+    plannedStartDate: r.production_start_date, itInvestmentNo: r.it_investment_simulation_no, expenseEvent: r.expense_event,
+    costGroup: r.cost_group, progressStatus: r.progress_status, progressRate: r.progress_rate, projectCategory: r.project_category,
+    memo: r.memo, targetMonth: r.target_year_month, budgetAmount: r.budget_amount, forecastAmount: r.forecast_amount,
+    varianceAmount: r.variance_amount, varianceRate: r.variance_rate, varianceReason: r.variance_reason,
+  }));
+  for (const r of rows) {
+    const key = r.management_no;
+    if (!projectMap.has(key)) projectMap.set(key, { managementNo: key, projectName: r.project_name, owner: r.owner_name, plannedStartDate: r.production_start_date, itInvestmentNo: r.it_investment_simulation_no, projectCategory: r.project_category, progressStatus: r.progress_status, progressRate: r.progress_rate, budgetAmount: 0, forecastAmount: 0, varianceAmount: 0, fiveYearCost: 0, varianceReason: r.variance_reason, memo: r.memo });
+    const p = projectMap.get(key);
+    p.budgetAmount += Number(r.budget_amount || 0); p.forecastAmount += Number(r.forecast_amount || 0); p.varianceAmount += Number(r.variance_amount || 0); p.fiveYearCost = Math.max(p.fiveYearCost, Number(r.five_year_expense_total || 0));
+    const m = r.target_year_month || '未設定'; if (!monthlyMap.has(m)) monthlyMap.set(m, { targetMonth: m, budgetAmount: 0, forecastAmount: 0, varianceAmount: 0 });
+    const mv = monthlyMap.get(m); mv.budgetAmount += r.budget_amount; mv.forecastAmount += r.forecast_amount; mv.varianceAmount += r.variance_amount;
+    const bump = (obj, g, cg) => { if (!obj[g]) obj[g] = { key: g, budgetAmount: 0, forecastAmount: 0, varianceAmount: 0, investmentAmount: 0, operationAmount: 0, projectSet: new Set() }; obj[g].budgetAmount += r.budget_amount; obj[g].forecastAmount += r.forecast_amount; obj[g].varianceAmount += r.variance_amount; if (cg === '投資系') obj[g].investmentAmount += r.forecast_amount; if (cg === '運用系') obj[g].operationAmount += r.forecast_amount; obj[g].projectSet.add(r.management_no); };
+    bump(byProjectCategory, r.project_category || '未設定', r.cost_group); bump(byItStrategy, r.it_investment_simulation_no || '未設定', r.cost_group); bump(byCostGroup, r.cost_group || '未分類', r.cost_group); bump(byVarianceReason, r.variance_reason || 'その他', r.cost_group);
+  }
+  const projectRanking = [...projectMap.values()].map((p) => {
+    const varianceRate = p.budgetAmount ? p.varianceAmount / p.budgetAmount : null;
+    const costConsumptionRate = p.budgetAmount ? p.forecastAmount / p.budgetAmount : null;
+    const progressNorm = p.progressRate === null || p.progressRate === undefined ? null : p.progressRate / 100;
+    const diff = (costConsumptionRate ?? 0) - (progressNorm ?? 0);
+    const alertLevel = diff >= 0.4 ? 'alert' : (diff >= 0.2 ? 'watch' : 'normal');
+    return { ...p, varianceRate, costConsumptionRate, alertLevel };
+  }).sort((a, b) => Math.abs(b.varianceAmount) - Math.abs(a.varianceAmount));
+  const summary = projectRanking.reduce((s, p) => ({ ...s, totalBudget: s.totalBudget + p.budgetAmount, totalForecast: s.totalForecast + p.forecastAmount, totalVariance: s.totalVariance + p.varianceAmount, totalFiveYearCost: s.totalFiveYearCost + p.fiveYearCost, alertProjectCount: s.alertProjectCount + (p.alertLevel !== 'normal' ? 1 : 0) }), { projectCount: projectRanking.length, totalBudget: 0, totalForecast: 0, totalVariance: 0, totalFiveYearCost: 0, alertProjectCount: 0 });
+  summary.varianceRate = summary.totalBudget ? summary.totalVariance / summary.totalBudget : null;
+  summary.investmentAmount = Object.values(byCostGroup).find(v => v.key === '投資系')?.forecastAmount || 0;
+  summary.operationAmount = Object.values(byCostGroup).find(v => v.key === '運用系')?.forecastAmount || 0;
+  res.json({ summary, projectRanking, progressCostMatrix: projectRanking.map(p => ({ managementNo: p.managementNo, projectName: p.projectName, progressRate: p.progressRate, costConsumptionRate: p.costConsumptionRate, budgetAmount: p.budgetAmount, forecastAmount: p.forecastAmount, varianceAmount: p.varianceAmount, projectCategory: p.projectCategory, progressStatus: p.progressStatus, alertLevel: p.alertLevel })), byProjectCategory: Object.values(byProjectCategory).map(v => ({ projectCategory: v.key, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, investmentAmount: v.investmentAmount, operationAmount: v.operationAmount, projectCount: v.projectSet.size })), byItStrategy: Object.values(byItStrategy).map(v => ({ itInvestmentNo: v.key, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, projectCount: v.projectSet.size })), byCostGroup: Object.values(byCostGroup).map(v => ({ costGroup: v.key, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, projectCount: v.projectSet.size })), byVarianceReason: Object.values(byVarianceReason).map(v => ({ varianceReason: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount })), monthlyTrend: [...monthlyMap.values()].sort((a, b) => String(a.targetMonth).localeCompare(String(b.targetMonth))), detailRows });
 });
 
 app.get('/api/analysis/oacis-actual', (_, res) => {

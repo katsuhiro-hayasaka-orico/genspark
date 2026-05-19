@@ -153,7 +153,12 @@
   .dropzone { border: 2px dashed color-mix(in srgb, var(--primary) 35%, var(--border)); padding: var(--space-5); text-align: center; border-radius: var(--radius-lg); color: var(--text-muted); background: var(--surface-muted); }
   .dropzone:has(input[type="file"]:focus-visible) { border-color: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 14%, transparent); }
   .import-method-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-3); margin-bottom: var(--space-3); }
-  .import-method-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-muted); }
+.import-method-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-muted); }
+.new-project-detail-table .variance-positive { color: #c62828; }
+.new-project-detail-table .variance-negative { color: #1565c0; }
+.new-project-detail-table .variance-neutral { color: #6b7280; }
+.alert-level-watch { color: #ed6c02; font-weight: 600; }
+.alert-level-alert { color: #c62828; font-weight: 700; }
   .tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap; }
   .tabs button.active { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); color: var(--primary); font-weight: 700; }
   .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
