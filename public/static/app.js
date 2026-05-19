@@ -10,13 +10,14 @@ const NAV_PAGES = [
   { key: 'settings', label: '9. 表示設定' },
   { key: 'manual', label: '10. 取扱説明書（マニュアル）' },
   { key: 'depreciation', label: '11. 減価償却シミュレーション' },
+  { key: 'oacis', label: '12. OACIS実績' },
 ];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
   { value: 'variance_reason', label: '差額理由' },
   { value: 'new_project', label: '新規案件' },
-  { value: 'oasis_actual', label: 'OASIS実績' },
+  { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
 ];
 
@@ -27,7 +28,7 @@ const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
 const state = {
   page: 'import',
   hasData: false,
-  data: { status: null, items: [], contracts: [], depreciation: [] },
+  data: { status: null, items: [], contracts: [], depreciation: [], oacisActual: null },
   filters: { periodMode: '月次', department: '', perspective: '費目', target: 'すべて', fiscalPeriod: '', targetYearMonth: '' },
   settings: {
     thresholds: { varianceRate: 10, amountGap: 1000, momRate: 10, yoyRate: 10 },
@@ -695,17 +696,19 @@ function setStatus() {
 }
 
 async function refreshAllData() {
-  const [status, itemsRes, contractsRes, depreciationRes] = await Promise.all([
+  const [status, itemsRes, contractsRes, depreciationRes, oacisActualRes] = await Promise.all([
     api('/status'),
     api('/items'),
     api('/contracts').catch(() => ({ data: [] })),
     api('/additional-data/depreciation_simulation').catch(() => ({ data: [] })),
+    api('/analysis/oacis-actual').catch(() => ({ summary: null, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] })),
   ]);
   state.hasData = !!status.hasData;
   state.data.status = status;
   state.data.items = itemsRes.items || [];
   state.data.contracts = contractsRes.data || [];
   state.data.depreciation = depreciationRes.data || [];
+  state.data.oacisActual = oacisActualRes || null;
   initNav();
   initFilterBar();
   setStatus();
@@ -1018,6 +1021,7 @@ function renderImport() {
     await refreshAllData();
     if (selectedType === 'budget') goPage('summary');
     else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
+    else if (selectedType === 'oasis_actual' && result.status === 'imported') goPage('oacis');
     else {
       renderImport();
       document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
@@ -1833,13 +1837,39 @@ function renderDepreciation() {
   drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費');
 }
 
+function renderOacisActual() {
+  const payload = state.data.oacisActual || { summary: {}, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] };
+  const s = payload.summary || {};
+  const asPct = v => `${Number(v || 0).toFixed(1)}%`;
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="panel">
+      <div class="dashboard-bento">
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">実績合計額</div><div class="value">${yen(s.totalAmount || 0)}</div></div></section>
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">明細件数</div><div class="value">${fmt(s.rowCount || 0)}</div></div></section>
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">経費事象数</div><div class="value">${fmt(s.expenseEventCount || 0)}</div></div></section>
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">サプライヤ数</div><div class="value">${fmt(s.supplierCount || 0)}</div></div></section>
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">予実番号あり金額</div><div class="value">${yen(s.yojitsuNoPresentAmount || 0)}</div></div></section>
+        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">予実番号なし金額</div><div class="value">${yen(s.yojitsuNoMissingAmount || 0)}</div></div></section>
+      </div>
+    </div>
+    <div class="oacis-ranking-grid">
+      <section class="panel bento-card"><h3>経費事象別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>経費事象コード</th><th>経費事象名</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th></tr></thead><tbody>${(payload.byExpenseEvent || []).map(r => `<tr><td>${escapeHtml(r.expense_event_code || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card"><h3>サプライヤ別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>サプライヤ</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th><th>主な経費事象名</th></tr></thead><tbody>${(payload.bySupplier || []).map(r => `<tr><td>${escapeHtml(r.supplier || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card"><h3>予実番号別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>予実番号</th><th class="right">実績額</th><th class="right">明細件数</th><th>主な経費事象名</th><th>主なサプライヤ</th></tr></thead><tbody>${(payload.byYojitsuNo || []).map(r => `<tr><td>${escapeHtml(r.yojitsu_no || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td><td>${escapeHtml(r.mainSupplier || '')}</td></tr>`).join('')}</tbody></table></div></section>
+    </div>
+    <section class="panel bento-card oacis-alert-table"><h3>予実番号未設定（要確認）明細</h3><div class="table-wrap"><table><thead><tr><th>会計日</th><th>実績部店名</th><th>経費事象名</th><th>経費事象細目名</th><th>サプライヤ</th><th class="right">実績額</th><th>仕訳摘要</th><th>仕訳明細摘要</th><th>請求書番号</th></tr></thead><tbody>${(payload.missingYojitsuNoRows || []).map(r => `<tr><td>${escapeHtml(formatYearMonth(r.accounting_date) || r.accounting_date || '')}</td><td>${escapeHtml(r.actual_department_name || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td>${escapeHtml(r.expense_event_detail_name || '')}</td><td>${escapeHtml(r.supplier || '')}</td><td class="right">${yen(r.amount || 0)}</td><td>${escapeHtml(r.journal_summary || '')}</td><td>${escapeHtml(r.journal_detail_summary || '')}</td><td>${escapeHtml(r.invoice_no || '')}</td></tr>`).join('')}</tbody></table></div></section>
+  `;
+}
+
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
   if (state.page === 'import') return renderImport();
   if (state.page === 'settings') return renderSettings();
   if (state.page === 'manual') return renderManual();
   const hasDepreciationData = (state.data.depreciation || []).length > 0 || state.data.status?.additionalData?.depreciation_simulation?.status === 'imported';
-  if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData)) return goPage('import');
+  const hasOacisData = (state.data.oacisActual?.summary?.rowCount || 0) > 0 || state.data.status?.additionalData?.oasis_actual?.status === 'imported';
+  if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData) && !(state.page === 'oacis' && hasOacisData)) return goPage('import');
   if (state.page === 'summary') renderSummary();
   else if (state.page === 'trend') renderTrend();
   else if (state.page === 'category') renderCategory();
@@ -1848,6 +1878,7 @@ async function renderPage() {
   else if (state.page === 'vendor') renderVendor();
   else if (state.page === 'detail') renderDetail();
   else if (state.page === 'depreciation') renderDepreciation();
+  else if (state.page === 'oacis') renderOacisActual();
   showAdditionalDataNotice();
 }
 
