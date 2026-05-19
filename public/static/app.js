@@ -16,7 +16,9 @@ const NAV_PAGES = [
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
   { value: 'variance_reason', label: '差額理由' },
-  { value: 'new_project_actual_forecast', label: '新規案件CSV' },
+  { value: 'new_project_master', label: '新規案件マスタCSV' },
+  { value: 'new_project_monthly_cost', label: '新規案件月次金額CSV' },
+  { value: 'new_project_actual_forecast', label: '新規案件CSV（旧形式・互換）' },
   { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
 ];
@@ -995,8 +997,8 @@ function renderImport() {
     const selectedType = fileTypeSelect.value;
     if (selectedType !== 'budget') {
       const isDep = selectedType === 'depreciation_simulation';
-      summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。${isDep ? 'CSVのロング形式（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）をそのまま専用ビューで集計します。' : '結合キーは management_no（管理番号）を中心に既存明細へ補完します。'}</p></div>`;
-      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${isDep ? '減価償却シミュレーション.csv は指定レイアウト（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）で取り込みます。' : `新規案件個票.csv は指定レイアウト（区分,チーム名,管理番号,...,年月,予算金額,見込金額）で取り込みます。その他の追加データ仕様が未確定の種別は「${escapeHtml(NOT_IMPORTED_MESSAGE)}」として返します。`}</div>`;
+      summaryEl.innerHTML = `<div class="panel"><h4>追加データプレビュー</h4><p>${escapeHtml(IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === selectedType)?.label || selectedType)}を取り込みます。${isDep ? 'CSVのロング形式（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）をそのまま専用ビューで集計します。' : '結合キーは management_no（管理番号）です。新規案件は2ファイル構成（マスタ＋月次金額）を優先します。'}</p></div>`;
+      errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${isDep ? '減価償却シミュレーション.csv は指定レイアウト（区分,償却展開区分,償却展開区分名,期間種別,期,月,金額）で取り込みます。' : '新規案件マスタCSV: 管理番号,案件名,案件担当者,本番開始予定日,IT投資シミュレーション№,進捗状況,予算有り,5年経費合計,案件区分,memo。新規案件月次金額CSV: 管理番号,経費事象,対象年月,予算金額,見込金額(任意:投資運用区分)。'}</div>`;
       uploadBtn.disabled = false;
       return;
     }
@@ -1058,7 +1060,7 @@ function renderImport() {
       if (selectedType === 'budget') goPage('summary');
       else if (selectedType === 'depreciation_simulation' && result.status === 'imported') goPage('depreciation');
       else if (selectedType === 'oasis_actual' && result.status === 'imported') goPage('oacis');
-      else if (selectedType === 'new_project_actual_forecast' && result.status === 'imported') goPage('project');
+      else if (['new_project_actual_forecast', 'new_project_master', 'new_project_monthly_cost'].includes(selectedType) && result.status === 'imported') goPage('project');
       else {
         renderImport();
         document.getElementById('importSummary').innerHTML = `<div class="panel"><h4>取込結果</h4><p>${escapeHtml(result.message || '')}</p><p>ステータス: ${escapeHtml(result.status || '')} / ${fmt(result.rowCount || 0)}件</p></div>`;
