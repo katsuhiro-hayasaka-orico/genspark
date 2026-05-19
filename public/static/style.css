@@ -259,3 +259,8 @@
   @media (max-width: 560px) { .topbar-row { align-items: flex-start; flex-direction: column; } .topbar-actions, .zoom-control { width: 100%; } .topbar-actions { justify-content: flex-start; } .zoom-value { flex: 1; } .topbar-filters, .kpi-strip, .alert-grid, .additional-status-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; } ::view-transition-old(root), ::view-transition-new(root) { animation: none; } }
 }
+.new-project-cost-page .controls label { display: grid; gap: 4px; font-size: 12px; }
+.new-project-cost-grid { margin-top: 12px; }
+.new-project-ranking .table-wrap, .new-project-detail-table .table-wrap { max-height: 420px; }
+.new-project-scatter canvas { background: var(--surface-muted); border-radius: var(--radius-sm); }
+.alert-level-progress-ahead { color: #1565c0; font-weight: 700; }
