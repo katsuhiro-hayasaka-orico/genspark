@@ -1844,13 +1844,13 @@ function renderOacisActual() {
   const content = document.getElementById('content');
   content.innerHTML = `
     <div class="panel">
-      <div class="dashboard-bento">
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">実績合計額</div><div class="value">${yen(s.totalAmount || 0)}</div></div></section>
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">明細件数</div><div class="value">${fmt(s.rowCount || 0)}</div></div></section>
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">経費事象数</div><div class="value">${fmt(s.expenseEventCount || 0)}</div></div></section>
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">サプライヤ数</div><div class="value">${fmt(s.supplierCount || 0)}</div></div></section>
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">予実番号あり金額</div><div class="value">${yen(s.yojitsuNoPresentAmount || 0)}</div></div></section>
-        <section class="bento-card oacis-summary-card"><div class="kpi"><div class="label">予実番号なし金額</div><div class="value">${yen(s.yojitsuNoMissingAmount || 0)}</div></div></section>
+      <div class="kpi-strip oacis-kpi-strip">
+        <article class="kpi oacis-summary-card"><div class="label">実績合計額</div><div class="value">${yen(s.totalAmount || 0)}</div></article>
+        <article class="kpi oacis-summary-card"><div class="label">明細件数</div><div class="value">${fmt(s.rowCount || 0)}</div></article>
+        <article class="kpi oacis-summary-card"><div class="label">経費事象数</div><div class="value">${fmt(s.expenseEventCount || 0)}</div></article>
+        <article class="kpi oacis-summary-card"><div class="label">サプライヤ数</div><div class="value">${fmt(s.supplierCount || 0)}</div></article>
+        <article class="kpi oacis-summary-card"><div class="label">予実番号あり金額</div><div class="value">${yen(s.yojitsuNoPresentAmount || 0)}</div></article>
+        <article class="kpi oacis-summary-card"><div class="label">予実番号なし金額</div><div class="value">${yen(s.yojitsuNoMissingAmount || 0)}</div></article>
       </div>
     </div>
     <div class="oacis-ranking-grid">

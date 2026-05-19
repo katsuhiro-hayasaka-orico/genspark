@@ -216,7 +216,10 @@
   .search-field { display: grid; gap: 4px; min-width: min(360px, 100%); }
   .oacis-ranking-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-3); }
   .oacis-alert-table .table-wrap { max-height: 420px; }
-  .oacis-summary-card { min-height: 96px; }
+  .oacis-kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+  .oacis-summary-card { min-height: 110px; display: flex; flex-direction: column; justify-content: center; }
+  .oacis-summary-card .label { font-size: 13px; letter-spacing: .02em; line-height: 1.4; word-break: keep-all; }
+  .oacis-summary-card .value { font-size: clamp(24px, 3vw, 34px); margin-top: var(--space-2); }
   body[data-theme="neon"] .theme-toggle, body[data-theme="neon"] .panel, body[data-theme="neon"] .kpi, body[data-theme="neon"] .sidebar, body[data-theme="neon"] th, body[data-theme="neon"] .bento-card { box-shadow: 0 0 0 1px rgba(50,224,255,0.12), 0 0 14px rgba(174,124,255,0.12); }
 }
 
