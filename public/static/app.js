@@ -1407,7 +1407,7 @@ async function renderProject() {
   <div class="controls">${['targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option>${escapeHtml(v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
   <div id="np_kpi" class="kpi-strip new-project-kpi"></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-ranking"><div class="card-title-row"><h4>差額ランキング</h4><select id="np_rank_sort"><option value="variance">差額順</option><option value="rate">差額率順</option><option value="forecast">見込金額順</option></select></div><div class="table-wrap"><table><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">5年経費合計</th><th>予算有り</th><th>memo</th><th>差額理由</th></tr></thead><tbody id="np_rank_rows"></tbody></table></div></div>
-  <div class="panel new-project-scatter"><h4>進捗率 × コスト消化率</h4><div style="height:300px"><canvas id="np_scatter"></canvas></div><p class="muted">左上は要確認（進捗低・消化高）/ 右下は進捗先行の可能性。</p></div></div>
+  <div class="panel new-project-scatter"><h4>進捗率 × コスト消化率</h4><div style="height:300px"><canvas id="np_scatter"></canvas></div><div id="np_scatter_meta" class="muted scatter-legend" style="margin-top:6px"></div><div id="np_scatter_notice" class="muted" style="margin-top:6px"></div><p class="muted scatter-annotation">左上：進捗が低いのにコスト消化が高い（要確認） / 右下：進捗は進んでいるがコスト消化が低い（計上遅れの可能性）</p><p class="muted scatter-annotation">注記：進捗率は進捗状況から自動換算</p></div></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-cost-compare"><div class="card-title-row"><h4>区分別 投資・運用比較</h4><select id="np_compare_mode"><option value="category">案件区分別</option><option value="it">IT投資シミュレーション№別</option><option value="group">投資運用区分別</option></select></div><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">投資見込</th><th class="right">運用見込</th><th class="right">差額</th></tr></thead><tbody id="np_compare_rows"></tbody></table></div></div>
   <div class="panel new-project-variance-reason"><h4>差額理由サマリー</h4><div class="table-wrap"><table><thead><tr><th>理由</th><th class="right">件数</th><th class="right">差額</th><th>主案件</th></tr></thead><tbody id="np_reason_rows"></tbody></table></div></div></div>
   <div class="panel new-project-detail-table"><h4>詳細テーブル</h4><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>案件名</th><th>担当</th><th>経費事象</th><th>投資運用区分</th><th>予算有り</th><th class="right">5年経費合計</th><th>対象年月</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">消化率</th><th>memo</th><th>理由</th></tr></thead><tbody id="np_detail_rows"></tbody></table></div></div></section>`;
@@ -1415,7 +1415,9 @@ async function renderProject() {
   let scatterChart = null;
   const getFiltered = () => detailBase.filter(r => (!filterState.targetMonth || r.targetMonth===filterState.targetMonth) && (!filterState.projectCategory || r.projectCategory===filterState.projectCategory) && (!filterState.itInvestmentNo || r.itInvestmentNo===filterState.itInvestmentNo) && (!filterState.owner || r.owner===filterState.owner) && (!filterState.progressStatus || r.progressStatus===filterState.progressStatus) && (!filterState.costGroup || r.costGroup===filterState.costGroup) && (!filterState.varianceReason || r.varianceReason===filterState.varianceReason) && (!filterState.keyword || `${r.managementNo} ${r.projectName}`.toLowerCase().includes(filterState.keyword.toLowerCase())));
 
-  const renderAll = () => {
+  const renderAll = async () => {
+    const latestPayload = await api('/analysis/new-project-costs').catch(() => payload);
+    const matrixBase = latestPayload.progressCostMatrix || [];
     const drows = getFiltered();
     const pmap = new Map(); drows.forEach(r=>{ const k=r.managementNo||'未設定'; if(!pmap.has(k)) pmap.set(k,{...r,budgetAmount:0,forecastAmount:0,varianceAmount:0,fiveYearCost:0,memoSet:new Set(),hasBudgetSet:new Set(),fiveYearDedup:new Set()}); const p=pmap.get(k); p.budgetAmount+=Number(r.budgetAmount||0); p.forecastAmount+=Number(r.forecastAmount||0); p.varianceAmount+=Number(r.varianceAmount||0); p.varianceRate=p.budgetAmount?p.varianceAmount/p.budgetAmount:null; p.costConsumptionRate=p.budgetAmount?(p.forecastAmount/p.budgetAmount)*100:null; if(r.memo) p.memoSet.add(r.memo); if(r.hasBudget) p.hasBudgetSet.add(r.hasBudget); const eKey=`${k}__${r.expenseEvent||'未設定'}`; if(!p.fiveYearDedup.has(eKey)){p.fiveYearDedup.add(eKey); p.fiveYearCost+=Number(r.fiveYearCost||0);} p.memoSummary=[...p.memoSet].join(' / '); p.hasBudgetSummary=[...p.hasBudgetSet].join('/');});
     let prows=[...pmap.values()];
@@ -1425,9 +1427,47 @@ async function renderProject() {
     const s={...summary, projectCount:prows.length, totalBudget:prows.reduce((a,b)=>a+b.budgetAmount,0), totalForecast:prows.reduce((a,b)=>a+b.forecastAmount,0), totalVariance:prows.reduce((a,b)=>a+b.varianceAmount,0)}; s.varianceRate=s.totalBudget?s.totalVariance/s.totalBudget:null;
     document.getElementById('np_kpi').innerHTML=[['新規案件数',fmt(s.projectCount)],['5年経費合計',yen(summary.totalFiveYearCost||0)],['当期予算額',yen(s.totalBudget)],['見込金額',yen(s.totalForecast)],['差額',yen(s.totalVariance)],['差額率',s.varianceRate==null?'-':pct(s.varianceRate*100)],['投資系金額',yen(summary.investmentAmount||0)],['運用系金額',yen(summary.operationAmount||0)],['差額発生案件数',fmt(summary.varianceProjectCount||0)],['未着手案件数',fmt(summary.notStartedProjectCount||0)],['要確認案件数',fmt(summary.alertProjectCount||0)]].map(([l,v])=>`<article class="kpi"><div class="label">${l}</div><div class="value">${v}</div></article>`).join('');
     document.getElementById('np_detail_rows').innerHTML=drows.slice(0,500).map(r=>`<tr class="${Math.abs(r.varianceAmount)>1000000?'warning-row':''}" data-management="${dataAttr(r.managementNo)}"><td>${escapeHtml(r.managementNo)}</td><td>${escapeHtml(r.projectName)}</td><td>${escapeHtml(r.owner||'')}</td><td>${escapeHtml(r.expenseEvent||'')}</td><td>${escapeHtml(r.costGroup||'')}</td><td>${escapeHtml(r.hasBudget||'')}</td><td class="right">${yen(r.fiveYearCost||0)}</td><td>${escapeHtml(r.targetMonth||'')}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount)}</td><td class="right">${r.varianceRate==null?'-':pct(r.varianceRate*100)}</td><td class="right ${r.alertLevel==='watch'?'alert-level-watch':r.alertLevel==='alert'?'alert-level-alert':r.alertLevel==='progressAhead'?'alert-level-progress-ahead':''}">${r.costConsumptionRate==null?'-':pct(r.costConsumptionRate)}</td><td class="memo-cell memo-cell--clamped" title="${escapeHtml(r.memo||'')}">${displayHtml(r.memo)}</td><td>${displayHtml(r.varianceReason)}</td></tr>`).join('');
-    const scatterData=top.filter(r=>r.progressRate!=null&&r.costConsumptionRate!=null).map(r=>({x:r.progressRate,y:r.costConsumptionRate,r:5}));
+    const allowedManagementNos = new Set(prows.map(v => v.managementNo));
+    const matrixFiltered = matrixBase.filter(r => allowedManagementNos.has(r.managementNo));
+    const matrixValid = matrixFiltered.filter(r => Number.isFinite(Number(r.progressRate)) && Number.isFinite(Number(r.costConsumptionRate)));
+    const scatterLimited = matrixValid.slice(0, 1000);
+    const costs = scatterLimited.map(r => Number(r.fiveYearCost || 0)).filter(v => Number.isFinite(v) && v > 0);
+    const minCost = costs.length ? Math.min(...costs) : 0;
+    const maxCost = costs.length ? Math.max(...costs) : 0;
+    const toRadius = (cost) => {
+      const c = Number(cost || 0);
+      if (!Number.isFinite(c) || c <= 0 || maxCost <= minCost) return 5;
+      return 5 + ((c - minCost) / (maxCost - minCost)) * 15;
+    };
+    const colorByAlert = (level) => (level === 'alert' ? 'rgba(217,48,37,.7)' : level === 'watch' ? 'rgba(251,140,0,.7)' : level === 'progressAhead' ? 'rgba(30,136,229,.7)' : 'rgba(120,120,120,.6)');
+    const scatterData = scatterLimited.map(r => ({ x: Number(r.progressRate), y: Number(r.costConsumptionRate), managementNo: r.managementNo, projectName: r.projectName, budgetAmount: Number(r.budgetAmount || 0), forecastAmount: Number(r.forecastAmount || 0), varianceAmount: Number(r.varianceAmount || 0), progressRate: Number(r.progressRate), costConsumptionRate: Number(r.costConsumptionRate), fiveYearCost: Number(r.fiveYearCost || 0), alertLevel: r.alertLevel || 'normal' }));
+    const excludedCount = matrixFiltered.length - matrixValid.length;
+    const debug = latestPayload.debug || {};
+    const reasons = debug.invalidReasons || {};
+    const topReasons = [
+      ['管理番号不一致', reasons.managementNoMismatch || 0],
+      ['対象年月不正', reasons.invalidTargetYearMonth || 0],
+      ['進捗率未算出', reasons.progressRateNotCalculated || 0],
+      ['コスト消化率未算出', reasons.costConsumptionRateNotCalculated || 0],
+      ['分母0', reasons.zeroDenominator || 0],
+    ].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, c]) => `${k}:${fmt(c)}件`).join(' / ');
+    document.getElementById('np_scatter_meta').textContent = `有効データ件数: ${fmt(scatterData.length)}件 / 除外データ件数: ${fmt(excludedCount)}件${topReasons ? `（主な理由: ${topReasons}）` : ''}`;
+    const overLimit = matrixValid.length > 1000 ? `表示上限 1000件のため ${fmt(matrixValid.length - 1000)} 件を省略しています。` : '';
+    document.getElementById('np_scatter_notice').textContent = scatterData.length === 0 ? '進捗率またはコスト消化率を算出できるデータがありません。マスタCSVの進捗状況、月次金額CSVの予算金額・見込金額・対象年月を確認してください。' : overLimit;
     if (scatterChart) scatterChart.destroy();
-    scatterChart=new Chart(document.getElementById('np_scatter'),{type:'bubble',data:{datasets:[{label:'案件',data:scatterData,backgroundColor:'rgba(251,91,1,.45)'}]},options:baseChartOptions({scales:{x:{title:{display:true,text:'進捗率(%)'}},y:{title:{display:true,text:'コスト消化率(%)'}}}})});
+    scatterChart=new Chart(document.getElementById('np_scatter'),{
+      type:'scatter',
+      data:{datasets:[
+        {label:'案件',data:scatterData,pointRadius:(ctx)=>toRadius(ctx.raw?.fiveYearCost),pointBackgroundColor:(ctx)=>colorByAlert(ctx.raw?.alertLevel),pointBorderColor:'rgba(60,60,60,.35)'},
+        {label:'進捗率=50',data:[{x:50,y:0},{x:50,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
+        {label:'コスト消化率=50',data:[{x:0,y:50},{x:100,y:50}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
+        {label:'理想ライン',data:[{x:0,y:0},{x:100,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(33,150,243,.45)',borderWidth:1,borderDash:[4,4]}
+      ]},
+      options:baseChartOptions({
+        scales:{x:{min:0,max:100,ticks:{stepSize:20},title:{display:true,text:'進捗率（%）'}},y:{min:0,max:100,ticks:{stepSize:20},title:{display:true,text:'コスト消化率（%）'}}},
+        plugins:{tooltip:{callbacks:{label:(ctx)=>{const r=ctx.raw||{}; return [`管理番号: ${r.managementNo||''}`,`案件名: ${r.projectName||''}`,`進捗率: ${pct(r.progressRate)}`,`コスト消化率: ${pct(r.costConsumptionRate)}`,`予算金額: ${yen(r.budgetAmount||0)}円`,`見込金額: ${yen(r.forecastAmount||0)}円`,`差額: ${yen(r.varianceAmount||0)}円`];}}}}
+      })
+    });
     const compareMode = document.getElementById('np_compare_mode').value; let compareRows=[];
     if(compareMode==='category') compareRows=payload.byProjectCategory||[]; else if(compareMode==='it') compareRows=payload.byItInvestmentNo||[]; else compareRows=(payload.byCostGroup||[]).map(v=>({label:v.costGroup,investmentForecastAmount:(v.costGroup||'').includes('投資')?v.forecastAmount:0,operationForecastAmount:(v.costGroup||'').includes('運用')?v.forecastAmount:0,varianceAmount:v.varianceAmount}));
     document.getElementById('np_compare_rows').innerHTML=compareRows.map(v=>{const label=v.projectCategory||v.itInvestmentNo||v.label||v.costGroup; return `<tr><td>${escapeHtml(label)}</td><td class="right">${yen(v.investmentForecastAmount||0)}</td><td class="right">${yen(v.operationForecastAmount||0)}</td><td class="right">${yen(v.varianceAmount||0)}</td></tr>`;}).join('');
@@ -1435,9 +1475,9 @@ async function renderProject() {
     document.querySelectorAll('[data-management]').forEach(el=>el.onclick=()=>{const mid=el.dataset.management; const hit=document.querySelector(`#np_detail_rows tr[data-management="${CSS.escape(mid)}"]`); if(hit){hit.scrollIntoView({behavior:'smooth',block:'center'}); hit.classList.add('warning-row'); setTimeout(()=>hit.classList.remove('warning-row'),1200);} });
   };
 
-  Object.keys(options).forEach(k=>document.getElementById(`npf_${k}`).onchange=e=>{filterState[k]=e.target.value; renderAll();});
-  document.getElementById('npf_keyword').oninput=e=>{filterState.keyword=e.target.value; renderAll();};
-  document.getElementById('np_rank_sort').onchange=e=>{filterState.rankSort=e.target.value; renderAll();};
+  Object.keys(options).forEach(k=>document.getElementById(`npf_${k}`).onchange=async e=>{filterState[k]=e.target.value; await renderAll();});
+  document.getElementById('npf_keyword').oninput=async e=>{filterState.keyword=e.target.value; await renderAll();};
+  document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
   renderAll();
 }
