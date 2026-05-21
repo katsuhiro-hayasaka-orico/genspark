@@ -1472,9 +1472,10 @@ async function renderProject() {
       ['コスト消化率未算出', reasons.costConsumptionRateNotCalculated || 0],
       ['分母0', reasons.zeroDenominator || 0],
     ].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, c]) => `${k}:${fmt(c)}件`).join(' / ');
-    document.getElementById('np_scatter_meta').textContent = `有効データ件数: ${fmt(scatterData.length)}件 / 除外データ件数: ${fmt(excludedCount)}件${topReasons ? `（主な理由: ${topReasons}）` : ''}`;
+    document.getElementById('np_scatter_meta').textContent = `散布図表示対象：${fmt(scatterData.length)}件（フィルタ後案件数: ${fmt(prows.length)}件 / 除外データ件数: ${fmt(excludedCount)}件${topReasons ? ` / 主な理由: ${topReasons}` : ''}）`;
     const overLimit = matrixValid.length > 1000 ? `表示上限 1000件のため ${fmt(matrixValid.length - 1000)} 件を省略しています。` : '';
     document.getElementById('np_scatter_notice').textContent = scatterData.length === 0 ? '進捗率またはコスト消化率を算出できるデータがありません。マスタCSVの進捗状況、月次金額CSVの予算金額・見込金額・対象年月を確認してください。' : overLimit;
+    console.info('[new-project-scatter]', { filteredProjectCount: prows.length, scatterProjectCount: scatterData.length });
     if (scatterChart) scatterChart.destroy();
     scatterChart=new Chart(document.getElementById('np_scatter'),{
       type:'scatter',
