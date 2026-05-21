@@ -847,6 +847,7 @@ function parseNewProjectMonthlyCostCsv(text) {
       management_no: managementNo,
       expense_event: getFirstValue(row, ['経費事象', 'expense_event']) || '未設定',
       target_year_month: month.valid ? month.value : '',
+      target_year_month_status: month.status,
       budget_amount: budget,
       forecast_amount: forecast,
       variance_amount: varianceAmount,
@@ -2054,8 +2055,24 @@ app.get('/api/analysis/new-project-costs', (_, res) => {
   if (useTwoFileMode && (!masterRows.length || !monthlyRows.length)) {
     return res.status(400).json({ error: '新規案件データは2ファイル構成です。new_project_master.csv と new_project_monthly_cost.csv の両方を取り込んでください。', missing: { new_project_master: masterRows.length === 0, new_project_monthly_cost: monthlyRows.length === 0 } });
   }
+  const masterByManagementNo = new Map(masterRows.map((r) => [r.management_no, r]));
+  const analysisDebug = {
+    counts: {
+      masterRows: masterRows.length,
+      monthlyRows: monthlyRows.length,
+      detailRows: 0,
+      validProgressCostPoints: 0,
+    },
+    invalidReasons: {
+      managementNoMismatch: 0,
+      invalidTargetYearMonth: 0,
+      progressRateNotCalculated: 0,
+      costConsumptionRateNotCalculated: 0,
+      zeroDenominator: 0,
+    },
+  };
   const rows = useTwoFileMode ? monthlyRows.map((m) => {
-    const master = masterRows.find((x) => x.management_no === m.management_no) || {};
+    const master = masterByManagementNo.get(m.management_no) || {};
     const status = master.progress_status || '未設定';
     const memo = m.memo || '';
     const budget = Number(m.budget_amount || 0);
@@ -2064,11 +2081,18 @@ app.get('/api/analysis/new-project-costs', (_, res) => {
     return {
       management_no: m.management_no || '', project_name: master.project_name || `(案件名未設定:${m.management_no || '不明'})`, owner_name: master.owner_name || '',
       production_start_date: master.production_start_date || '', it_investment_simulation_no: master.it_investment_simulation_no || '未設定', project_category: master.project_category || '未設定',
-      progress_status: status, progress_rate: master.progress_rate ?? deriveProgressRateFromStatus(status), memo, expense_event: m.expense_event || '未設定', cost_group: m.cost_group || '未分類', target_year_month: m.target_year_month || '',
+      progress_status: status, progress_rate: master.progress_rate ?? deriveProgressRateFromStatus(status), memo, expense_event: m.expense_event || '未設定', cost_group: m.cost_group || '未分類', target_year_month: m.target_year_month || '', target_year_month_status: m.target_year_month_status || 'valid',
       budget_amount: budget, forecast_amount: forecast, variance_amount: variance, variance_rate: m.variance_rate ?? (budget ? variance / budget : null), five_year_expense_total: Number(m.five_year_expense_total || 0), has_budget: m.has_budget || '',
       variance_reason: deriveVarianceReason(status, memo, variance),
     };
   }) : legacyRows;
+  analysisDebug.counts.detailRows = rows.length;
+  if (useTwoFileMode) {
+    for (const m of monthlyRows) {
+      if (!masterByManagementNo.has(m.management_no)) analysisDebug.invalidReasons.managementNoMismatch += 1;
+      if ((m.target_year_month_status || 'valid') !== 'valid') analysisDebug.invalidReasons.invalidTargetYearMonth += 1;
+    }
+  }
 
   const projectMap = new Map(); const monthlyMap = new Map();
   const fiveYearDedupGlobal = new Set();
@@ -2112,6 +2136,15 @@ app.get('/api/analysis/new-project-costs', (_, res) => {
     else if (diff >= 40) alertLevel = 'alert'; else if (diff >= 20) alertLevel = 'watch';
     return { ...p, varianceRate, costConsumptionRate, varianceReason, memoSummary: memoSummary.length <= 1 ? (memoSummary[0] || '') : `${memoSummary.slice(0, 2).join(' / ')} 他${memoSummary.length - 2}件`, hasBudgetSummary: hasBudgetSummaryList.join('/'), alertLevel };
   }).sort((a, b) => Math.abs(b.varianceAmount) - Math.abs(a.varianceAmount));
+  for (const p of projectRanking) {
+    const progressValid = Number.isFinite(Number(p.progressRate));
+    const denominatorIsZero = Number(p.budgetAmount || 0) === 0;
+    const costValid = Number.isFinite(Number(p.costConsumptionRate));
+    if (progressValid && costValid) analysisDebug.counts.validProgressCostPoints += 1;
+    if (!progressValid) analysisDebug.invalidReasons.progressRateNotCalculated += 1;
+    if (denominatorIsZero) analysisDebug.invalidReasons.zeroDenominator += 1;
+    if (!costValid) analysisDebug.invalidReasons.costConsumptionRateNotCalculated += 1;
+  }
 
   const summary = { projectCount: projectRanking.length, totalBudget: 0, totalForecast: 0, totalVariance: 0, totalFiveYearCost: 0, investmentAmount: 0, operationAmount: 0, varianceProjectCount: 0, notStartedProjectCount: 0, alertProjectCount: 0 };
   for (const p of projectRanking) {
@@ -2128,7 +2161,7 @@ app.get('/api/analysis/new-project-costs', (_, res) => {
   const detailRows = rows.map((r) => { const budget = Number(r.budget_amount || 0); const forecast = Number(r.forecast_amount || 0); const variance = Number(r.variance_amount || (forecast - budget)); const ccr = budget ? (forecast / budget) * 100 : null; const pr = r.progress_rate; const diff = (ccr ?? 0) - (pr ?? 0); let alertLevel='normal'; if ((ccr ?? 0)>=80 && (pr ?? 0)<50) alertLevel='alert'; else if ((pr ?? 0)>=80 && (ccr ?? 0)<50) alertLevel='progressAhead'; else if (diff>=40) alertLevel='alert'; else if (diff>=20) alertLevel='watch'; return { managementNo:r.management_no||'', projectName:r.project_name, owner:r.owner_name, plannedStartDate:r.production_start_date, itInvestmentNo:r.it_investment_simulation_no, projectCategory:r.project_category, progressStatus:r.progress_status, progressRate:r.progress_rate, expenseEvent:r.expense_event, costGroup:r.cost_group, hasBudget:r.has_budget||'', fiveYearCost:Number(r.five_year_expense_total||0), targetMonth:r.target_year_month, budgetAmount:budget, forecastAmount:forecast, varianceAmount:variance, varianceRate: budget ? variance / budget : null, costConsumptionRate: ccr, varianceReason:deriveVarianceReason(r.progress_status, r.memo, variance), memo:r.memo, alertLevel }; });
 
   const toComp = (v, label) => ({ [label]: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, investmentBudgetAmount: v.investmentBudgetAmount, investmentForecastAmount: v.investmentForecastAmount, investmentVarianceAmount: v.investmentVarianceAmount, operationBudgetAmount: v.operationBudgetAmount, operationForecastAmount: v.operationForecastAmount, operationVarianceAmount: v.operationVarianceAmount });
-  res.json({ summary, projectRanking, progressCostMatrix, byProjectCategory: Object.values(byProjectCategory).map(v => toComp(v, 'projectCategory')), byItInvestmentNo: Object.values(byItInvestmentNo).map(v => toComp(v, 'itInvestmentNo')), byItStrategy: Object.values(byItInvestmentNo).map(v => ({ itInvestmentNo: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount })), byCostGroup: Object.values(byCostGroup).map(v => ({ costGroup: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount })), byVarianceReason: Object.values(byVarianceReason).map(v => ({ varianceReason: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, mainProjects: v.names.slice(0, 3) })), monthlyTrend: [...monthlyMap.values()].sort((a, b) => String(a.targetMonth).localeCompare(String(b.targetMonth))), detailRows });
+  res.json({ summary, projectRanking, progressCostMatrix, byProjectCategory: Object.values(byProjectCategory).map(v => toComp(v, 'projectCategory')), byItInvestmentNo: Object.values(byItInvestmentNo).map(v => toComp(v, 'itInvestmentNo')), byItStrategy: Object.values(byItInvestmentNo).map(v => ({ itInvestmentNo: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount })), byCostGroup: Object.values(byCostGroup).map(v => ({ costGroup: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount })), byVarianceReason: Object.values(byVarianceReason).map(v => ({ varianceReason: v.key, projectCount: v.projectSet.size, budgetAmount: v.budgetAmount, forecastAmount: v.forecastAmount, varianceAmount: v.varianceAmount, mainProjects: v.names.slice(0, 3) })), monthlyTrend: [...monthlyMap.values()].sort((a, b) => String(a.targetMonth).localeCompare(String(b.targetMonth))), detailRows, debug: analysisDebug });
 });
 
 
