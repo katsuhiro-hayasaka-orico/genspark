@@ -1458,10 +1458,17 @@ async function renderProject() {
     const toRadius = (cost) => {
       const c = Number(cost || 0);
       if (!Number.isFinite(c) || c <= 0 || maxCost <= minCost) return 5;
-      return 5 + ((c - minCost) / (maxCost - minCost)) * 15;
+      const scaled = 5 + ((c - minCost) / (maxCost - minCost)) * 15;
+      return Number.isFinite(scaled) && scaled > 0 ? scaled : 5;
     };
     const colorByAlert = (level) => (level === 'alert' ? 'rgba(217,48,37,.7)' : level === 'watch' ? 'rgba(251,140,0,.7)' : level === 'progressAhead' ? 'rgba(30,136,229,.7)' : 'rgba(120,120,120,.6)');
-    const scatterData = scatterLimited.map(r => ({ x: Number(r.progressRate), y: Number(r.costConsumptionRate), managementNo: r.managementNo, projectName: r.projectName, budgetAmount: Number(r.budgetAmount || 0), forecastAmount: Number(r.forecastAmount || 0), varianceAmount: Number(r.varianceAmount || 0), progressRate: Number(r.progressRate), costConsumptionRate: Number(r.costConsumptionRate), fiveYearCost: Number(r.fiveYearCost || 0), alertLevel: r.alertLevel || 'normal' }));
+    const scatterData = scatterLimited.map(r => {
+      const progressRate = Number(r.progressRate);
+      const costConsumptionRate = Number(r.costConsumptionRate);
+      const fiveYearCost = Number(r.fiveYearCost || 0);
+      const bubbleRadius = Math.max(5, toRadius(fiveYearCost) || 5);
+      return { x: progressRate, y: costConsumptionRate, managementNo: r.managementNo, projectName: r.projectName, budgetAmount: Number(r.budgetAmount || 0), forecastAmount: Number(r.forecastAmount || 0), varianceAmount: Number(r.varianceAmount || 0), progressRate, costConsumptionRate, fiveYearCost, bubbleRadius, alertLevel: r.alertLevel || 'normal' };
+    });
     const excludedCount = matrixFiltered.length - matrixValid.length;
     const debug = latestPayload.debug || {};
     const reasons = debug.invalidReasons || {};
@@ -1476,11 +1483,23 @@ async function renderProject() {
     const overLimit = matrixValid.length > 1000 ? `表示上限 1000件のため ${fmt(matrixValid.length - 1000)} 件を省略しています。` : '';
     document.getElementById('np_scatter_notice').textContent = scatterData.length === 0 ? '進捗率またはコスト消化率を算出できるデータがありません。マスタCSVの進捗状況、月次金額CSVの予算金額・見込金額・対象年月を確認してください。' : overLimit;
     console.info('[new-project-scatter]', { filteredProjectCount: prows.length, scatterProjectCount: scatterData.length });
+    const debugCase = scatterData.find(v => String(v.managementNo) === '66-306');
+    if (debugCase) {
+      console.info('[new-project-scatter][66-306]', {
+        managementNo: debugCase.managementNo,
+        projectName: debugCase.projectName,
+        progressRate: debugCase.progressRate,
+        costConsumptionRate: debugCase.costConsumptionRate,
+        fiveYearCost: debugCase.fiveYearCost,
+        bubbleRadius: debugCase.bubbleRadius,
+        alertLevel: debugCase.alertLevel,
+      });
+    }
     if (scatterChart) scatterChart.destroy();
     scatterChart=new Chart(document.getElementById('np_scatter'),{
       type:'scatter',
       data:{datasets:[
-        {label:'案件',data:scatterData,pointRadius:(ctx)=>toRadius(ctx.raw?.fiveYearCost),pointBackgroundColor:(ctx)=>colorByAlert(ctx.raw?.alertLevel),pointBorderColor:'rgba(60,60,60,.35)'},
+        {label:'案件',data:scatterData,showLine:false,pointRadius:(ctx)=>Math.max(5, Number(ctx.raw?.bubbleRadius || 8)),pointHoverRadius:(ctx)=>Math.max(6, Number(ctx.raw?.bubbleRadius || 8) + 2),pointBackgroundColor:(ctx)=>colorByAlert(ctx.raw?.alertLevel),pointBorderColor:'rgba(60,60,60,.35)'},
         {label:'進捗率=50',data:[{x:50,y:0},{x:50,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
         {label:'コスト消化率=50',data:[{x:0,y:50},{x:100,y:50}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
         {label:'理想ライン',data:[{x:0,y:0},{x:100,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(33,150,243,.45)',borderWidth:1,borderDash:[4,4]}
