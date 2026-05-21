@@ -265,4 +265,22 @@
 .new-project-cost-grid { margin-top: 12px; }
 .new-project-ranking .table-wrap, .new-project-detail-table .table-wrap { max-height: 420px; }
 .new-project-scatter canvas { background: var(--surface-muted); border-radius: var(--radius-sm); }
+.new-project-gap-analysis { display: grid; gap: 10px; }
+.gap-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.gap-summary-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
+.gap-bar-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding-right: 4px; }
+.gap-bar-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
+.gap-bar-row { display: grid; grid-template-columns: 170px 1fr; gap: 8px; align-items: center; font-size: 12px; margin-top: 4px; }
+.gap-bar-track { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--text) 10%, var(--surface)); overflow: hidden; }
+.gap-bar-fill-progress, .gap-bar-fill-cost { height: 100%; border-radius: 999px; }
+.gap-bar-fill-progress { background: #1976d2; }
+.gap-bar-fill-cost { background: #ef6c00; }
+.gap-ranking-table td, .gap-ranking-table th { white-space: nowrap; }
+.gap-status-critical { color: #b71c1c; }
+.gap-status-watch { color: #ef6c00; }
+.gap-status-progress-ahead { color: #1565c0; }
+.gap-status-normal { color: #2e7d32; }
+.gap-status-unknown { color: #9e9e9e; }
+.gap-formula-note { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
+.gap-formula-details p { margin: 6px 0; }
 .alert-level-progress-ahead { color: #1565c0; font-weight: 700; }

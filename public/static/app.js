@@ -1428,12 +1428,11 @@ async function renderProject() {
   <div class="controls">${['fiscalPeriod','targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(k==='targetMonth'?formatYmLabel(v):v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
   <div id="np_kpi" class="kpi-strip new-project-kpi"></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-ranking"><div class="card-title-row"><h4>差額ランキング</h4><select id="np_rank_sort"><option value="variance">差額順</option><option value="rate">差額率順</option><option value="forecast">見込金額順</option></select></div><div class="table-wrap"><table><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">5年経費合計</th><th>予算有り</th><th>memo</th><th>差額理由</th></tr></thead><tbody id="np_rank_rows"></tbody></table></div></div>
-  <div class="panel new-project-scatter"><h4>進捗率 × コスト消化率</h4><div style="height:300px"><canvas id="np_scatter"></canvas></div><div id="np_scatter_meta" class="muted scatter-legend" style="margin-top:6px"></div><div id="np_scatter_notice" class="muted" style="margin-top:6px"></div><p class="muted scatter-annotation">左上：進捗が低いのにコスト消化が高い（要確認） / 右下：進捗は進んでいるがコスト消化が低い（計上遅れの可能性）</p><p class="muted scatter-annotation">注記：進捗率は進捗状況から自動換算</p></div></div>
+  <div class="panel new-project-gap-analysis"><h4>進捗・コスト消化ギャップ分析</h4><div id="np_gap_counts" class="muted"></div><div id="np_gap_summary" class="gap-summary"></div><div id="np_gap_bar_list" class="gap-bar-list"></div><div class="table-wrap"><table class="gap-ranking-table"><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th>案件区分</th><th>IT投資シミュレーション№</th><th>進捗状況</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th class="right">ギャップ</th><th>判定区分</th><th class="right">予算金額</th><th class="right">見込金額</th><th class="right">差額</th></tr></thead><tbody id="np_gap_rank_rows"></tbody></table></div><details class="gap-formula-note"><summary>計算ロジック注釈</summary><div class="gap-formula-details"><p>進捗率は、進捗状況から自動換算した簡易値です。進捗率は正式なプロジェクト進捗率ではありません。</p><p>換算ルール: 未着手/01.未着手=0%, 今期中に案件組成=20%, 来期案件組成予定=20%, 組成予定=40%, 組成済=60%, 予算計画通り=80%, 完了=100%, 取下げ/取下/削除=0%, 上記以外=未算出。</p><p>コスト消化率 = 見込金額合計 ÷ 予算金額合計 × 100。予算金額合計が0の場合、コスト消化率は未算出です。金額は案件単位で集計した予算金額・見込金額を使用しています。</p><p>ギャップ = コスト消化率 − 進捗率。ギャップがプラスの場合、進捗に対してコスト消化が先行しています。ギャップがマイナスの場合、進捗に対してコスト消化が低い状態です。</p></div></details></div></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-cost-compare"><div class="card-title-row"><h4>区分別 投資・運用比較</h4><select id="np_compare_mode"><option value="category">案件区分別</option><option value="it">IT投資シミュレーション№別</option><option value="group">投資運用区分別</option></select></div><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">投資見込</th><th class="right">運用見込</th><th class="right">差額</th></tr></thead><tbody id="np_compare_rows"></tbody></table></div></div>
   <div class="panel new-project-variance-reason"><h4>差額理由サマリー</h4><div class="table-wrap"><table><thead><tr><th>理由</th><th class="right">件数</th><th class="right">差額</th><th>主案件</th></tr></thead><tbody id="np_reason_rows"></tbody></table></div></div></div>
   <div class="panel new-project-detail-table"><h4>詳細テーブル</h4><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>案件名</th><th>担当</th><th>経費事象</th><th>投資運用区分</th><th>予算有り</th><th class="right">5年経費合計</th><th>対象年月</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">消化率</th><th>memo</th><th>理由</th></tr></thead><tbody id="np_detail_rows"></tbody></table></div></div></section>`;
 
-  let scatterChart = null;
   const getFiltered = () => detailBase.filter(r => (!filterState.fiscalPeriod || fiscalPeriodFromMonth(r.targetMonth)===filterState.fiscalPeriod) && (!filterState.targetMonth || r.targetMonth===filterState.targetMonth) && (!filterState.projectCategory || r.projectCategory===filterState.projectCategory) && (!filterState.itInvestmentNo || r.itInvestmentNo===filterState.itInvestmentNo) && (!filterState.owner || r.owner===filterState.owner) && (!filterState.progressStatus || r.progressStatus===filterState.progressStatus) && (!filterState.costGroup || r.costGroup===filterState.costGroup) && (!filterState.varianceReason || r.varianceReason===filterState.varianceReason) && (!filterState.keyword || `${r.managementNo} ${r.projectName}`.toLowerCase().includes(filterState.keyword.toLowerCase())));
 
   const renderAll = async () => {
@@ -1450,65 +1449,30 @@ async function renderProject() {
     document.getElementById('np_detail_rows').innerHTML=drows.slice(0,500).map(r=>`<tr class="${Math.abs(r.varianceAmount)>1000000?'warning-row':''}" data-management="${dataAttr(r.managementNo)}"><td>${escapeHtml(r.managementNo)}</td><td>${escapeHtml(r.projectName)}</td><td>${escapeHtml(r.owner||'')}</td><td>${escapeHtml(r.expenseEvent||'')}</td><td>${escapeHtml(r.costGroup||'')}</td><td>${escapeHtml(r.hasBudget||'')}</td><td class="right">${yen(r.fiveYearCost||0)}</td><td>${escapeHtml(formatYmLabel(r.targetMonth||''))}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount)}</td><td class="right">${r.varianceRate==null?'-':pct(r.varianceRate*100)}</td><td class="right ${r.alertLevel==='watch'?'alert-level-watch':r.alertLevel==='alert'?'alert-level-alert':r.alertLevel==='progressAhead'?'alert-level-progress-ahead':''}">${r.costConsumptionRate==null?'-':pct(r.costConsumptionRate)}</td><td class="memo-cell memo-cell--clamped" title="${escapeHtml(r.memo||'')}">${displayHtml(r.memo)}</td><td>${displayHtml(r.varianceReason)}</td></tr>`).join('');
     const allowedManagementNos = new Set(prows.map(v => v.managementNo));
     const matrixFiltered = matrixBase.filter(r => allowedManagementNos.has(r.managementNo));
-    const matrixValid = matrixFiltered.filter(r => Number.isFinite(Number(r.progressRate)) && Number.isFinite(Number(r.costConsumptionRate)));
-    const scatterLimited = matrixValid.slice(0, 1000);
-    const costs = scatterLimited.map(r => Number(r.fiveYearCost || 0)).filter(v => Number.isFinite(v) && v > 0);
-    const minCost = costs.length ? Math.min(...costs) : 0;
-    const maxCost = costs.length ? Math.max(...costs) : 0;
-    const toRadius = (cost) => {
-      const c = Number(cost || 0);
-      if (!Number.isFinite(c) || c <= 0 || maxCost <= minCost) return 5;
-      const scaled = 5 + ((c - minCost) / (maxCost - minCost)) * 15;
-      return Number.isFinite(scaled) && scaled > 0 ? scaled : 5;
-    };
-    const colorByAlert = (level) => (level === 'alert' ? 'rgba(217,48,37,.7)' : level === 'watch' ? 'rgba(251,140,0,.7)' : level === 'progressAhead' ? 'rgba(30,136,229,.7)' : 'rgba(120,120,120,.6)');
-    const scatterData = scatterLimited.map(r => {
+    const gapRows = matrixFiltered.map(r => {
       const progressRate = Number(r.progressRate);
       const costConsumptionRate = Number(r.costConsumptionRate);
-      const fiveYearCost = Number(r.fiveYearCost || 0);
-      const bubbleRadius = Math.max(5, toRadius(fiveYearCost) || 5);
-      return { x: progressRate, y: costConsumptionRate, managementNo: r.managementNo, projectName: r.projectName, budgetAmount: Number(r.budgetAmount || 0), forecastAmount: Number(r.forecastAmount || 0), varianceAmount: Number(r.varianceAmount || 0), progressRate, costConsumptionRate, fiveYearCost, bubbleRadius, alertLevel: r.alertLevel || 'normal' };
+      const hasProgress = Number.isFinite(progressRate);
+      const hasCost = Number.isFinite(costConsumptionRate);
+      const gap = hasProgress && hasCost ? costConsumptionRate - progressRate : null;
+      const status = gap == null ? 'unknown' : gap >= 40 ? 'critical' : gap >= 20 ? 'watch' : gap <= -30 ? 'progress-ahead' : 'normal';
+      const statusLabel = status === 'critical' ? '要確認・高' : status === 'watch' ? '要確認' : status === 'progress-ahead' ? '進捗先行' : status === 'normal' ? '概ね整合' : '判定不可';
+      return { ...r, progressRate, costConsumptionRate, progressCostGap: gap, progressCostGapStatus: status, progressCostGapLabel: statusLabel };
     });
-    const excludedCount = matrixFiltered.length - matrixValid.length;
-    const debug = latestPayload.debug || {};
-    const reasons = debug.invalidReasons || {};
-    const topReasons = [
-      ['管理番号不一致', reasons.managementNoMismatch || 0],
-      ['対象年月不正', reasons.invalidTargetYearMonth || 0],
-      ['進捗率未算出', reasons.progressRateNotCalculated || 0],
-      ['コスト消化率未算出', reasons.costConsumptionRateNotCalculated || 0],
-      ['分母0', reasons.zeroDenominator || 0],
-    ].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, c]) => `${k}:${fmt(c)}件`).join(' / ');
-    document.getElementById('np_scatter_meta').textContent = `散布図表示対象：${fmt(scatterData.length)}件（フィルタ後案件数: ${fmt(prows.length)}件 / 除外データ件数: ${fmt(excludedCount)}件${topReasons ? ` / 主な理由: ${topReasons}` : ''}）`;
-    const overLimit = matrixValid.length > 1000 ? `表示上限 1000件のため ${fmt(matrixValid.length - 1000)} 件を省略しています。` : '';
-    document.getElementById('np_scatter_notice').textContent = scatterData.length === 0 ? '進捗率またはコスト消化率を算出できるデータがありません。マスタCSVの進捗状況、月次金額CSVの予算金額・見込金額・対象年月を確認してください。' : overLimit;
-    console.info('[new-project-scatter]', { filteredProjectCount: prows.length, scatterProjectCount: scatterData.length });
-    const debugCase = scatterData.find(v => String(v.managementNo) === '66-306');
-    if (debugCase) {
-      console.info('[new-project-scatter][66-306]', {
-        managementNo: debugCase.managementNo,
-        projectName: debugCase.projectName,
-        progressRate: debugCase.progressRate,
-        costConsumptionRate: debugCase.costConsumptionRate,
-        fiveYearCost: debugCase.fiveYearCost,
-        bubbleRadius: debugCase.bubbleRadius,
-        alertLevel: debugCase.alertLevel,
-      });
-    }
-    if (scatterChart) scatterChart.destroy();
-    scatterChart=new Chart(document.getElementById('np_scatter'),{
-      type:'scatter',
-      data:{datasets:[
-        {label:'案件',data:scatterData,showLine:false,pointRadius:(ctx)=>Math.max(5, Number(ctx.raw?.bubbleRadius || 8)),pointHoverRadius:(ctx)=>Math.max(6, Number(ctx.raw?.bubbleRadius || 8) + 2),pointBackgroundColor:(ctx)=>colorByAlert(ctx.raw?.alertLevel),pointBorderColor:'rgba(60,60,60,.35)'},
-        {label:'進捗率=50',data:[{x:50,y:0},{x:50,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
-        {label:'コスト消化率=50',data:[{x:0,y:50},{x:100,y:50}],showLine:true,pointRadius:0,borderColor:'rgba(120,120,120,.5)',borderWidth:1},
-        {label:'理想ライン',data:[{x:0,y:0},{x:100,y:100}],showLine:true,pointRadius:0,borderColor:'rgba(33,150,243,.45)',borderWidth:1,borderDash:[4,4]}
-      ]},
-      options:baseChartOptions({
-        scales:{x:{min:0,max:100,ticks:{stepSize:20},title:{display:true,text:'進捗率（%）'}},y:{min:0,max:100,ticks:{stepSize:20},title:{display:true,text:'コスト消化率（%）'}}},
-        plugins:{tooltip:{callbacks:{label:(ctx)=>{const r=ctx.raw||{}; return [`管理番号: ${r.managementNo||''}`,`案件名: ${r.projectName||''}`,`進捗率: ${pct(r.progressRate)}`,`コスト消化率: ${pct(r.costConsumptionRate)}`,`予算金額: ${yen(r.budgetAmount||0)}円`,`見込金額: ${yen(r.forecastAmount||0)}円`,`差額: ${yen(r.varianceAmount||0)}円`];}}}}
-      })
-    });
+    const gapComparable = gapRows.filter(r => r.progressCostGap != null).sort((a,b)=>Math.abs(b.progressCostGap)-Math.abs(a.progressCostGap));
+    const gapTop = gapComparable.slice(0,20);
+    const counters = { critical:0, watch:0, 'progress-ahead':0, normal:0, unknown:0 };
+    gapRows.forEach(r => { counters[r.progressCostGapStatus] = (counters[r.progressCostGapStatus] || 0) + 1; });
+    document.getElementById('np_gap_counts').textContent = `フィルタ後案件数：${fmt(prows.length)}件 / 判定可能案件数：${fmt(gapComparable.length)}件 / 判定不可案件数：${fmt(counters.unknown || 0)}件 / 表示中：上位${fmt(gapTop.length)}件`;
+    const summaryDefs = [['critical','要確認・高','コスト消化が進捗より大きく先行'],['watch','要確認','コスト消化が進捗より先行'],['progress-ahead','進捗先行','進捗に対してコスト消化が低い'],['normal','概ね整合','進捗とコスト消化が概ね整合'],['unknown','判定不可','進捗率またはコスト消化率を算出不可']];
+    document.getElementById('np_gap_summary').innerHTML = summaryDefs.map(([key,label,desc]) => `<article class="gap-summary-card gap-status-${key}"><div class="label">${label}</div><div class="value">${fmt(counters[key] || 0)}件</div><div class="muted">${desc}</div></article>`).join('');
+    document.getElementById('np_gap_bar_list').innerHTML = gapTop.map(r => {
+      const progressBar = Math.max(0, Math.min(100, Number(r.progressRate || 0)));
+      const costBar = Math.max(0, Math.min(100, Number(r.costConsumptionRate || 0)));
+      const varianceClass = r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral';
+      return `<article class="gap-bar-item gap-status-${r.progressCostGapStatus}"><div class="gap-bar-label"><b>${escapeHtml(r.managementNo || '')}</b> ${escapeHtml(r.projectName || '')}<span class="muted"> / ${escapeHtml(r.progressStatus || '進捗状況未設定')}</span></div><div class="gap-bar-row"><span>進捗率 ${pct(r.progressRate)}</span><div class="gap-bar-track"><div class="gap-bar-fill-progress" style="width:${progressBar}%"></div></div></div><div class="gap-bar-row"><span>コスト消化率 ${pct(r.costConsumptionRate)}</span><div class="gap-bar-track"><div class="gap-bar-fill-cost" style="width:${costBar}%"></div></div></div><div class="muted">ギャップ: <b>${r.progressCostGap >= 0 ? '+' : ''}${pct(r.progressCostGap)}pt</b> / 判定: ${r.progressCostGapLabel} / 差額: <span class="${varianceClass}">${yen(r.varianceAmount || 0)}</span></div></article>`;
+    }).join('') || '<p class="muted">進捗率またはコスト消化率を算出できる案件がありません。</p>';
+    document.getElementById('np_gap_rank_rows').innerHTML = gapTop.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.managementNo||'')}</td><td>${escapeHtml(r.projectName||'')}</td><td>${escapeHtml(r.projectCategory||'')}</td><td>${escapeHtml(r.itInvestmentNo||'')}</td><td>${escapeHtml(r.progressStatus||'')}</td><td class="right">${pct(r.progressRate)}</td><td class="right">${pct(r.costConsumptionRate)}</td><td class="right ${r.progressCostGap>0?'variance-positive':r.progressCostGap<0?'variance-negative':'variance-neutral'}">${r.progressCostGap>0?'+':''}${pct(r.progressCostGap)}pt</td><td><span class="gap-status-${r.progressCostGapStatus}">${r.progressCostGapLabel}</span></td><td class="right">${yen(r.budgetAmount||0)}</td><td class="right">${yen(r.forecastAmount||0)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount||0)}</td></tr>`).join('');
     const compareMode = document.getElementById('np_compare_mode').value; let compareRows=[];
     if(compareMode==='category') compareRows=payload.byProjectCategory||[]; else if(compareMode==='it') compareRows=payload.byItInvestmentNo||[]; else compareRows=(payload.byCostGroup||[]).map(v=>({label:v.costGroup,investmentForecastAmount:(v.costGroup||'').includes('投資')?v.forecastAmount:0,operationForecastAmount:(v.costGroup||'').includes('運用')?v.forecastAmount:0,varianceAmount:v.varianceAmount}));
     document.getElementById('np_compare_rows').innerHTML=compareRows.map(v=>{const label=v.projectCategory||v.itInvestmentNo||v.label||v.costGroup; return `<tr><td>${escapeHtml(label)}</td><td class="right">${yen(v.investmentForecastAmount||0)}</td><td class="right">${yen(v.operationForecastAmount||0)}</td><td class="right">${yen(v.varianceAmount||0)}</td></tr>`;}).join('');
