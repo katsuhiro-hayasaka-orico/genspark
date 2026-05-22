@@ -1,17 +1,33 @@
-const NAV_PAGES = [
-  { key: 'import', label: '1. データ取込' },
-  { key: 'summary', label: '2. 全体サマリー（月次レポート）' },
-  { key: 'trend', label: '3. 推移（前年差／トレンド）' },
-  { key: 'category', label: '4. カテゴリ別分析' },
-  { key: 'alert', label: '5. アラート（乖離・変動）' },
-  { key: 'vendor', label: '6. ベンダー／契約更新' },
-  { key: 'detail', label: '7. 明細（検索・ドリルダウン）' },
-  { key: 'project', label: '8. プロジェクト別コスト管理（新規案件）' },
-  { key: 'depreciation', label: '9. 減価償却シミュレーション' },
-  { key: 'oacis', label: '10. OACIS実績' },
-  { key: 'settings', label: 'A1. 表示設定（共通）' },
-  { key: 'manual', label: 'A2. 取扱説明書（マニュアル）' },
+const NAV_SECTIONS = [
+  {
+    title: 'メインCSV',
+    pages: [
+      { key: 'import', label: 'データ取込', icon: '📥' },
+      { key: 'summary', label: '全体サマリー', icon: '📊' },
+      { key: 'trend', label: '推移分析', icon: '📈' },
+      { key: 'category', label: 'カテゴリ別分析', icon: '🧩' },
+      { key: 'alert', label: 'アラート', icon: '🚨' },
+      { key: 'vendor', label: 'ベンダー／契約更新', icon: '🤝' },
+      { key: 'detail', label: '明細ドリルダウン', icon: '🔎' },
+    ],
+  },
+  {
+    title: '追加CSV',
+    pages: [
+      { key: 'project', label: '新規案件コスト', icon: '🗂️' },
+      { key: 'depreciation', label: '減価償却シミュレーション', icon: '🧮' },
+      { key: 'oacis', label: 'OACIS実績', icon: '🏢' },
+    ],
+  },
 ];
+
+const FOOTER_NAV_PAGES = [
+  { key: 'settings', label: 'Settings', icon: '⚙️' },
+  { key: 'manual', label: 'Help', icon: '❓' },
+  { key: 'account', label: 'Account', icon: '👤' },
+];
+
+const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...FOOTER_NAV_PAGES];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
@@ -661,10 +677,17 @@ function recomputeSummary(items) {
   };
 }
 
+function navButtonHtml(p) {
+  const disabled = !state.hasData && !['import', 'settings', 'manual', 'account'].includes(p.key);
+  return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${disabled ? 'disabled' : ''} title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
+}
+
 function initNav() {
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = NAV_PAGES.map(p => `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${!state.hasData && !['import', 'settings', 'manual'].includes(p.key) ? 'disabled' : ''}>${escapeHtml(p.label)}</button>`).join('');
-  nav.querySelectorAll('.nav-item').forEach(b => b.onclick = () => goPage(b.dataset.page));
+  nav.innerHTML = NAV_SECTIONS.map(section => `<div class="nav-group"><div class="nav-group-title">${escapeHtml(section.title)}</div>${section.pages.map(navButtonHtml).join('')}</div>`).join('');
+  const footer = document.getElementById('sidebarFooterNav');
+  footer.innerHTML = FOOTER_NAV_PAGES.map(navButtonHtml).join('');
+  [...nav.querySelectorAll('.nav-item'), ...footer.querySelectorAll('.nav-item')].forEach(b => b.onclick = () => goPage(b.dataset.page));
 }
 
 function initFilterBar() {
@@ -2001,6 +2024,7 @@ async function renderPage() {
   if (state.page === 'import') return renderImport();
   if (state.page === 'settings') return renderSettings();
   if (state.page === 'manual') return renderManual();
+  if (state.page === 'account') return renderSettings();
   const hasDepreciationData = (state.data.depreciation || []).length > 0 || state.data.status?.additionalData?.depreciation_simulation?.status === 'imported';
   const hasOacisData = (state.data.oacisActual?.summary?.rowCount || 0) > 0 || state.data.status?.additionalData?.oasis_actual?.status === 'imported';
   if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData) && !(state.page === 'oacis' && hasOacisData)) return goPage('import');
@@ -2034,6 +2058,7 @@ function showManualHintDialog() {
 
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
+  document.getElementById('sidebarCollapse').onclick = () => document.body.classList.toggle('sidebar-collapsed');
   document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
   document.getElementById('zoomOut').onclick = () => changeDisplayZoom(-APP_ZOOM.step);
   document.getElementById('zoomIn').onclick = () => changeDisplayZoom(APP_ZOOM.step);
