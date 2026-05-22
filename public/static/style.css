@@ -119,7 +119,10 @@
 }
 
 @layer components {
-  .brand h1 { margin: 0; font-size: 17px; }
+  .brand h1 { margin: 0; font-size: 27px; line-height: 1.08; letter-spacing: .01em; display: grid; }
+  .brand h1 span { display: block; white-space: nowrap; }
+  .brand-title { display: flex; align-items: center; gap: var(--space-2); }
+  .brand-logo { width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px; }
   .brand p, .muted, .card-help { color: var(--text-muted); font-size: 12px; }
   .nav-item, button { border: 1px solid transparent; background: transparent; color: var(--text); border-radius: var(--radius-md); cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease; }
   .nav-item { display: block; width: 100%; text-align: left; padding: 10px; margin-bottom: 5px; font-size: 13px; }
