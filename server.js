@@ -305,6 +305,16 @@ function safeString(value) {
     .trim();
 }
 
+function normalizeUploadFileName(fileName) {
+  const raw = String(fileName || '');
+  if (!raw) return '';
+  try {
+    return Buffer.from(raw, 'latin1').toString('utf8');
+  } catch (_) {
+    return raw;
+  }
+}
+
 function normalizeAmount(value) {
   const rawValue = value;
   let text = safeString(value);
@@ -1950,7 +1960,7 @@ app.post('/api/upload', upload.single('budget_csv'), (req, res) => {
   return handleParsedImport(req, res, {
     fileType: String(req.body.fileType || IMPORT_FILE_TYPES.BUDGET),
     text: req.file.buffer.toString('utf-8').replace(/^\uFEFF/, ''),
-    fileName: req.file.originalname,
+    fileName: normalizeUploadFileName(req.file.originalname),
   });
 });
 
