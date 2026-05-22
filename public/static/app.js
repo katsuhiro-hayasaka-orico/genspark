@@ -18,14 +18,13 @@ const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'variance_reason', label: '差額理由' },
   { value: 'new_project_master', label: '新規案件マスタCSV' },
   { value: 'new_project_monthly_cost', label: '新規案件月次金額CSV' },
-  { value: 'new_project_actual_forecast', label: '新規案件CSV（旧形式・互換）' },
   { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
 ];
 
 const IMPORT_STATUS_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.map(t => t.value);
 const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
-const NOT_IMPORTED_MESSAGE = '追加データ未取込';
+const NOT_IMPORTED_MESSAGE = 'データ未取込';
 const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
 
 const state = {
@@ -1135,6 +1134,25 @@ function kpiHelpText(name) {
   return map[name] || 'KPIの読み方を確認します。';
 }
 
+function standardKpiCardHtml({ label, valueHtml, helpText, tone = 'neutral', note = '', statusLabel = '確認対象', statusIcon = '●', scopeText = '' }, idx = 0) {
+  const popId = `kpiHelpGeneric${idx}`;
+  return `<article class="kpi kpi-card" aria-label="${dataAttr(label)}">
+    <div class="kpi-head">
+      <div class="label">${escapeHtml(label)}</div>
+      <span class="tooltip-wrap">
+        <button class="icon-button" type="button" aria-describedby="${popId}" aria-label="${dataAttr(label)}の説明を表示">?</button>
+        <span id="${popId}" class="popover-card" role="tooltip">${escapeHtml(helpText || 'KPIの読み方を確認します。')}</span>
+      </span>
+    </div>
+    <div class="value ${tone === 'warn' ? 'warn' : ''}">${valueHtml}</div>
+    <div class="kpi-meta">
+      <span class="status-pill status-pill--${tone}">${statusIcon} ${escapeHtml(statusLabel)}</span>
+      <span>${escapeHtml(scopeText || '-')}</span>
+    </div>
+    <p class="kpi-note">${escapeHtml(note || helpText || '')}</p>
+  </article>`;
+}
+
 function renderSummary() {
   const items = filteredItems();
   const s = scopedPeriodSummary(items);
@@ -1451,8 +1469,10 @@ async function renderProject() {
     const top=prows.slice(0,20);
     document.getElementById('np_rank_rows').innerHTML = top.map((r,i)=>`<tr class="clickable-row" data-management="${dataAttr(r.managementNo)}"><td>${i+1}</td><td>${escapeHtml(r.managementNo)}</td><td>${escapeHtml(r.projectName)}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount)}</td><td class="right">${r.varianceRate==null?'-':pct(r.varianceRate*100)}</td><td class="right">${yen(r.fiveYearCost||0)}</td><td>${escapeHtml(r.hasBudgetSummary||'')}</td><td class="memo-cell memo-cell--clamped" title="${escapeHtml(r.memoSummary||'')}">${displayHtml(r.memoSummary||'')}</td><td>${displayHtml(r.varianceReason)}</td></tr>`).join('');
     const s={...summary, projectCount:prows.length, totalBudget:prows.reduce((a,b)=>a+b.budgetAmount,0), totalForecast:prows.reduce((a,b)=>a+b.forecastAmount,0), totalVariance:prows.reduce((a,b)=>a+b.varianceAmount,0), totalFiveYearCost:prows.reduce((a,b)=>a+Number(b.fiveYearCost||0),0), varianceProjectCount:prows.filter(v=>Number(v.varianceAmount||0)!==0).length, notStartedProjectCount:prows.filter(v=>/未着手/.test(v.progressStatus||'')).length, alertProjectCount:prows.filter(v=>v.alertLevel&&v.alertLevel!=='normal').length}; s.varianceRate=s.totalBudget?s.totalVariance/s.totalBudget:null;
-    document.getElementById('np_kpi').innerHTML=[['新規案件数',fmt(s.projectCount)],['5年経費合計',yen(s.totalFiveYearCost||0)],['当期予算額',yen(s.totalBudget)],['見込金額',yen(s.totalForecast)],['差額',yen(s.totalVariance)],['差額率',s.varianceRate==null?'-':pct(s.varianceRate*100)],['投資系金額',yen(summary.investmentAmount||0)],['運用系金額',yen(summary.operationAmount||0)],['差額発生案件数',fmt(s.varianceProjectCount||0)],['未着手案件数',fmt(s.notStartedProjectCount||0)],['要確認案件数',fmt(s.alertProjectCount||0)]].map(([l,v])=>`<article class="kpi"><div class="label">${l}</div><div class="value">${v}</div></article>`).join('');
-    document.getElementById('np_detail_rows').innerHTML=drows.slice(0,500).map(r=>`<tr class="${Math.abs(r.varianceAmount)>1000000?'warning-row':''}" data-management="${dataAttr(r.managementNo)}"><td>${escapeHtml(r.managementNo)}</td><td>${escapeHtml(r.projectName)}</td><td>${escapeHtml(r.owner||'')}</td><td>${escapeHtml(r.expenseEvent||'')}</td><td>${escapeHtml(r.costGroup||'')}</td><td>${escapeHtml(r.hasBudget||'')}</td><td class="right">${yen(r.fiveYearCost||0)}</td><td>${escapeHtml(formatYmLabel(r.targetMonth||''))}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount)}</td><td class="right">${r.varianceRate==null?'-':pct(r.varianceRate*100)}</td><td class="right ${r.alertLevel==='watch'?'alert-level-watch':r.alertLevel==='alert'?'alert-level-alert':r.alertLevel==='progressAhead'?'alert-level-progress-ahead':''}">${r.costConsumptionRate==null?'-':pct(r.costConsumptionRate)}</td><td class="memo-cell memo-cell--clamped" title="${escapeHtml(r.memo||'')}">${displayHtml(r.memo)}</td><td>${displayHtml(r.varianceReason)}</td></tr>`).join('');
+    const npScope = `${filterState.targetMonth ? formatYmLabel(filterState.targetMonth) : '全期間'} / ${filterState.projectCategory || '全案件区分'}`;
+    document.getElementById('np_kpi').innerHTML=[['新規案件数',fmt(s.projectCount),'フィルタ後の対象案件数です。'],['5年経費合計',yen(s.totalFiveYearCost||0),'対象案件の5年経費合計です。'],['当期予算額',yen(s.totalBudget),'対象案件の予算金額合計です。'],['見込金額',yen(s.totalForecast),'対象案件の見込金額合計です。'],['差額',yen(s.totalVariance),'予算金額と見込金額の差額合計です。'],['差額率',s.varianceRate==null?'-':pct(s.varianceRate*100),'差額÷予算金額です。'],['投資系金額',yen(summary.investmentAmount||0),'投資系に分類された金額です。'],['運用系金額',yen(summary.operationAmount||0),'運用系に分類された金額です。'],['差額発生案件数',fmt(s.varianceProjectCount||0),'差額が発生している案件数です。'],['未着手案件数',fmt(s.notStartedProjectCount||0),'進捗状況が未着手の案件数です。'],['要確認案件数',fmt(s.alertProjectCount||0),'アラートレベルがnormal以外の案件数です。']].map(([l,v,h],idx)=>standardKpiCardHtml({label:l,valueHtml:v,helpText:h,note:h,statusLabel:'確認対象',scopeText:npScope},idx)).join('');
+    const detailRowsForTable = filterState.selectedManagementNo ? drows.filter(r => r.managementNo === filterState.selectedManagementNo) : [];
+    document.getElementById('np_detail_rows').innerHTML=detailRowsForTable.slice(0,500).map(r=>`<tr class="${Math.abs(r.varianceAmount)>1000000?'warning-row':''}" data-management="${dataAttr(r.managementNo)}"><td>${escapeHtml(r.managementNo)}</td><td>${escapeHtml(r.projectName)}</td><td>${escapeHtml(r.owner||'')}</td><td>${escapeHtml(r.expenseEvent||'')}</td><td>${escapeHtml(r.costGroup||'')}</td><td>${escapeHtml(r.hasBudget||'')}</td><td class="right">${yen(r.fiveYearCost||0)}</td><td>${escapeHtml(formatYmLabel(r.targetMonth||''))}</td><td class="right">${yen(r.budgetAmount)}</td><td class="right">${yen(r.forecastAmount)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount)}</td><td class="right">${r.varianceRate==null?'-':pct(r.varianceRate*100)}</td><td class="right ${r.alertLevel==='watch'?'alert-level-watch':r.alertLevel==='alert'?'alert-level-alert':r.alertLevel==='progressAhead'?'alert-level-progress-ahead':''}">${r.costConsumptionRate==null?'-':pct(r.costConsumptionRate)}</td><td class="memo-cell memo-cell--clamped" title="${escapeHtml(r.memo||'')}">${displayHtml(r.memo)}</td><td>${displayHtml(r.varianceReason)}</td></tr>`).join('') || '<tr><td colspan="15">差額ランキングの案件をクリックすると詳細を表示します。</td></tr>';
     const allowedManagementNos = new Set(prows.map(v => v.managementNo));
     const matrixFiltered = matrixBase.filter(r => allowedManagementNos.has(r.managementNo));
     const gapRows = matrixFiltered.map(r => {
@@ -1491,7 +1511,7 @@ async function renderProject() {
     if(compareMode==='category') compareRows=payload.byProjectCategory||[]; else if(compareMode==='it') compareRows=payload.byItInvestmentNo||[]; else compareRows=(payload.byCostGroup||[]).map(v=>({label:v.costGroup,investmentForecastAmount:(v.costGroup||'').includes('投資')?v.forecastAmount:0,operationForecastAmount:(v.costGroup||'').includes('運用')?v.forecastAmount:0,varianceAmount:v.varianceAmount}));
     document.getElementById('np_compare_rows').innerHTML=compareRows.map(v=>{const label=v.projectCategory||v.itInvestmentNo||v.label||v.costGroup; return `<tr><td>${escapeHtml(label)}</td><td class="right">${yen(v.investmentForecastAmount||0)}</td><td class="right">${yen(v.operationForecastAmount||0)}</td><td class="right">${yen(v.varianceAmount||0)}</td></tr>`;}).join('');
     document.getElementById('np_reason_rows').innerHTML=(payload.byVarianceReason||[]).map(r=>`<tr><td>${escapeHtml(r.varianceReason)}</td><td class="right">${fmt(r.projectCount)}</td><td class="right">${yen(r.varianceAmount)}</td><td>${escapeHtml((r.mainProjects||[]).join(' / '))}</td></tr>`).join('');
-    document.querySelectorAll('[data-management]').forEach(el=>el.onclick=()=>{const mid=el.dataset.management; const hit=document.querySelector(`#np_detail_rows tr[data-management="${CSS.escape(mid)}"]`); if(hit){hit.scrollIntoView({behavior:'smooth',block:'center'}); hit.classList.add('warning-row'); setTimeout(()=>hit.classList.remove('warning-row'),1200);} });
+    document.querySelectorAll('#np_rank_rows [data-management]').forEach(el=>el.onclick=async ()=>{filterState.selectedManagementNo = el.dataset.management || ''; await renderAll(); const hit=document.querySelector(`#np_detail_rows tr[data-management="${CSS.escape(filterState.selectedManagementNo)}"]`); if(hit){hit.scrollIntoView({behavior:'smooth',block:'center'}); hit.classList.add('warning-row'); setTimeout(()=>hit.classList.remove('warning-row'),1200);} });
   };
 
   Object.keys(options).forEach(k=>document.getElementById(`npf_${k}`).onchange=async e=>{filterState[k]=e.target.value; await renderAll();});
@@ -1917,14 +1937,7 @@ function renderDepreciation() {
         <label>期 <select id="depFiscalPeriod">${periods.map(v => optionHtml(v, selectedPeriod)).join('')}</select></label>
         <label>償却展開区分名 <select id="depCategoryName"><option value="">全区分</option>${names.map(v => optionHtml(v, filters.categoryName)).join('')}</select></label>
       </div>
-      <div class="kpi-strip">
-        <article class="kpi"><div class="label">通期償却費</div><div class="value">${animatedValueHtml(full)}</div><div class="kpi-note">${escapeHtml(selectedPeriod)}期 FY</div></article>
-        <article class="kpi"><div class="label">上期償却費</div><div class="value">${animatedValueHtml(h1)}</div><div class="kpi-note">H1</div></article>
-        <article class="kpi"><div class="label">下期償却費</div><div class="value">${animatedValueHtml(h2)}</div><div class="kpi-note">H2</div></article>
-        <article class="kpi"><div class="label">上期下期差</div><div class="value">${animatedValueHtml(h2 - h1)}</div><div class="kpi-note">下期 - 上期</div></article>
-        <article class="kpi"><div class="label">前期差</div><div class="value ${full - previousFull < 0 ? 'ok' : 'warn'}">${animatedValueHtml(full - previousFull)}</div><div class="kpi-note">前期通期 ${yen(previousFull)}</div></article>
-        <article class="kpi"><div class="label">最大区分</div><div class="value">${escapeHtml(topCategory?.depreciation_category_name || '-')}</div><div class="kpi-note">${topCategory ? yen(topCategory.full) : '-'}</div></article>
-      </div>
+      <div id="dep_kpi_strip" class="kpi-strip"></div>
     </div>
     <div class="dashboard-bento depreciation-bento">
       <section class="panel bento-card bento-card--wide chart-card"><h3>月次推移（4月〜翌年3月）</h3><div class="chart-frame chart-frame--large"><canvas id="depMonthlyChart"></canvas></div></section>
@@ -1936,6 +1949,15 @@ function renderDepreciation() {
 
   document.getElementById('depFiscalPeriod').onchange = (event) => { state.ui.depreciationFilters.fiscalPeriod = event.target.value; renderPage(); };
   document.getElementById('depCategoryName').onchange = (event) => { state.ui.depreciationFilters.categoryName = event.target.value; renderPage(); };
+  const depScope = `${selectedPeriod}期 / ${filters.categoryName || '全区分'}`;
+  document.getElementById('dep_kpi_strip').innerHTML = [
+    ['通期償却費', animatedValueHtml(full), '選択期の償却費合計です。', '確認対象', 'neutral'],
+    ['上期償却費', animatedValueHtml(h1), 'H1の償却費合計です。', '確認対象', 'neutral'],
+    ['下期償却費', animatedValueHtml(h2), 'H2の償却費合計です。', '確認対象', 'neutral'],
+    ['上期下期差', animatedValueHtml(h2 - h1), '下期 - 上期の差分です。', '確認対象', 'neutral'],
+    ['前期差', animatedValueHtml(full - previousFull), `前期通期 ${yen(previousFull)} との差分です。`, full - previousFull < 0 ? '改善' : '要確認', full - previousFull < 0 ? 'ok' : 'warn'],
+    ['最大区分', escapeHtml(topCategory?.depreciation_category_name || '-'), topCategory ? `${topCategory.depreciation_category_name} が最大（${yen(topCategory.full)}）です。` : '該当データなし', '確認対象', 'neutral'],
+  ].map(([l, v, h, st, tone], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, statusLabel: st, tone, scopeText: depScope }, idx)).join('');
   animateNumericValues(content);
   drawDepreciationMonthlyChart('depMonthlyChart', scoped);
   drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費');
@@ -1948,14 +1970,7 @@ function renderOacisActual() {
   const content = document.getElementById('content');
   content.innerHTML = `
     <div class="panel">
-      <div class="kpi-strip oacis-kpi-strip">
-        <article class="kpi oacis-summary-card"><div class="label">実績合計額</div><div class="value">${yen(s.totalAmount || 0)}</div></article>
-        <article class="kpi oacis-summary-card"><div class="label">明細件数</div><div class="value">${fmt(s.rowCount || 0)}</div></article>
-        <article class="kpi oacis-summary-card"><div class="label">経費事象数</div><div class="value">${fmt(s.expenseEventCount || 0)}</div></article>
-        <article class="kpi oacis-summary-card"><div class="label">サプライヤ数</div><div class="value">${fmt(s.supplierCount || 0)}</div></article>
-        <article class="kpi oacis-summary-card"><div class="label">予実番号あり金額</div><div class="value">${yen(s.yojitsuNoPresentAmount || 0)}</div></article>
-        <article class="kpi oacis-summary-card"><div class="label">予実番号なし金額</div><div class="value">${yen(s.yojitsuNoMissingAmount || 0)}</div></article>
-      </div>
+      <div id="oacis_kpi_strip" class="kpi-strip oacis-kpi-strip"></div>
     </div>
     <div class="oacis-ranking-grid">
       <section class="panel bento-card"><h3>経費事象別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>経費事象コード</th><th>経費事象名</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th></tr></thead><tbody>${(payload.byExpenseEvent || []).map(r => `<tr><td>${escapeHtml(r.expense_event_code || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td></tr>`).join('')}</tbody></table></div></section>
@@ -1964,6 +1979,14 @@ function renderOacisActual() {
     </div>
     <section class="panel bento-card oacis-alert-table"><h3>予実番号未設定（要確認）明細</h3><div class="table-wrap"><table><thead><tr><th>会計日</th><th>実績部店名</th><th>経費事象名</th><th>経費事象細目名</th><th>サプライヤ</th><th class="right">実績額</th><th>仕訳摘要</th><th>仕訳明細摘要</th><th>請求書番号</th></tr></thead><tbody>${(payload.missingYojitsuNoRows || []).map(r => `<tr><td>${escapeHtml(formatYearMonth(r.accounting_date) || r.accounting_date || '')}</td><td>${escapeHtml(r.actual_department_name || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td>${escapeHtml(r.expense_event_detail_name || '')}</td><td>${escapeHtml(r.supplier || '')}</td><td class="right">${yen(r.amount || 0)}</td><td>${escapeHtml(r.journal_summary || '')}</td><td>${escapeHtml(r.journal_detail_summary || '')}</td><td>${escapeHtml(r.invoice_no || '')}</td></tr>`).join('')}</tbody></table></div></section>
   `;
+  document.getElementById('oacis_kpi_strip').innerHTML = [
+    ['実績合計額', yen(s.totalAmount || 0), '対象データの実績金額合計です。'],
+    ['明細件数', fmt(s.rowCount || 0), '対象データの明細件数です。'],
+    ['経費事象数', fmt(s.expenseEventCount || 0), '対象データに含まれる経費事象数です。'],
+    ['サプライヤ数', fmt(s.supplierCount || 0), '対象データに含まれるサプライヤ数です。'],
+    ['予実番号あり金額', yen(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
+    ['予実番号なし金額', yen(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
+  ].map(([l, v, h], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, scopeText: 'OACIS実績 / 全体' }, idx)).join('');
 }
 
 async function renderPage() {
