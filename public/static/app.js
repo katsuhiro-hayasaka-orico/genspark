@@ -2023,6 +2023,7 @@ async function renderPage() {
   if (state.page === 'import') return renderImport();
   if (state.page === 'settings') return renderSettings();
   if (state.page === 'manual') return renderManual();
+  if (state.page === 'account') return renderSettings();
   const hasDepreciationData = (state.data.depreciation || []).length > 0 || state.data.status?.additionalData?.depreciation_simulation?.status === 'imported';
   const hasOacisData = (state.data.oacisActual?.summary?.rowCount || 0) > 0 || state.data.status?.additionalData?.oasis_actual?.status === 'imported';
   if (!state.hasData && !(state.page === 'depreciation' && hasDepreciationData) && !(state.page === 'oacis' && hasOacisData)) return goPage('import');
