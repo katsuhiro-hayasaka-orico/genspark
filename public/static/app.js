@@ -95,6 +95,10 @@ const displayOrUnentered = (value) => {
   const text = String(value ?? '').trim();
   return text ? escapeHtml(text) : '未入力';
 };
+const normalizeBrokenText = (value) => String(value ?? '')
+  .replace(/�/g, '')
+  .replace(/ï»¿/g, '')
+  .trim();
 const formatYearMonth = (ym) => {
   const s = String(ym || '').trim();
   return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}/${s.slice(4, 6)}` : (s || '-');
@@ -813,7 +817,9 @@ function additionalStatusListHtml() {
     const option = IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === fileType);
     const st = additionalData[fileType] || { status: 'not_imported', message: NOT_IMPORTED_MESSAGE, rowCount: 0 };
     const imported = st.status === 'imported';
-    return `<article class="mini-status ${imported ? 'mini-status--ok' : ''}"><strong>${escapeHtml(option?.label || fileType)}</strong><span>${escapeHtml(imported ? '取込済み' : NOT_IMPORTED_MESSAGE)}</span><small>${imported ? `${fmt(st.rowCount)}件 / ${escapeHtml(st.fileName || '')}` : escapeHtml(st.message || NOT_IMPORTED_MESSAGE)}</small></article>`;
+    const safeFileName = normalizeBrokenText(st.fileName);
+    const safeMessage = normalizeBrokenText(st.message);
+    return `<article class="mini-status ${imported ? 'mini-status--ok' : ''}"><strong>${escapeHtml(option?.label || fileType)}</strong><span>${escapeHtml(imported ? '取込済み' : NOT_IMPORTED_MESSAGE)}</span><small>${imported ? `${fmt(st.rowCount)}件 / ${escapeHtml(safeFileName || '-')}` : escapeHtml(safeMessage || NOT_IMPORTED_MESSAGE)}</small></article>`;
   }).join('')}</div>`;
 }
 
@@ -1391,7 +1397,7 @@ async function renderProject() {
   const content = document.getElementById('content');
   content.innerHTML = '<div class="panel"><p>新規案件データを読み込み中です...</p></div>';
   const payload = await api('/analysis/new-project-costs').catch(() => null);
-  if (!payload) return void (content.innerHTML = '<div class="panel"><p>新規案件予算見込CSVが未取込です。</p></div>');
+  if (!payload) return void (content.innerHTML = '<div class="panel"><p>新規案件マスタCSV取込完了。続いて新規案件月次金額CSVの取込を実施してください。</p></div>');
 
   const summary = payload.summary || {}; const rankingBase = payload.projectRanking || []; const detailBase = payload.detailRows || [];
   const fiscalPeriodFromMonth = (ym) => {
@@ -1415,7 +1421,7 @@ async function renderProject() {
     const s = String(ym || '');
     return /^\d{6}$/.test(s) ? `${s.slice(0,4)}/${s.slice(4,6)}` : s;
   };
-  const filterState = { fiscalPeriod:'', targetMonth:'', projectCategory:'', itInvestmentNo:'', owner:'', progressStatus:'', costGroup:'', varianceReason:'', keyword:'', rankSort:'variance' };
+  const filterState = { fiscalPeriod:'', targetMonth:'', projectCategory:'', itInvestmentNo:'', owner:'', progressStatus:'', costGroup:'', varianceReason:'', keyword:'', rankSort:'variance', gapStatus:'all' };
   const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'ja'));
 
   const options = {
@@ -1428,7 +1434,7 @@ async function renderProject() {
   <div class="controls">${['fiscalPeriod','targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(k==='targetMonth'?formatYmLabel(v):v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
   <div id="np_kpi" class="kpi-strip new-project-kpi"></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-ranking"><div class="card-title-row"><h4>差額ランキング</h4><select id="np_rank_sort"><option value="variance">差額順</option><option value="rate">差額率順</option><option value="forecast">見込金額順</option></select></div><div class="table-wrap"><table><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">5年経費合計</th><th>予算有り</th><th>memo</th><th>差額理由</th></tr></thead><tbody id="np_rank_rows"></tbody></table></div></div>
-  <div class="panel new-project-gap-analysis"><h4>進捗・コスト消化ギャップ分析</h4><div id="np_gap_counts" class="muted"></div><div id="np_gap_summary" class="gap-summary"></div><div id="np_gap_bar_list" class="gap-bar-list"></div><div class="table-wrap"><table class="gap-ranking-table"><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th>案件区分</th><th>IT投資シミュレーション№</th><th>進捗状況</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th class="right">ギャップ</th><th>判定区分</th><th class="right">予算金額</th><th class="right">見込金額</th><th class="right">差額</th></tr></thead><tbody id="np_gap_rank_rows"></tbody></table></div><details class="gap-formula-note"><summary>計算ロジック注釈</summary><div class="gap-formula-details"><p>進捗率は、進捗状況から自動換算した簡易値です。進捗率は正式なプロジェクト進捗率ではありません。</p><p>換算ルール: 未着手/01.未着手=0%, 今期中に案件組成=20%, 来期案件組成予定=20%, 組成予定=40%, 組成済=60%, 予算計画通り=80%, 完了=100%, 取下げ/取下/削除=0%, 上記以外=未算出。</p><p>コスト消化率 = 見込金額合計 ÷ 予算金額合計 × 100。予算金額合計が0の場合、コスト消化率は未算出です。金額は案件単位で集計した予算金額・見込金額を使用しています。</p><p>ギャップ = コスト消化率 − 進捗率。ギャップがプラスの場合、進捗に対してコスト消化が先行しています。ギャップがマイナスの場合、進捗に対してコスト消化が低い状態です。</p></div></details></div></div>
+  <div class="panel new-project-gap-analysis"><h4>進捗・コスト消化ギャップ分析</h4><div id="np_gap_counts" class="muted"></div><div id="np_gap_summary" class="gap-summary"></div><div id="np_gap_filter_buttons" class="gap-filter-buttons"></div><div id="np_gap_bar_list" class="gap-bar-list"></div><div class="table-wrap"><table class="gap-ranking-table"><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th>案件区分</th><th>IT投資シミュレーション№</th><th>進捗状況</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th class="right">ギャップ</th><th>判定区分</th><th class="right">予算金額</th><th class="right">見込金額</th><th class="right">差額</th></tr></thead><tbody id="np_gap_rank_rows"></tbody></table></div><details class="gap-formula-note"><summary>計算ロジック注釈</summary><div class="gap-formula-details"><p>進捗率は、進捗状況から自動換算した簡易値です。進捗率は正式なプロジェクト進捗率ではありません。</p><p>換算ルール: 未着手/01.未着手=0%, 今期中に案件組成=20%, 来期案件組成予定=20%, 組成予定=40%, 組成済=60%, 予算計画通り=80%, 完了=100%, 取下げ/取下/削除=0%, 上記以外=未算出。</p><p>コスト消化率 = 見込金額合計 ÷ 予算金額合計 × 100。予算金額合計が0の場合、コスト消化率は未算出です。金額は案件単位で集計した予算金額・見込金額を使用しています。</p><p>ギャップ = コスト消化率 − 進捗率。ギャップがプラスの場合、進捗に対してコスト消化が先行しています。ギャップがマイナスの場合、進捗に対してコスト消化が低い状態です。</p></div></details></div></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-cost-compare"><div class="card-title-row"><h4>区分別 投資・運用比較</h4><select id="np_compare_mode"><option value="category">案件区分別</option><option value="it">IT投資シミュレーション№別</option><option value="group">投資運用区分別</option></select></div><div class="table-wrap"><table><thead><tr><th>区分</th><th class="right">投資見込</th><th class="right">運用見込</th><th class="right">差額</th></tr></thead><tbody id="np_compare_rows"></tbody></table></div></div>
   <div class="panel new-project-variance-reason"><h4>差額理由サマリー</h4><div class="table-wrap"><table><thead><tr><th>理由</th><th class="right">件数</th><th class="right">差額</th><th>主案件</th></tr></thead><tbody id="np_reason_rows"></tbody></table></div></div></div>
   <div class="panel new-project-detail-table"><h4>詳細テーブル</h4><div class="table-wrap"><table><thead><tr><th>管理番号</th><th>案件名</th><th>担当</th><th>経費事象</th><th>投資運用区分</th><th>予算有り</th><th class="right">5年経費合計</th><th>対象年月</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">消化率</th><th>memo</th><th>理由</th></tr></thead><tbody id="np_detail_rows"></tbody></table></div></div></section>`;
@@ -1460,19 +1466,27 @@ async function renderProject() {
       return { ...r, progressRate, costConsumptionRate, progressCostGap: gap, progressCostGapStatus: status, progressCostGapLabel: statusLabel };
     });
     const gapComparable = gapRows.filter(r => r.progressCostGap != null).sort((a,b)=>Math.abs(b.progressCostGap)-Math.abs(a.progressCostGap));
-    const gapTop = gapComparable.slice(0,20);
     const counters = { critical:0, watch:0, 'progress-ahead':0, normal:0, unknown:0 };
     gapRows.forEach(r => { counters[r.progressCostGapStatus] = (counters[r.progressCostGapStatus] || 0) + 1; });
-    document.getElementById('np_gap_counts').textContent = `フィルタ後案件数：${fmt(prows.length)}件 / 判定可能案件数：${fmt(gapComparable.length)}件 / 判定不可案件数：${fmt(counters.unknown || 0)}件 / 表示中：上位${fmt(gapTop.length)}件`;
+    const gapStatusFilter = filterState.gapStatus || 'all';
+    const gapFiltered = gapStatusFilter === 'all' ? gapComparable : gapComparable.filter(r => r.progressCostGapStatus === gapStatusFilter);
+    const gapTop = gapFiltered.slice(0,20);
+    document.getElementById('np_gap_counts').textContent = `フィルタ後案件数：${fmt(prows.length)}件 / 判定可能案件数：${fmt(gapComparable.length)}件 / 判定不可案件数：${fmt(counters.unknown || 0)}件 / 表示中：${gapStatusFilter === 'all' ? '上位' : '絞込'}${fmt(gapTop.length)}件`;
     const summaryDefs = [['critical','要確認・高','コスト消化が進捗より大きく先行'],['watch','要確認','コスト消化が進捗より先行'],['progress-ahead','進捗先行','進捗に対してコスト消化が低い'],['normal','概ね整合','進捗とコスト消化が概ね整合'],['unknown','判定不可','進捗率またはコスト消化率を算出不可']];
     document.getElementById('np_gap_summary').innerHTML = summaryDefs.map(([key,label,desc]) => `<article class="gap-summary-card gap-status-${key}"><div class="label">${label}</div><div class="value">${fmt(counters[key] || 0)}件</div><div class="muted">${desc}</div></article>`).join('');
+    const gapFilterDefs = [['all','全件'],['critical','要確認・高'],['watch','要確認'],['progress-ahead','進捗先行'],['normal','概ね整合']];
+    document.getElementById('np_gap_filter_buttons').innerHTML = gapFilterDefs.map(([key,label]) => {
+      const count = key === 'all' ? gapComparable.length : (counters[key] || 0);
+      return `<button type="button" class="gap-filter-btn ${gapStatusFilter === key ? 'active' : ''}" data-gap-filter="${key}">${label}<span>${fmt(count)}件</span></button>`;
+    }).join('');
     document.getElementById('np_gap_bar_list').innerHTML = gapTop.map(r => {
       const progressBar = Math.max(0, Math.min(100, Number(r.progressRate || 0)));
       const costBar = Math.max(0, Math.min(100, Number(r.costConsumptionRate || 0)));
       const varianceClass = r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral';
       return `<article class="gap-bar-item gap-status-${r.progressCostGapStatus}"><div class="gap-bar-label"><b>${escapeHtml(r.managementNo || '')}</b> ${escapeHtml(r.projectName || '')}<span class="muted"> / ${escapeHtml(r.progressStatus || '進捗状況未設定')}</span></div><div class="gap-bar-row"><span>進捗率 ${pct(r.progressRate)}</span><div class="gap-bar-track"><div class="gap-bar-fill-progress" style="width:${progressBar}%"></div></div></div><div class="gap-bar-row"><span>コスト消化率 ${pct(r.costConsumptionRate)}</span><div class="gap-bar-track"><div class="gap-bar-fill-cost" style="width:${costBar}%"></div></div></div><div class="muted">ギャップ: <b>${r.progressCostGap >= 0 ? '+' : ''}${pct(r.progressCostGap)}pt</b> / 判定: ${r.progressCostGapLabel} / 差額: <span class="${varianceClass}">${yen(r.varianceAmount || 0)}</span></div></article>`;
     }).join('') || '<p class="muted">進捗率またはコスト消化率を算出できる案件がありません。</p>';
-    document.getElementById('np_gap_rank_rows').innerHTML = gapTop.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.managementNo||'')}</td><td>${escapeHtml(r.projectName||'')}</td><td>${escapeHtml(r.projectCategory||'')}</td><td>${escapeHtml(r.itInvestmentNo||'')}</td><td>${escapeHtml(r.progressStatus||'')}</td><td class="right">${pct(r.progressRate)}</td><td class="right">${pct(r.costConsumptionRate)}</td><td class="right ${r.progressCostGap>0?'variance-positive':r.progressCostGap<0?'variance-negative':'variance-neutral'}">${r.progressCostGap>0?'+':''}${pct(r.progressCostGap)}pt</td><td><span class="gap-status-${r.progressCostGapStatus}">${r.progressCostGapLabel}</span></td><td class="right">${yen(r.budgetAmount||0)}</td><td class="right">${yen(r.forecastAmount||0)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount||0)}</td></tr>`).join('');
+    document.getElementById('np_gap_rank_rows').innerHTML = gapTop.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.managementNo||'')}</td><td>${escapeHtml(r.projectName||'')}</td><td>${escapeHtml(r.projectCategory||'')}</td><td>${escapeHtml(r.itInvestmentNo||'')}</td><td>${escapeHtml(r.progressStatus||'')}</td><td class="right">${pct(r.progressRate)}</td><td class="right">${pct(r.costConsumptionRate)}</td><td class="right ${r.progressCostGap>0?'variance-positive':r.progressCostGap<0?'variance-negative':'variance-neutral'}">${r.progressCostGap>0?'+':''}${pct(r.progressCostGap)}pt</td><td><span class="gap-status-${r.progressCostGapStatus}">${r.progressCostGapLabel}</span></td><td class="right">${yen(r.budgetAmount||0)}</td><td class="right">${yen(r.forecastAmount||0)}</td><td class="right ${r.varianceAmount>0?'variance-positive':r.varianceAmount<0?'variance-negative':'variance-neutral'}">${yen(r.varianceAmount||0)}</td></tr>`).join('') || '<tr><td colspan="13">対象なし</td></tr>';
+    document.querySelectorAll('[data-gap-filter]').forEach(el => el.onclick = async () => { filterState.gapStatus = el.dataset.gapFilter || 'all'; await renderAll(); });
     const compareMode = document.getElementById('np_compare_mode').value; let compareRows=[];
     if(compareMode==='category') compareRows=payload.byProjectCategory||[]; else if(compareMode==='it') compareRows=payload.byItInvestmentNo||[]; else compareRows=(payload.byCostGroup||[]).map(v=>({label:v.costGroup,investmentForecastAmount:(v.costGroup||'').includes('投資')?v.forecastAmount:0,operationForecastAmount:(v.costGroup||'').includes('運用')?v.forecastAmount:0,varianceAmount:v.varianceAmount}));
     document.getElementById('np_compare_rows').innerHTML=compareRows.map(v=>{const label=v.projectCategory||v.itInvestmentNo||v.label||v.costGroup; return `<tr><td>${escapeHtml(label)}</td><td class="right">${yen(v.investmentForecastAmount||0)}</td><td class="right">${yen(v.operationForecastAmount||0)}</td><td class="right">${yen(v.varianceAmount||0)}</td></tr>`;}).join('');
@@ -1723,7 +1737,7 @@ function renderManual() {
       <ul><li><b>見るポイント：</b>減価償却の展開区分ごとの月次推移と期別合計。</li><li><b>操作：</b>対象期・区分を切替えて、償却影響の山谷を確認。</li></ul>
       <h4>12. OACIS実績</h4>
       <ul><li><b>見るポイント：</b>OACIS取り込み実績と費目/取引先の集計。</li><li><b>操作：</b>実績データの偏りや未紐づき行を確認し、明細精査へ連携。</li></ul>
-      <h4>99. 取扱説明書（マニュアル）</h4>
+      <h4>A2. 取扱説明書（マニュアル）</h4>
       <ul><li><b>見るポイント：</b>運用手順、FAQ、画面別の活用方法。</li><li><b>操作：</b>不明点は本画面に戻り、該当する画面説明を確認。</li></ul>
     </div>
     <div class="panel"><h3>使い方チュートリアル（ステップ形式）</h3>
@@ -1977,7 +1991,7 @@ function showManualHintDialog() {
   document.body.insertAdjacentHTML('beforeend', `
     <dialog id="manualHintDialog" aria-labelledby="manualHintTitle" aria-describedby="manualHintDesc">
       <h3 id="manualHintTitle">初回チュートリアル</h3>
-      <p id="manualHintDesc">チュートリアルは「99. 取扱説明書（マニュアル）」から確認できます。</p>
+      <p id="manualHintDesc">チュートリアルは「A2. 取扱説明書（マニュアル）」から確認できます。</p>
       <form method="dialog" class="controls">
         <button class="primary" value="ok">始める</button>
       </form>
