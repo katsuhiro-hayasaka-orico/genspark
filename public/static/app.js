@@ -814,7 +814,14 @@ function additionalStatusListHtml() {
   const additionalData = state.data.status?.additionalData || {};
   return `<div class="additional-status-grid">${IMPORT_STATUS_FILE_TYPES.map((fileType) => {
     const option = IMPORT_FILE_TYPE_OPTIONS.find(t => t.value === fileType);
-    const st = additionalData[fileType] || { status: 'not_imported', message: NOT_IMPORTED_MESSAGE, rowCount: 0 };
+    const st = fileType === 'budget'
+      ? {
+        status: state.hasData ? 'imported' : 'not_imported',
+        message: state.hasData ? '' : NOT_IMPORTED_MESSAGE,
+        rowCount: Number(state.data.status?.itemCount || 0),
+        fileName: state.data.status?.csvFileName || '',
+      }
+      : (additionalData[fileType] || { status: 'not_imported', message: NOT_IMPORTED_MESSAGE, rowCount: 0 });
     const imported = st.status === 'imported';
     const safeFileName = normalizeBrokenText(st.fileName);
     const safeMessage = normalizeBrokenText(st.message);
