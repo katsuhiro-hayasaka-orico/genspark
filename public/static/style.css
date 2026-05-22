@@ -268,6 +268,10 @@
 .new-project-gap-analysis { display: grid; gap: 10px; }
 .gap-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .gap-summary-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
+.gap-filter-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.gap-filter-btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; }
+.gap-filter-btn span { font-size: 12px; color: var(--text-muted); }
+.gap-filter-btn.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .gap-bar-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding-right: 4px; }
 .gap-bar-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
 .gap-bar-row { display: grid; grid-template-columns: 170px 1fr; gap: 8px; align-items: center; font-size: 12px; margin-top: 4px; }
