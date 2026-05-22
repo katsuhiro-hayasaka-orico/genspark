@@ -101,7 +101,7 @@
 
 @layer layout {
   .layout { display: grid; grid-template-columns: 268px minmax(0, 1fr); min-height: 100vh; }
-  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-4); box-shadow: var(--shadow-sm); }
+  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-4); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow-y: auto; overscroll-behavior: contain; }
   .main { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
   .topbar { background: color-mix(in srgb, var(--surface-raised) 96%, transparent); border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px); }
   .topbar-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
