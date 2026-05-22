@@ -101,7 +101,7 @@
 
 @layer layout {
   .layout { display: grid; grid-template-columns: 268px minmax(0, 1fr); min-height: 100vh; }
-  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-4); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow-y: auto; overscroll-behavior: contain; }
+  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-4); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow: hidden; overscroll-behavior: contain; }
   .main { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
   .topbar { background: color-mix(in srgb, var(--surface-raised) 96%, transparent); border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px); }
   .topbar-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -123,7 +123,7 @@
   .sidebar { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: var(--space-2); min-height: 100vh; }
   .sidebar-head { display: flex; justify-content: flex-end; }
   .sidebar-collapse { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
-  #sidebarNav { display: grid; gap: 4px; align-content: start; min-height: 0; }
+  #sidebarNav { display: grid; gap: 4px; align-content: start; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 4px; scrollbar-width: thin; }
   .nav-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 8px 10px 4px; }
   .nav-item { display: flex; align-items: center; gap: 10px; border-left: 3px solid transparent; margin-bottom: 0; }
   .nav-item .nav-icon { font-size: 15px; min-width: 18px; text-align: center; }
@@ -151,7 +151,7 @@
   .nav-item:hover, button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--primary) 8%, var(--surface-muted)); }
   .nav-item.active { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); color: var(--primary); font-weight: 700; border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
   .nav-item:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-  .sidebar-meta { font-size: 12px; color: var(--text-muted); padding-top: var(--space-1); }
+  .sidebar-meta { font-size: 12px; color: var(--text-muted); padding-top: var(--space-1); overflow-wrap: anywhere; }
   .theme-toggle, button { border-color: var(--border); padding: 8px 12px; background: var(--surface); }
   .zoom-control { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
   .zoom-button, .zoom-reset { padding: 5px 9px; background: var(--surface); }
