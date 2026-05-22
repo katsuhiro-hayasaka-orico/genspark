@@ -120,7 +120,7 @@
 
 @layer components {
 
-  .sidebar { display: flex; flex-direction: column; gap: var(--space-2); }
+  .sidebar { display: flex; flex-direction: column; gap: var(--space-2); min-height: 100vh; }
   .sidebar-head { display: flex; justify-content: flex-end; }
   .sidebar-collapse { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
   #sidebarNav { display: grid; gap: 4px; }
@@ -132,6 +132,7 @@
   .sidebar-footer-nav { margin-top: auto; padding-top: var(--space-2); border-top: 1px solid var(--border); display: grid; gap: 4px; }
   body.sidebar-collapsed .layout { grid-template-columns: 78px minmax(0, 1fr); }
   body.sidebar-collapsed .brand h1, body.sidebar-collapsed .brand p, body.sidebar-collapsed .nav-group-title, body.sidebar-collapsed .nav-label, body.sidebar-collapsed .sidebar-meta { display: none; }
+  body.sidebar-collapsed .sidebar-footer-nav { margin-top: auto; border-top: none; padding-top: 0; }
   body.sidebar-collapsed .brand-title { justify-content: center; }
   body.sidebar-collapsed .sidebar { align-items: center; padding: var(--space-3) 8px; }
   body.sidebar-collapsed #sidebarNav, body.sidebar-collapsed .sidebar-footer-nav { width: 100%; }
@@ -146,7 +147,7 @@
   .nav-item:hover, button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--primary) 8%, var(--surface-muted)); }
   .nav-item.active { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); color: var(--primary); font-weight: 700; border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
   .nav-item:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-  .sidebar-meta { margin-top: var(--space-3); font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+  .sidebar-meta { margin-top: var(--space-2); font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: var(--space-3); }
   .theme-toggle, button { border-color: var(--border); padding: 8px 12px; background: var(--surface); }
   .zoom-control { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
   .zoom-button, .zoom-reset { padding: 5px 9px; background: var(--surface); }

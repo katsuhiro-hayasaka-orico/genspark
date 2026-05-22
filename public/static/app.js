@@ -24,7 +24,6 @@ const NAV_SECTIONS = [
 const FOOTER_NAV_PAGES = [
   { key: 'settings', label: 'Settings', icon: '⚙️' },
   { key: 'manual', label: 'Help', icon: '❓' },
-  { key: 'account', label: 'Account', icon: '👤' },
 ];
 
 const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...FOOTER_NAV_PAGES];
@@ -678,7 +677,7 @@ function recomputeSummary(items) {
 }
 
 function navButtonHtml(p) {
-  const disabled = !state.hasData && !['import', 'settings', 'manual', 'account'].includes(p.key);
+  const disabled = !state.hasData && !['import', 'settings', 'manual'].includes(p.key);
   return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${disabled ? 'disabled' : ''} title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
 }
 
