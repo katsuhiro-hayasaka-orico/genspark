@@ -21,12 +21,12 @@ const NAV_SECTIONS = [
   },
 ];
 
-const FOOTER_NAV_PAGES = [
+const UTILITY_NAV_PAGES = [
   { key: 'settings', label: 'Settings', icon: '⚙️' },
   { key: 'manual', label: 'Help', icon: '❓' },
 ];
 
-const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...FOOTER_NAV_PAGES];
+const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...UTILITY_NAV_PAGES];
 
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
@@ -683,10 +683,10 @@ function navButtonHtml(p) {
 
 function initNav() {
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = NAV_SECTIONS.map(section => `<div class="nav-group"><div class="nav-group-title">${escapeHtml(section.title)}</div>${section.pages.map(navButtonHtml).join('')}</div>`).join('');
-  const footer = document.getElementById('sidebarFooterNav');
-  footer.innerHTML = FOOTER_NAV_PAGES.map(navButtonHtml).join('');
-  [...nav.querySelectorAll('.nav-item'), ...footer.querySelectorAll('.nav-item')].forEach(b => b.onclick = () => goPage(b.dataset.page));
+  const sectionHtml = NAV_SECTIONS.map(section => `<div class="nav-group"><div class="nav-group-title">${escapeHtml(section.title)}</div>${section.pages.map(navButtonHtml).join('')}</div>`).join('');
+  const utilityHtml = `<div class="nav-group nav-group--utility">${UTILITY_NAV_PAGES.map(navButtonHtml).join('')}</div>`;
+  nav.innerHTML = `${sectionHtml}${utilityHtml}`;
+  nav.querySelectorAll('.nav-item').forEach(b => b.onclick = () => goPage(b.dataset.page));
 }
 
 function initFilterBar() {
