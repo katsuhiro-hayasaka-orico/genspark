@@ -36,13 +36,14 @@
             <span id="statusBadge" class="status">データなし</span>
           </div>
           <div class="topbar-actions">
-            <div class="zoom-control" role="group" aria-label="表示倍率">
-              <button id="zoomOut" class="zoom-button" type="button" aria-label="表示倍率を下げる">−</button>
+            <button id="quickSettings" class="quick-settings" type="button" aria-label="設定を開く" title="設定">⚙️</button>
+            <div class="topbar-quick-menu" aria-label="簡易設定">
+              <button id="themeToggle" class="theme-toggle quick-icon" type="button" aria-label="テーマ切替" title="テーマ切替">🌙</button>
+              <button id="zoomOut" class="zoom-button quick-icon" type="button" aria-label="表示倍率を下げる">−</button>
               <span id="zoomValue" class="zoom-value" aria-live="polite">100%</span>
-              <button id="zoomIn" class="zoom-button" type="button" aria-label="表示倍率を上げる">＋</button>
-              <button id="zoomReset" class="zoom-reset" type="button">等倍</button>
+              <button id="zoomIn" class="zoom-button quick-icon" type="button" aria-label="表示倍率を上げる">＋</button>
+              <button id="zoomReset" class="zoom-reset quick-icon" type="button" aria-label="表示倍率をリセット">100%</button>
             </div>
-            <button id="themeToggle" class="theme-toggle" type="button">🌙 ダーク</button>
           </div>
         </div>
         <div class="topbar-filters" id="globalFilters"></div>
