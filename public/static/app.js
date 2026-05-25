@@ -22,8 +22,8 @@ const NAV_SECTIONS = [
 ];
 
 const UTILITY_NAV_PAGES = [
-  { key: 'settings', label: 'Settings', icon: '⚙️' },
-  { key: 'manual', label: 'Help', icon: '❓' },
+  { key: 'settings', label: '表示設定', icon: '⚙️' },
+  { key: 'manual', label: '使い方', icon: '❓' },
 ];
 
 const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...UTILITY_NAV_PAGES];
@@ -387,7 +387,8 @@ function applyTheme() {
   updateZoomControls();
   localStorage.setItem('theme', state.ui.theme);
   const themeLabel = { light: '☀️ ライト', dark: '🌙 ダーク', neon: '🌈 ネオン' };
-  document.getElementById('themeToggle').textContent = `${themeLabel[state.ui.theme]}（切替）`;
+  const themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) themeToggle.textContent = `${themeLabel[state.ui.theme]}（切替）`;
   const sel = document.getElementById('themeSelect');
   if (sel) sel.value = state.ui.theme;
 }
@@ -781,7 +782,14 @@ async function refreshAllData() {
   setStatus();
 }
 
+function closeMobileMenu() {
+  document.body.classList.remove('mobile-menu-open');
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  if (mobileMenuToggle) mobileMenuToggle.setAttribute('aria-expanded', 'false');
+}
+
 function goPage(page) {
+  closeMobileMenu();
   withViewTransition(() => {
     state.page = page;
     initNav();
@@ -1799,47 +1807,11 @@ function renderManual() {
     <div class="panel"><h3>このアプリでできること（全体像）</h3>
       <p>予算・見込・実績を1つの画面で確認し、会議で必要な説明資料を短時間で準備するための可視化アプリです。</p>
       <ul><li>月次会議での予実差確認</li><li>コスト削減委員会での優先課題抽出</li><li>部門・案件・ベンダー単位の深掘り</li></ul>
-      <div class="badge">推奨の閲覧順：1. データ取込 → 2. 全体サマリー → 6. アラート → 8. 明細</div>
+      <div class="badge">推奨の閲覧順：1. データ取込 → 2. 全体サマリー → 5. アラート → 7. 明細</div>
     </div>
     <div class="panel"><h3>画面別ガイド（見方と操作方法）</h3>
-      <h4>1. データ取込</h4>
-      <ul><li><b>見るポイント：</b>読み込み件数、対象期間、警告件数。</li><li><b>操作：</b>CSVを選択してアップロード。エラーがあれば修正後に再取込。</li></ul>
-      <h4>2. 全体サマリー（月次レポート）</h4>
-      <ul><li><b>見るポイント：</b>KPIカード（総予算・見込み／実績・予算消化率）と差額ランキング。</li><li><b>操作：</b>上部フィルタ（期間・部門・観点・対象）を切替えて、差異の大きい領域を特定。</li></ul>
-      <h4>3. 推移（前年差／トレンド）</h4>
-      <ul><li><b>見るポイント：</b>異常に増減した月、前年同月比の跳ね。</li><li><b>操作：</b>表示月数や指標を切替え、異常月を起点に原因を深掘り。</li></ul>
-      <h4>4. カテゴリ別分析</h4>
-      <ul><li><b>見るポイント：</b>費目・システム・固定変動など切り口別の構成比。</li><li><b>操作：</b>タブ切替で観点を変更し、寄与度の高いカテゴリを確認。</li></ul>
-      <h4>5. プロジェクト別コスト管理（新規案件）</h4>
-      <ul><li><b>見るポイント：</b>新規案件の予算規模、見込乖離、進捗。</li><li><b>操作：</b>対象フィルタで新規案件に絞り、案件別に優先度を判断。</li></ul>
-      <h4>6. アラート（乖離・変動）</h4>
-      <ul><li><b>見るポイント：</b>乖離率・差額・前月比・前年比のしきい値超過。</li><li><b>操作：</b>9. 表示設定でしきい値を調整し、重要アラートのみ抽出。</li></ul>
-      <h4>7. ベンダー／契約更新</h4>
-      <ul><li><b>見るポイント：</b>ベンダー別支出、契約更新時期、集中リスク。</li><li><b>操作：</b>ベンダー単位で並べ替え、更新月の重なりを確認。</li></ul>
-      <h4>8. 明細（検索・ドリルダウン）</h4>
-      <ul><li><b>見るポイント：</b>案件単位の実績・見込・担当者・ベンダー情報。</li><li><b>操作：</b>キーワード検索、列表示切替、他画面からのドリルダウン確認。</li></ul>
-      <h4>9. 表示設定</h4>
-      <ul><li><b>見るポイント：</b>アラート判定に使うしきい値、KPI表示順、表示倍率。</li><li><b>操作：</b>しきい値・KPI順・表示倍率（75%〜150%）・テーマ（ライト/ダーク/ネオン）を変更して反映。表示倍率は上部バーやCtrl/Cmd + +・-・0でも操作できます。</li></ul>
-      <h4>11. 減価償却シミュレーション</h4>
-      <ul><li><b>見るポイント：</b>減価償却の展開区分ごとの月次推移と期別合計。</li><li><b>操作：</b>対象期・区分を切替えて、償却影響の山谷を確認。</li></ul>
-      <h4>12. OACIS実績</h4>
-      <ul><li><b>見るポイント：</b>OACIS取り込み実績と費目/取引先の集計。</li><li><b>操作：</b>実績データの偏りや未紐づき行を確認し、明細精査へ連携。</li></ul>
-      <h4>A2. 取扱説明書（マニュアル）</h4>
-      <ul><li><b>見るポイント：</b>運用手順、FAQ、画面別の活用方法。</li><li><b>操作：</b>不明点は本画面に戻り、該当する画面説明を確認。</li></ul>
-    </div>
-    <div class="panel"><h3>使い方チュートリアル（ステップ形式）</h3>
-      <h4>Step 1：データ取込</h4>
-      <ol><li>「1. データ取込」へ移動しCSVをアップロードします。</li><li>「読み込み結果サマリー」で件数・対象期間を確認します。</li><li>エラーパネルで不足列や数値不正を確認し、CSVを修正して再取込します。</li></ol>
-      <h4>Step 2：全体サマリーの見方</h4>
-      <ol><li>KPIカードで「総予算・見込み／実績・予算消化率」を確認します。</li><li>「差額」が大きい項目（赤表示）を優先確認します。</li><li>ランキング上位をクリックし、明細へドリルダウンします。</li></ol>
-      <h4>Step 3：分析・ドリルダウン</h4>
-      <ol><li>「推移」で時系列の異常月を特定します。</li><li>「カテゴリ別分析」で費目・部門など観点を切替え、原因候補を絞ります。</li><li>「明細」で検索し、個票レベルで確認します。</li></ol>
-    </div>
-    <div class="panel"><h3>よくある質問（FAQ）</h3>
-      <p><b>Q. 数字が合わないときは？</b><br>A. 期間フィルタ（月次/四半期/通期）と対象（部門・案件）をそろえてから確認してください。CSVのヘッダ名・数値形式も再確認してください。</p>
-      <p><b>Q. どこから確認を始めるべきですか？</b><br>A. まずは「2. 全体サマリー」で全体感を把握し、次に「6. アラート」で優先課題を抽出、最後に「8. 明細」で根拠を確認する流れがおすすめです。</p>
-      <p><b>Q. 表示を切り替えたいときは？</b><br>A. ヘッダ右上、または「9. 表示設定」のテーマ選択でライト/ダーク/ネオンを即時切替できます。選択はブラウザに保存されます。</p>
-      <div class="badge">初回アクセスの方へ：まずは Step 1 → Step 2 → Step 3 の順でお試しください。</div>
+      <h4>1. データ取込</h4><h4>2. 全体サマリー（月次レポート）</h4><h4>3. 推移（前年差／トレンド）</h4><h4>4. カテゴリ別分析</h4><h4>5. アラート（乖離・変動）</h4><h4>6. ベンダー／契約更新</h4><h4>7. 明細（検索・ドリルダウン）</h4><h4>8. 新規案件コスト</h4><h4>9. 減価償却シミュレーション</h4><h4>10. OACIS実績</h4><h4>11. 表示設定</h4><h4>12. 使い方（本画面）</h4>
+      <ul><li>メニュー順と番号は完全同期しています。</li><li>表示倍率・テーマは「11. 表示設定」から変更してください。</li></ul>
     </div>`;
 }
 
@@ -2096,12 +2068,28 @@ function showManualHintDialog() {
 }
 
 (async function boot() {
-  document.getElementById('themeToggle').onclick = toggleTheme;
+  const themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) themeToggle.onclick = toggleTheme;
   document.getElementById('sidebarCollapse').onclick = () => document.body.classList.toggle('sidebar-collapsed');
-  document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
-  document.getElementById('zoomOut').onclick = () => changeDisplayZoom(-APP_ZOOM.step);
-  document.getElementById('zoomIn').onclick = () => changeDisplayZoom(APP_ZOOM.step);
-  document.getElementById('zoomReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  const mobileMenuBackdrop = document.getElementById('mobileMenuBackdrop');
+  if (mobileMenuToggle && mobileMenuBackdrop) {
+    mobileMenuToggle.onclick = () => {
+      const willOpen = !document.body.classList.contains('mobile-menu-open');
+      document.body.classList.toggle('mobile-menu-open', willOpen);
+      mobileMenuToggle.setAttribute('aria-expanded', String(willOpen));
+    };
+    mobileMenuBackdrop.onclick = closeMobileMenu;
+  }
+  if (themeToggle) themeToggle.title = 'ライト / ダーク / ネオン';
+  const zoomOut = document.getElementById('zoomOut');
+  if (zoomOut) zoomOut.onclick = () => changeDisplayZoom(-APP_ZOOM.step);
+  const zoomIn = document.getElementById('zoomIn');
+  if (zoomIn) zoomIn.onclick = () => changeDisplayZoom(APP_ZOOM.step);
+  const zoomReset = document.getElementById('zoomReset');
+  if (zoomReset) zoomReset.onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
+  const quickSettings = document.getElementById('quickSettings');
+  if (quickSettings) quickSettings.onclick = () => goPage('settings');
   document.addEventListener('keydown', handleZoomShortcut);
 
   applyTheme();
