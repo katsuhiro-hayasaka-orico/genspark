@@ -86,6 +86,18 @@ const convertFromThousandYen = (value, unit) => Number(value || 0) / MONEY_UNITS
 const formatUnitValue = (value, digits = 1) => Number(value || 0).toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const formatMoneyByUnit = (thousandYen, unit, digits = 1) => `${formatUnitValue(convertFromThousandYen(thousandYen, unit), digits)} ${unitLabel(unit)}`;
 const moneyUnitOptionsHtml = (selectedUnit) => ['thousand', 'million', 'oku'].map(key => `<option value="${key}" ${normalizeMoneyUnit(selectedUnit)===key?'selected':''}>${unitLabel(key)}</option>`).join('');
+const moneyUnitSegmentedControlHtml = (controlId, selectedUnit) => `<div class="unit-switch" role="tablist" aria-label="金額単位" data-unit-control="${dataAttr(controlId)}">${['thousand', 'million', 'oku'].map((key) => `<button type="button" role="tab" class="unit-switch__btn ${normalizeMoneyUnit(selectedUnit)===key?'active':''}" aria-selected="${normalizeMoneyUnit(selectedUnit)===key?'true':'false'}" data-unit-value="${key}">${unitLabel(key)}</button>`).join('')}</div>`;
+const bindMoneyUnitControl = (controlId, currentUnit, onChange) => {
+  const root = document.querySelector(`[data-unit-control="${controlId}"]`);
+  if (!root) return;
+  root.querySelectorAll('[data-unit-value]').forEach((btn) => {
+    btn.onclick = () => {
+      const next = normalizeMoneyUnit(btn.dataset.unitValue);
+      if (next === normalizeMoneyUnit(currentUnit)) return;
+      onChange(next);
+    };
+  });
+};
 const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
 const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
 const fixedOkuYenTicks = (scaleConfig) => ({
@@ -1238,12 +1250,12 @@ function renderSummary() {
     'コスト削減効果': reduction,
   };
   const kpiDisplay = {
-    '総予算': animatedValueHtml(s.totalPlan, 'yen'),
-    '見込み／実績': animatedValueHtml(s.comparable, 'yen'),
+    '総予算': money(s.totalPlan),
+    '見込み／実績': money(s.comparable),
     '予算消化率': animatedValueHtml(periodBurnRate, 'pct'),
-    '差額': animatedValueHtml(periodVariance.amount, 'yen'),
-    '着地見込み': s.totalForecast ? animatedValueHtml(s.totalForecast, 'yen') : '未設定',
-    'コスト削減効果': `${animatedValueHtml(reduction, 'yen')} / ${animatedValueHtml(reductionRate, 'pct')}`,
+    '差額': money(periodVariance.amount),
+    '着地見込み': s.totalForecast ? money(s.totalForecast) : '未設定',
+    'コスト削減効果': `${money(reduction)} / ${animatedValueHtml(reductionRate, 'pct')}`,
   };
   const reportPeriods = [...new Set(items.map(item => item.fiscal_period).filter(Boolean))]
     .sort((a, b) => Number(a) - Number(b));
@@ -1285,10 +1297,10 @@ function renderSummary() {
         <div>
           <p class="eyebrow">Executive overview</p>
           <h3>まず見るべき差額と消化状況</h3>
-          <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p><label class="controls">金額単位 <select id="summary_unit">${moneyUnitOptionsHtml(state.ui.units.summary)}</select></label>
+          <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p><div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('summary_unit', state.ui.units.summary)}</div>
         </div>
         <div class="hero-metric ${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
-          <span>差額</span><strong>${animatedValueHtml(periodVariance.amount, 'yen')}</strong>
+          <span>差額</span><strong>${money(periodVariance.amount)}</strong>
         </div>
       </div>
       <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
@@ -1296,17 +1308,17 @@ function renderSummary() {
         <h4>当月カード</h4>
         <p class="muted">選択スコープ: ${escapeHtml(s.label || '通期')}</p>
         <dl>
-          <dt>予算</dt><dd>${animatedValueHtml(s.totalPlan, 'yen')}</dd>
-          <dt>見込み／実績</dt><dd>${animatedValueHtml(s.comparable, 'yen')}</dd>
-          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${animatedValueHtml(periodVariance.amount, 'yen')}</dd>
+          <dt>予算</dt><dd>${money(s.totalPlan)}</dd>
+          <dt>見込み／実績</dt><dd>${money(s.comparable)}</dd>
+          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${money(periodVariance.amount)}</dd>
           <dt>差額率</dt><dd>${animatedValueHtml(periodVariance.rate, 'pct')}</dd>
         </dl>
       </div>
       <div class="bento-card bento-card--small insight-card">
         <h4>期全体カード</h4>
         <dl>
-          <dt>期全体の予算</dt><dd>${animatedValueHtml(fullPlan, 'yen')}</dd>
-          <dt>期全体の見込み／実績</dt><dd>${animatedValueHtml(fullComparable, 'yen')}</dd>
+          <dt>期全体の予算</dt><dd>${money(fullPlan)}</dd>
+          <dt>期全体の見込み／実績</dt><dd>${money(fullComparable)}</dd>
           <dt>予算消化率</dt><dd>${animatedValueHtml(fullBurnRate, 'pct')}</dd>
         </dl>
       </div>
@@ -1368,8 +1380,7 @@ function renderSummary() {
       renderPage();
     };
   }
-  const summaryUnit = document.getElementById('summary_unit');
-  if (summaryUnit) summaryUnit.onchange = () => { state.ui.units.summary = normalizeMoneyUnit(summaryUnit.value); renderSummary(); };
+  bindMoneyUnitControl('summary_unit', state.ui.units.summary, (next) => { state.ui.units.summary = next; renderSummary(); });
   bindManagementNoDrilldowns();
 }
 
@@ -1390,7 +1401,7 @@ function renderTrend() {
     <div class="panel">
       <div class="controls">
         <label>期間 <select id="trendMonths">${[12, 24, 60].map(v => `<option value="${v}" ${v === state.ui.trendMonths ? 'selected' : ''}>${v}か月</option>`).join('')}</select></label>
-        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => optionHtml(v, state.ui.trendMetric)).join('')}</select></label><label>金額単位 <select id="trend_unit">${moneyUnitOptionsHtml(state.ui.units.trend)}</select></label>
+        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => optionHtml(v, state.ui.trendMetric)).join('')}</select></label><div><span class="muted">金額単位</span>${moneyUnitSegmentedControlHtml('trend_unit', state.ui.units.trend)}</div>
       </div>
       <div style="height:320px"><canvas id="trendChart"></canvas></div>
     </div>
@@ -1407,9 +1418,9 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
-  document.getElementById('trend_unit').onchange = e => { state.ui.units.trend = normalizeMoneyUnit(e.target.value); renderTrend(); };
+  bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => { state.ui.units.trend = next; renderTrend(); });
   bindDetailFilterLinks();
-  document.getElementById('vendor_unit').onchange = e => { state.ui.units.vendor = normalizeMoneyUnit(e.target.value); renderVendor(); };
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
 }
 
 function aggregateBy(rows, key) {
@@ -1441,7 +1452,7 @@ function renderCategory() {
 
   document.getElementById('content').innerHTML = `
     <div class="panel">
-      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div><div class="controls"><label>金額単位 <select id="category_unit">${moneyUnitOptionsHtml(state.ui.units.category)}</select></label></div>
+      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div><div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}</div>
       <div class="grid-2">
         <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
         <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
@@ -1451,7 +1462,7 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
-  document.getElementById('category_unit').onchange = e => { state.ui.units.category = normalizeMoneyUnit(e.target.value); renderCategory(); };
+  bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => { state.ui.units.category = next; renderCategory(); });
   bindDetailFilterLinks();
   const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
@@ -1500,7 +1511,7 @@ async function renderProject() {
   const filterLabels = { fiscalPeriod: '期', targetMonth: '対象年月', projectCategory: '案件区分', itInvestmentNo: 'IT投資シミュレーション№', owner: '案件担当者', progressStatus: '進捗状況', costGroup: '投資運用区分', varianceReason: '差額理由' };
 
   content.innerHTML = `<section class="panel new-project-cost-page"><div class="card-title-row"><div><h3>プロジェクト別コスト管理（新規案件）</h3><p class="muted">進捗率は進捗状況からの簡易換算値です。差額理由は進捗状況/memoからの簡易分類です。</p></div></div>
-  <div class="controls"><label>金額単位 <select id="np_unit">${moneyUnitOptionsHtml(state.ui.units.newProject)}</select></label>${['fiscalPeriod','targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(k==='targetMonth'?formatYmLabel(v):v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
+  <div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('np_unit', state.ui.units.newProject)}${['fiscalPeriod','targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(k==='targetMonth'?formatYmLabel(v):v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
   <div id="np_kpi" class="kpi-strip new-project-kpi"></div>
   <div class="new-project-cost-grid grid-2"><div class="panel new-project-ranking"><div class="card-title-row"><h4>差額ランキング</h4><select id="np_rank_sort"><option value="variance">差額順</option><option value="rate">差額率順</option><option value="forecast">見込金額順</option></select></div><div class="table-wrap"><table><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th class="right">予算</th><th class="right">見込</th><th class="right">差額</th><th class="right">差額率</th><th class="right">5年経費合計</th><th>予算有り</th><th>memo</th><th>差額理由</th></tr></thead><tbody id="np_rank_rows"></tbody></table></div></div>
   <div class="panel new-project-gap-analysis"><h4>進捗・コスト消化ギャップ分析</h4><div id="np_gap_counts" class="muted"></div><div id="np_gap_summary" class="gap-summary"></div><div id="np_gap_filter_buttons" class="gap-filter-buttons"></div><div id="np_gap_bar_list" class="gap-bar-list"></div><div class="table-wrap"><table class="gap-ranking-table"><thead><tr><th>#</th><th>管理番号</th><th>案件名</th><th>案件区分</th><th>IT投資シミュレーション№</th><th>進捗状況</th><th class="right">進捗率</th><th class="right">コスト消化率</th><th class="right">ギャップ</th><th>判定区分</th><th class="right">予算金額</th><th class="right">見込金額</th><th class="right">差額</th></tr></thead><tbody id="np_gap_rank_rows"></tbody></table></div><details class="gap-formula-note"><summary>計算ロジック注釈</summary><div class="gap-formula-details"><p>進捗率は、進捗状況から自動換算した簡易値です。進捗率は正式なプロジェクト進捗率ではありません。</p><p>換算ルール: 未着手/01.未着手=0%, 今期中に案件組成=20%, 来期案件組成予定=20%, 組成予定=40%, 組成済=60%, 予算計画通り=80%, 完了=100%, 取下げ/取下/削除=0%, 上記以外=未算出。</p><p>コスト消化率 = 見込金額合計 ÷ 予算金額合計 × 100。予算金額合計が0の場合、コスト消化率は未算出です。金額は案件単位で集計した予算金額・見込金額を使用しています。</p><p>ギャップ = コスト消化率 − 進捗率。ギャップがプラスの場合、進捗に対してコスト消化が先行しています。ギャップがマイナスの場合、進捗に対してコスト消化が低い状態です。</p></div></details></div></div>
@@ -1569,7 +1580,7 @@ async function renderProject() {
   document.getElementById('npf_keyword').oninput=async e=>{filterState.keyword=e.target.value; await renderAll();};
   document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
-  document.getElementById('np_unit').onchange=async e=>{state.ui.units.newProject = normalizeMoneyUnit(e.target.value); await renderProject();};
+  bindMoneyUnitControl('np_unit', state.ui.units.newProject, async (next)=>{state.ui.units.newProject = next; await renderProject();});
   renderAll();
 }
 
@@ -1594,7 +1605,7 @@ function renderAlert() {
 
   document.getElementById('content').innerHTML = `
     <div class="panel alert-overview">
-      <div class="controls"><label>金額単位 <select id="alert_unit">${moneyUnitOptionsHtml(state.ui.units.alert)}</select></label><span class="badge">しきい値: 乖離率 ${t.varianceRate}% / 差額 ${money(t.amountGap)} / 前月比 ${t.momRate}% / 前年比 ${t.yoyRate}%</span></div>
+      <div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('alert_unit', state.ui.units.alert)}<span class="badge">しきい値: 乖離率 ${t.varianceRate}% / 差額 ${money(t.amountGap)} / 前月比 ${t.momRate}% / 前年比 ${t.yoyRate}%</span></div>
       <div class="alert-grid">${alertCards || '<div class="ok">● アラート対象なし</div>'}</div>
     </div>
     <div class="grid-2">
@@ -1609,8 +1620,7 @@ function renderAlert() {
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
-  const alertUnit = document.getElementById('alert_unit');
-  if (alertUnit) alertUnit.onchange = () => { state.ui.units.alert = normalizeMoneyUnit(alertUnit.value); renderAlert(); };
+  bindMoneyUnitControl('alert_unit', state.ui.units.alert, (next) => { state.ui.units.alert = next; renderAlert(); });
 }
 
 function renderVendor() {
@@ -1648,7 +1658,7 @@ function renderVendor() {
 
   document.getElementById('content').innerHTML = `
     <section class="vendor-bento">
-      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><label>金額単位 <select id="vendor_unit">${moneyUnitOptionsHtml(state.ui.units.vendor)}</select></label><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
+      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><span>金額単位</span>${moneyUnitSegmentedControlHtml('vendor_unit', state.ui.units.vendor)}<span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
         ${ranking.map((v, idx) => `<tr class="clickable-row" data-filter-type="vendor" data-filter-value="${dataAttr(v.name)}"><td>${escapeHtml(v.name)}</td><td class="right">${money(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
       <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>契約更新・見直し一覧</h4><span class="badge">契約属性とアラート</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー名</th><th>案件名</th><th>支払区分</th><th>契約開始日</th><th>契約終了日</th><th>次回更新予定月</th><th class="right">残月数</th><th>アラート区分</th><th>見直し要否</th><th>備考</th></tr></thead><tbody>
@@ -1657,7 +1667,7 @@ function renderVendor() {
     </section>`;
 
   bindDetailFilterLinks();
-  document.getElementById('vendor_unit').onchange = e => { state.ui.units.vendor = normalizeMoneyUnit(e.target.value); renderVendor(); };
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
 }
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -2028,7 +2038,7 @@ function renderOacisActual() {
   const content = document.getElementById('content');
   content.innerHTML = `
     <div class="panel">
-      <div class="controls"><label>金額単位 <select id="oacis_unit">${moneyUnitOptionsHtml(state.ui.units.oacis)}</select></label></div><div id="oacis_kpi_strip" class="kpi-strip oacis-kpi-strip"></div>
+      <div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('oacis_unit', state.ui.units.oacis)}</div><div id="oacis_kpi_strip" class="kpi-strip oacis-kpi-strip"></div>
     </div>
     <div class="oacis-ranking-grid">
       <section class="panel bento-card"><h3>経費事象別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>経費事象コード</th><th>経費事象名</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th></tr></thead><tbody>${(payload.byExpenseEvent || []).map(r => `<tr><td>${escapeHtml(r.expense_event_code || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td class="right">${money(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td></tr>`).join('')}</tbody></table></div></section>
@@ -2045,7 +2055,7 @@ function renderOacisActual() {
     ['予実番号あり金額', money(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
     ['予実番号なし金額', money(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
   ].map(([l, v, h], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, scopeText: 'OACIS実績 / 全体' }, idx)).join('');
-  document.getElementById('oacis_unit').onchange = e => { state.ui.units.oacis = normalizeMoneyUnit(e.target.value); renderOacisActual(); };
+  bindMoneyUnitControl('oacis_unit', state.ui.units.oacis, (next) => { state.ui.units.oacis = next; renderOacisActual(); });
 }
 
 async function renderPage() {
