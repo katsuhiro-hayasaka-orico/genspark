@@ -152,6 +152,11 @@
   .nav-item.active { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); color: var(--primary); font-weight: 700; border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
   .nav-item:disabled { opacity: .45; cursor: not-allowed; transform: none; }
   .sidebar-meta { font-size: 12px; color: var(--text-muted); padding-top: var(--space-1); overflow-wrap: anywhere; }
+
+  .mobile-menu-toggle { display: none; width: 34px; height: 34px; padding: 0; place-items: center; border-radius: 10px; font-size: 20px; line-height: 1; }
+  .mobile-menu-backdrop { position: fixed; inset: 0; border: 0; margin: 0; padding: 0; background: rgba(11, 18, 32, 0.36); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .24s ease, visibility .24s ease; z-index: 19; }
+  body.mobile-menu-open .mobile-menu-backdrop { opacity: 1; visibility: visible; pointer-events: auto; }
+
   .theme-toggle, button { border-color: var(--border); padding: 8px 12px; background: var(--surface); }
   .zoom-control { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
   .zoom-button, .zoom-reset { padding: 5px 9px; background: var(--surface); }
@@ -272,7 +277,15 @@
   }
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; }
-    .sidebar { display:none; }
+    .mobile-menu-toggle { display: inline-grid; }
+    .sidebar { display: grid; position: fixed; top: 0; left: 0; width: min(86vw, 320px); height: 100dvh; z-index: 20; transform: translateX(-102%); transition: transform .28s ease; box-shadow: var(--shadow-lg); }
+    body.mobile-menu-open .sidebar { transform: translateX(0); }
+    body.sidebar-collapsed .sidebar { width: 64px; padding: var(--space-3) 8px; }
+    body.sidebar-collapsed .brand,
+    body.sidebar-collapsed .nav-label,
+    body.sidebar-collapsed .nav-group-title,
+    body.sidebar-collapsed .sidebar-meta { display: none; }
+    body.sidebar-collapsed .nav-item { justify-content: center; padding: 10px 6px; }
     .topbar-filters { grid-template-columns: repeat(2,1fr); }
     .topbar-row { align-items: flex-start; }
     .grid-2 { grid-template-columns: 1fr; }
