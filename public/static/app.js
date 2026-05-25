@@ -781,7 +781,14 @@ async function refreshAllData() {
   setStatus();
 }
 
+function closeMobileMenu() {
+  document.body.classList.remove('mobile-menu-open');
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  if (mobileMenuToggle) mobileMenuToggle.setAttribute('aria-expanded', 'false');
+}
+
 function goPage(page) {
+  closeMobileMenu();
   withViewTransition(() => {
     state.page = page;
     initNav();
@@ -2098,6 +2105,16 @@ function showManualHintDialog() {
 (async function boot() {
   document.getElementById('themeToggle').onclick = toggleTheme;
   document.getElementById('sidebarCollapse').onclick = () => document.body.classList.toggle('sidebar-collapsed');
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  const mobileMenuBackdrop = document.getElementById('mobileMenuBackdrop');
+  if (mobileMenuToggle && mobileMenuBackdrop) {
+    mobileMenuToggle.onclick = () => {
+      const willOpen = !document.body.classList.contains('mobile-menu-open');
+      document.body.classList.toggle('mobile-menu-open', willOpen);
+      mobileMenuToggle.setAttribute('aria-expanded', String(willOpen));
+    };
+    mobileMenuBackdrop.onclick = closeMobileMenu;
+  }
   document.getElementById('themeToggle').title = 'ライト / ダーク / ネオン';
   document.getElementById('zoomOut').onclick = () => changeDisplayZoom(-APP_ZOOM.step);
   document.getElementById('zoomIn').onclick = () => changeDisplayZoom(APP_ZOOM.step);

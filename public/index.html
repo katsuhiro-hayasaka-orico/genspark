@@ -10,7 +10,7 @@
 </head>
 <body data-theme="light">
   <div class="layout">
-    <aside class="sidebar">
+    <aside class="sidebar" id="appSidebar">
       <div class="brand">
         <div class="brand-title">
           <img src="/static/orico-logo-mark.svg" alt="株式会社オリエントコーポレーション ロゴマーク" class="brand-logo" width="40" height="40">
@@ -31,6 +31,7 @@
       <header class="topbar">
         <div class="topbar-row">
           <div class="topbar-left">
+            <button id="mobileMenuToggle" class="mobile-menu-toggle" type="button" aria-label="メニューを開く" aria-controls="appSidebar" aria-expanded="false">☰</button>
             <h2 id="pageTitle">データ取込</h2>
             <span id="statusBadge" class="status">データなし</span>
           </div>
@@ -49,6 +50,8 @@
       <section id="content" class="content"></section>
     </main>
   </div>
+
+  <button id="mobileMenuBackdrop" class="mobile-menu-backdrop" type="button" aria-label="メニューを閉じる"></button>
 
   <script src="/static/app.js"></script>
 </body>
