@@ -61,7 +61,7 @@ const state = {
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
     importFileType: 'budget',
     depreciationFilters: { fiscalPeriod: '', categoryName: '' },
-    units: { alert: 'thousand', newProject: 'thousand' },
+    units: { alert: 'thousand', newProject: 'thousand', summary: 'thousand', trend: 'thousand', category: 'thousand', vendor: 'thousand', oacis: 'thousand' },
   },
 };
 
@@ -1196,6 +1196,7 @@ function standardKpiCardHtml({ label, valueHtml, helpText, tone = 'neutral', not
 }
 
 function renderSummary() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.summary);
   const items = filteredItems();
   const s = scopedPeriodSummary(items);
   const periodVariance = calculateVariance(s.totalPlan, s.comparable);
@@ -1284,7 +1285,7 @@ function renderSummary() {
         <div>
           <p class="eyebrow">Executive overview</p>
           <h3>まず見るべき差額と消化状況</h3>
-          <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p>
+          <p class="muted">上部フィルターを反映した最新スコープです。大きな差異はランキングから明細へドリルダウンできます。</p><label class="controls">金額単位 <select id="summary_unit">${moneyUnitOptionsHtml(state.ui.units.summary)}</select></label>
         </div>
         <div class="hero-metric ${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : 'ok'}">
           <span>差額</span><strong>${animatedValueHtml(periodVariance.amount, 'yen')}</strong>
@@ -1339,7 +1340,7 @@ function renderSummary() {
         <div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">差額</th><th>状態</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>
         ${top.map((r, i) => {
           const isWarn = Math.abs(r.gap) >= state.settings.thresholds.amountGap;
-          return `<tr data-mid="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${yen(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td><td>${displayHtml(r.row.variance_reason_category)}</td><td>${displayHtml(r.row.variance_reason)}</td><td>${displayHtml(r.row.comment)}</td></tr>`;
+          return `<tr data-mid="${dataAttr(r.row.management_no)}" class="clickable-row ${isWarn ? 'warning-row' : ''}"><td>${i + 1}. ${escapeHtml(r.name)}</td><td class="right ${isWarn ? 'warn' : ''}">${money(r.gap)}</td><td><span class="status-pill status-pill--${isWarn ? 'warn' : 'ok'}">${isWarn ? '⚠️ 要確認' : '● 許容範囲'}</span></td><td>${displayHtml(r.row.variance_reason_category)}</td><td>${displayHtml(r.row.variance_reason)}</td><td>${displayHtml(r.row.comment)}</td></tr>`;
         }).join('')}
         </tbody></table></div>
       </div>
@@ -1367,10 +1368,13 @@ function renderSummary() {
       renderPage();
     };
   }
+  const summaryUnit = document.getElementById('summary_unit');
+  if (summaryUnit) summaryUnit.onchange = () => { state.ui.units.summary = normalizeMoneyUnit(summaryUnit.value); renderSummary(); };
   bindManagementNoDrilldowns();
 }
 
 function renderTrend() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.trend);
   const items = filteredItems();
   const s = recomputeSummary(items);
   const labels = s.labels.slice(-state.ui.trendMonths);
@@ -1386,12 +1390,12 @@ function renderTrend() {
     <div class="panel">
       <div class="controls">
         <label>期間 <select id="trendMonths">${[12, 24, 60].map(v => `<option value="${v}" ${v === state.ui.trendMonths ? 'selected' : ''}>${v}か月</option>`).join('')}</select></label>
-        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => optionHtml(v, state.ui.trendMetric)).join('')}</select></label>
+        <label>指標 <select id="trendMetric">${['総額', '費目別', 'システム別'].map(v => optionHtml(v, state.ui.trendMetric)).join('')}</select></label><label>金額単位 <select id="trend_unit">${moneyUnitOptionsHtml(state.ui.units.trend)}</select></label>
       </div>
       <div style="height:320px"><canvas id="trendChart"></canvas></div>
     </div>
     <div class="panel"><h4>変動の大きい順ランキング（前年差・前月差）</h4><div class="table-wrap"><table><thead><tr><th>対象</th><th class="right">前年差</th><th class="right">前月差</th></tr></thead><tbody>
-      ${rank.map(r => `<tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}"><td>${escapeHtml(r.name)}</td><td class="right">${yen(r.yoy)}</td><td class="right">${yen(r.mom)}</td></tr>`).join('')}
+      ${rank.map(r => `<tr class="clickable-row" data-filter-type="management_no" data-filter-value="${dataAttr(r.management_no)}"><td>${escapeHtml(r.name)}</td><td class="right">${money(r.yoy)}</td><td class="right">${money(r.mom)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 
   const cc = chartColors();
@@ -1403,7 +1407,9 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
+  document.getElementById('trend_unit').onchange = e => { state.ui.units.trend = normalizeMoneyUnit(e.target.value); renderTrend(); };
   bindDetailFilterLinks();
+  document.getElementById('vendor_unit').onchange = e => { state.ui.units.vendor = normalizeMoneyUnit(e.target.value); renderVendor(); };
 }
 
 function aggregateBy(rows, key) {
@@ -1427,6 +1433,7 @@ function aggregateBy(rows, key) {
 }
 
 function renderCategory() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.category);
   const tabs = ['システム分類名別', '経費区分別', '経費事象名別', '部門別', '固定費・変動費'];
   const keyMap = { 'システム分類名別': 'system_classification', '経費区分別': 'expense_classification', '経費事象名別': 'expense_item_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
   const categoryKey = keyMap[state.ui.categoryTab];
@@ -1434,16 +1441,17 @@ function renderCategory() {
 
   document.getElementById('content').innerHTML = `
     <div class="panel">
-      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div>
+      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div><div class="controls"><label>金額単位 <select id="category_unit">${moneyUnitOptionsHtml(state.ui.units.category)}</select></label></div>
       <div class="grid-2">
         <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
         <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${agg.slice(0, 25).map(r => `<tr class="clickable-row" data-filter-type="${categoryKey === 'department_name' ? 'department' : 'category'}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${yen(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
+          ${agg.slice(0, 25).map(r => `<tr class="clickable-row" data-filter-type="${categoryKey === 'department_name' ? 'department' : 'category'}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${money(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
         </tbody></table></div></div>
       </div>
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
+  document.getElementById('category_unit').onchange = e => { state.ui.units.category = normalizeMoneyUnit(e.target.value); renderCategory(); };
   bindDetailFilterLinks();
   const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
@@ -1606,6 +1614,7 @@ function renderAlert() {
 }
 
 function renderVendor() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.vendor);
   const items = filteredItems();
   const map = {};
   const periodSummary = scopedPeriodSummary(items);
@@ -1639,8 +1648,8 @@ function renderVendor() {
 
   document.getElementById('content').innerHTML = `
     <section class="vendor-bento">
-      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
-        ${ranking.map((v, idx) => `<tr class="clickable-row" data-filter-type="vendor" data-filter-value="${dataAttr(v.name)}"><td>${escapeHtml(v.name)}</td><td class="right">${yen(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
+      <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>ベンダー別支払額ランキング</h4><label>金額単位 <select id="vendor_unit">${moneyUnitOptionsHtml(state.ui.units.vendor)}</select></label><span class="badge">集中リスク確認</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー</th><th class="right">支払額</th><th class="right">件数</th><th>状態</th></tr></thead><tbody>
+        ${ranking.map((v, idx) => `<tr class="clickable-row" data-filter-type="vendor" data-filter-value="${dataAttr(v.name)}"><td>${escapeHtml(v.name)}</td><td class="right">${money(v.amount)}</td><td class="right">${fmt(v.count)}</td><td><span class="status-pill status-pill--${idx < 3 ? 'warn' : 'neutral'}">${idx < 3 ? '⚠️ 上位集中' : '● 通常'}</span></td></tr>`).join('') || '<tr><td colspan="4">データなし</td></tr>'}
       </tbody></table></div></div>
       <div class="bento-card bento-card--wide"><div class="card-title-row"><h4>契約更新・見直し一覧</h4><span class="badge">契約属性とアラート</span></div><div class="table-wrap"><table><thead><tr><th>ベンダー名</th><th>案件名</th><th>支払区分</th><th>契約開始日</th><th>契約終了日</th><th>次回更新予定月</th><th class="right">残月数</th><th>アラート区分</th><th>見直し要否</th><th>備考</th></tr></thead><tbody>
         ${contractRows.map(r => `<tr class="${r.review_required ? 'warning-row' : ''}"><td>${escapeHtml(r.vendor_name || '未設定ベンダー')}</td><td>${escapeHtml(r.project_name || r.system_name || '-')}</td><td>${escapedContractValueForHtml(r.payment_category)}</td><td>${escapeHtml(displayContractDate(r.contract_start_date, r.contract_start_date_status))}</td><td>${escapeHtml(displayContractDate(r.contract_end_date, r.contract_end_date_status))}</td><td>${escapedContractValueForHtml(r.next_renewal_month || r.renewal_month)}</td><td class="right">${escapeHtml(r.months_until_renewal ?? '-')}</td><td>${escapeHtml(r.alert_type || '通常')}</td><td><span class="status-pill status-pill--${r.review_required ? 'warn' : 'neutral'}">${r.review_required ? '要見直し' : '不要'}</span></td><td>${escapedContractValueForHtml(r.note)}</td></tr>`).join('') || '<tr><td colspan="10">契約データなし</td></tr>'}
@@ -1648,6 +1657,7 @@ function renderVendor() {
     </section>`;
 
   bindDetailFilterLinks();
+  document.getElementById('vendor_unit').onchange = e => { state.ui.units.vendor = normalizeMoneyUnit(e.target.value); renderVendor(); };
 }
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -2011,29 +2021,31 @@ function renderDepreciation() {
 }
 
 function renderOacisActual() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.oacis);
   const payload = state.data.oacisActual || { summary: {}, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] };
   const s = payload.summary || {};
   const asPct = v => `${Number(v || 0).toFixed(1)}%`;
   const content = document.getElementById('content');
   content.innerHTML = `
     <div class="panel">
-      <div id="oacis_kpi_strip" class="kpi-strip oacis-kpi-strip"></div>
+      <div class="controls"><label>金額単位 <select id="oacis_unit">${moneyUnitOptionsHtml(state.ui.units.oacis)}</select></label></div><div id="oacis_kpi_strip" class="kpi-strip oacis-kpi-strip"></div>
     </div>
     <div class="oacis-ranking-grid">
-      <section class="panel bento-card"><h3>経費事象別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>経費事象コード</th><th>経費事象名</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th></tr></thead><tbody>${(payload.byExpenseEvent || []).map(r => `<tr><td>${escapeHtml(r.expense_event_code || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td></tr>`).join('')}</tbody></table></div></section>
-      <section class="panel bento-card"><h3>サプライヤ別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>サプライヤ</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th><th>主な経費事象名</th></tr></thead><tbody>${(payload.bySupplier || []).map(r => `<tr><td>${escapeHtml(r.supplier || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td></tr>`).join('')}</tbody></table></div></section>
-      <section class="panel bento-card"><h3>予実番号別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>予実番号</th><th class="right">実績額</th><th class="right">明細件数</th><th>主な経費事象名</th><th>主なサプライヤ</th></tr></thead><tbody>${(payload.byYojitsuNo || []).map(r => `<tr><td>${escapeHtml(r.yojitsu_no || '')}</td><td class="right">${yen(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td><td>${escapeHtml(r.mainSupplier || '')}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card"><h3>経費事象別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>経費事象コード</th><th>経費事象名</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th></tr></thead><tbody>${(payload.byExpenseEvent || []).map(r => `<tr><td>${escapeHtml(r.expense_event_code || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td class="right">${money(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card"><h3>サプライヤ別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>サプライヤ</th><th class="right">実績額</th><th class="right">明細件数</th><th class="right">構成比</th><th>主な経費事象名</th></tr></thead><tbody>${(payload.bySupplier || []).map(r => `<tr><td>${escapeHtml(r.supplier || '')}</td><td class="right">${money(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td class="right">${asPct(r.shareRate)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card"><h3>予実番号別ランキング（上位20）</h3><div class="table-wrap"><table><thead><tr><th>予実番号</th><th class="right">実績額</th><th class="right">明細件数</th><th>主な経費事象名</th><th>主なサプライヤ</th></tr></thead><tbody>${(payload.byYojitsuNo || []).map(r => `<tr><td>${escapeHtml(r.yojitsu_no || '')}</td><td class="right">${money(r.amount || 0)}</td><td class="right">${fmt(r.rowCount || 0)}</td><td>${escapeHtml(r.mainExpenseEventName || '')}</td><td>${escapeHtml(r.mainSupplier || '')}</td></tr>`).join('')}</tbody></table></div></section>
     </div>
-    <section class="panel bento-card oacis-alert-table"><h3>予実番号未設定（要確認）明細</h3><div class="table-wrap"><table><thead><tr><th>会計日</th><th>実績部店名</th><th>経費事象名</th><th>経費事象細目名</th><th>サプライヤ</th><th class="right">実績額</th><th>仕訳摘要</th><th>仕訳明細摘要</th><th>請求書番号</th></tr></thead><tbody>${(payload.missingYojitsuNoRows || []).map(r => `<tr><td>${escapeHtml(formatYearMonth(r.accounting_date) || r.accounting_date || '')}</td><td>${escapeHtml(r.actual_department_name || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td>${escapeHtml(r.expense_event_detail_name || '')}</td><td>${escapeHtml(r.supplier || '')}</td><td class="right">${yen(r.amount || 0)}</td><td>${escapeHtml(r.journal_summary || '')}</td><td>${escapeHtml(r.journal_detail_summary || '')}</td><td>${escapeHtml(r.invoice_no || '')}</td></tr>`).join('')}</tbody></table></div></section>
+    <section class="panel bento-card oacis-alert-table"><h3>予実番号未設定（要確認）明細</h3><div class="table-wrap"><table><thead><tr><th>会計日</th><th>実績部店名</th><th>経費事象名</th><th>経費事象細目名</th><th>サプライヤ</th><th class="right">実績額</th><th>仕訳摘要</th><th>仕訳明細摘要</th><th>請求書番号</th></tr></thead><tbody>${(payload.missingYojitsuNoRows || []).map(r => `<tr><td>${escapeHtml(formatYearMonth(r.accounting_date) || r.accounting_date || '')}</td><td>${escapeHtml(r.actual_department_name || '')}</td><td>${escapeHtml(r.expense_event_name || '')}</td><td>${escapeHtml(r.expense_event_detail_name || '')}</td><td>${escapeHtml(r.supplier || '')}</td><td class="right">${money(r.amount || 0)}</td><td>${escapeHtml(r.journal_summary || '')}</td><td>${escapeHtml(r.journal_detail_summary || '')}</td><td>${escapeHtml(r.invoice_no || '')}</td></tr>`).join('')}</tbody></table></div></section>
   `;
   document.getElementById('oacis_kpi_strip').innerHTML = [
-    ['実績合計額', yen(s.totalAmount || 0), '対象データの実績金額合計です。'],
+    ['実績合計額', money(s.totalAmount || 0), '対象データの実績金額合計です。'],
     ['明細件数', fmt(s.rowCount || 0), '対象データの明細件数です。'],
     ['経費事象数', fmt(s.expenseEventCount || 0), '対象データに含まれる経費事象数です。'],
     ['サプライヤ数', fmt(s.supplierCount || 0), '対象データに含まれるサプライヤ数です。'],
-    ['予実番号あり金額', yen(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
-    ['予実番号なし金額', yen(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
+    ['予実番号あり金額', money(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
+    ['予実番号なし金額', money(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
   ].map(([l, v, h], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, scopeText: 'OACIS実績 / 全体' }, idx)).join('');
+  document.getElementById('oacis_unit').onchange = e => { state.ui.units.oacis = normalizeMoneyUnit(e.target.value); renderOacisActual(); };
 }
 
 async function renderPage() {
