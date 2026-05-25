@@ -22,8 +22,8 @@ const NAV_SECTIONS = [
 ];
 
 const UTILITY_NAV_PAGES = [
-  { key: 'settings', label: 'Settings', icon: '⚙️' },
-  { key: 'manual', label: 'Help', icon: '❓' },
+  { key: 'settings', label: '表示設定', icon: '⚙️' },
+  { key: 'manual', label: '使い方', icon: '❓' },
 ];
 
 const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...UTILITY_NAV_PAGES];
@@ -702,8 +702,7 @@ function recomputeSummary(items) {
 }
 
 function navButtonHtml(p) {
-  const disabled = !state.hasData && !['import', 'settings', 'manual'].includes(p.key);
-  return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${disabled ? 'disabled' : ''} title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
+  return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
 }
 
 function initNav() {
@@ -788,6 +787,12 @@ function closeMobileMenu() {
 }
 
 function goPage(page) {
+  const canOpenWithoutData = ['import', 'settings', 'manual'];
+  if (!state.hasData && !canOpenWithoutData.includes(page)) {
+    alert('先にCSVを取り込んでください');
+    return;
+  }
+
   closeMobileMenu();
   withViewTransition(() => {
     state.page = page;
