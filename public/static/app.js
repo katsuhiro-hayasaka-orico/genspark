@@ -86,13 +86,13 @@ const convertFromThousandYen = (value, unit) => Number(value || 0) / MONEY_UNITS
 const formatUnitValue = (value, digits = 1) => Number(value || 0).toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const formatMoneyByUnit = (thousandYen, unit, digits = 1) => `${formatUnitValue(convertFromThousandYen(thousandYen, unit), digits)} ${unitLabel(unit)}`;
 const moneyUnitOptionsHtml = (selectedUnit) => ['thousand', 'million', 'oku'].map(key => `<option value="${key}" ${normalizeMoneyUnit(selectedUnit)===key?'selected':''}>${unitLabel(key)}</option>`).join('');
-const moneyUnitSegmentedControlHtml = (controlId, selectedUnit) => `<div class="unit-switch" role="tablist" aria-label="金額単位" data-unit-control="${dataAttr(controlId)}">${['thousand', 'million', 'oku'].map((key) => `<button type="button" role="tab" class="unit-switch__btn ${normalizeMoneyUnit(selectedUnit)===key?'active':''}" aria-selected="${normalizeMoneyUnit(selectedUnit)===key?'true':'false'}" data-unit-value="${key}">${unitLabel(key)}</button>`).join('')}</div>`;
+const moneyUnitSegmentedControlHtml = (controlId, selectedUnit) => `<fieldset class="unit-switch" role="radiogroup" aria-label="金額単位" data-unit-control="${dataAttr(controlId)}">${['thousand', 'million', 'oku'].map((key) => `<label class="unit-switch__btn ${normalizeMoneyUnit(selectedUnit)===key?'active':''}"><input type="radio" name="${dataAttr(controlId)}_unit" value="${key}" data-unit-value="${key}" ${normalizeMoneyUnit(selectedUnit)===key?'checked':''}><span>${unitLabel(key)}</span></label>`).join('')}</fieldset>`;
 const bindMoneyUnitControl = (controlId, currentUnit, onChange) => {
   const root = document.querySelector(`[data-unit-control="${controlId}"]`);
   if (!root) return;
-  root.querySelectorAll('[data-unit-value]').forEach((btn) => {
-    btn.onclick = () => {
-      const next = normalizeMoneyUnit(btn.dataset.unitValue);
+  root.querySelectorAll('[data-unit-value]').forEach((input) => {
+    input.onchange = () => {
+      const next = normalizeMoneyUnit(input.dataset.unitValue);
       if (next === normalizeMoneyUnit(currentUnit)) return;
       onChange(next);
     };
@@ -703,8 +703,7 @@ function recomputeSummary(items) {
 }
 
 function navButtonHtml(p) {
-  const disabled = !state.hasData && !['import', 'settings', 'manual'].includes(p.key);
-  return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" ${disabled ? 'disabled' : ''} title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
+  return `<button class="nav-item ${p.key === state.page ? 'active' : ''}" data-page="${dataAttr(p.key)}" title="${escapeHtml(p.label)}"><span class="nav-icon">${escapeHtml(p.icon || '•')}</span><span class="nav-label">${escapeHtml(p.label)}</span></button>`;
 }
 
 function initNav() {
