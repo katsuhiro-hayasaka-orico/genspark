@@ -2080,11 +2080,11 @@ function renderDepreciation() {
   document.getElementById('depCategoryName').onchange = (event) => { state.ui.depreciationFilters.categoryName = event.target.value; renderPage(); };
   const depScope = `${selectedPeriod}期 / ${filters.categoryName || '全区分'}`;
   document.getElementById('dep_kpi_strip').innerHTML = [
-    ['通期償却費', animatedValueHtml(full, { formatter: money }), '選択期の償却費合計です。', '確認対象', 'neutral'],
-    ['上期償却費', animatedValueHtml(h1, { formatter: money }), 'H1の償却費合計です。', '確認対象', 'neutral'],
-    ['下期償却費', animatedValueHtml(h2, { formatter: money }), 'H2の償却費合計です。', '確認対象', 'neutral'],
-    ['上期下期差', animatedValueHtml(h2 - h1, { formatter: money }), '下期 - 上期の差分です。', '確認対象', 'neutral'],
-    ['前期差', animatedValueHtml(full - previousFull, { formatter: money }), `前期通期 ${money(previousFull)} との差分です。`, full - previousFull < 0 ? '改善' : '要確認', full - previousFull < 0 ? 'ok' : 'warn'],
+    ['通期償却費', money(full), '選択期の償却費合計です。', '確認対象', 'neutral'],
+    ['上期償却費', money(h1), 'H1の償却費合計です。', '確認対象', 'neutral'],
+    ['下期償却費', money(h2), 'H2の償却費合計です。', '確認対象', 'neutral'],
+    ['上期下期差', money(h2 - h1), '下期 - 上期の差分です。', '確認対象', 'neutral'],
+    ['前期差', money(full - previousFull), `前期通期 ${money(previousFull)} との差分です。`, full - previousFull < 0 ? '改善' : '要確認', full - previousFull < 0 ? 'ok' : 'warn'],
     ['最大区分', escapeHtml(topCategory?.depreciation_category_name || '-'), topCategory ? `${topCategory.depreciation_category_name} が最大（${money(topCategory.full)}）です。` : '該当データなし', '確認対象', 'neutral'],
   ].map(([l, v, h, st, tone], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, statusLabel: st, tone, scopeText: depScope }, idx)).join('');
   animateNumericValues(content);
