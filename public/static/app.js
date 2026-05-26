@@ -1516,6 +1516,18 @@ async function renderProject() {
     progressStatus: uniq(detailBase.map(r=>r.progressStatus)), costGroup: uniq(detailBase.map(r=>r.costGroup)), varianceReason: uniq(detailBase.map(r=>r.varianceReason)),
   };
   const filterLabels = { fiscalPeriod: '期', targetMonth: '対象年月', projectCategory: '案件区分', itInvestmentNo: 'IT投資シミュレーション№', owner: '案件担当者', progressStatus: '進捗状況', costGroup: '投資運用区分', varianceReason: '差額理由' };
+  const monthInSelectedPeriod = (ym) => {
+    if (!filterState.fiscalPeriod) return true;
+    return fiscalPeriodFromMonth(ym) === filterState.fiscalPeriod;
+  };
+  const availableTargetMonths = () => options.targetMonth.filter(monthInSelectedPeriod);
+  const refreshTargetMonthOptions = () => {
+    const targetSelect = document.getElementById('npf_targetMonth');
+    if (!targetSelect) return;
+    const months = availableTargetMonths();
+    if (filterState.targetMonth && !months.includes(filterState.targetMonth)) filterState.targetMonth = '';
+    targetSelect.innerHTML = `<option value="">全て</option>${months.map(v=>`<option value="${escapeHtml(v)}" ${v===filterState.targetMonth?'selected':''}>${escapeHtml(formatYmLabel(v))}</option>`).join('')}`;
+  };
 
   content.innerHTML = `<section class="panel new-project-cost-page"><div class="card-title-row"><div><h3>プロジェクト別コスト管理（新規案件）</h3><p class="muted">進捗率は進捗状況からの簡易換算値です。差額理由は進捗状況/memoからの簡易分類です。</p></div></div>
   <div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('np_unit', state.ui.units.newProject)}${['fiscalPeriod','targetMonth','projectCategory','itInvestmentNo','owner','progressStatus','costGroup','varianceReason'].map(k=>`<label>${filterLabels[k]}<select id="npf_${k}"><option value="">全て</option>${options[k].map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(k==='targetMonth'?formatYmLabel(v):v)}</option>`).join('')}</select></label>`).join('')}<label>管理番号／案件名検索<input id="npf_keyword" type="text" placeholder="管理番号／案件名"></label></div>
@@ -1583,7 +1595,12 @@ async function renderProject() {
     document.querySelectorAll('#np_rank_rows [data-management]').forEach(el=>el.onclick=async ()=>{filterState.selectedManagementNo = el.dataset.management || ''; await renderAll(); const hit=document.querySelector(`#np_detail_rows tr[data-management="${CSS.escape(filterState.selectedManagementNo)}"]`); if(hit){hit.scrollIntoView({behavior:'smooth',block:'center'}); hit.classList.add('warning-row'); setTimeout(()=>hit.classList.remove('warning-row'),1200);} });
   };
 
-  Object.keys(options).forEach(k=>document.getElementById(`npf_${k}`).onchange=async e=>{filterState[k]=e.target.value; await renderAll();});
+  Object.keys(options).forEach(k=>document.getElementById(`npf_${k}`).onchange=async e=>{
+    filterState[k]=e.target.value;
+    if (k === 'fiscalPeriod') refreshTargetMonthOptions();
+    await renderAll();
+  });
+  refreshTargetMonthOptions();
   document.getElementById('npf_keyword').oninput=async e=>{filterState.keyword=e.target.value; await renderAll();};
   document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
