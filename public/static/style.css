@@ -101,7 +101,7 @@
 
 @layer layout {
   .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 100vh; }
-  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-3); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow: hidden; overscroll-behavior: contain; transition: width .24s ease, padding .24s ease, transform .28s ease; }
+  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-3); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; transition: width .24s ease, padding .24s ease, transform .28s ease; }
   .main { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
   .topbar { background: color-mix(in srgb, var(--surface-raised) 96%, transparent); border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px); }
   .topbar-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -124,7 +124,7 @@
   .sidebar { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-height: 100vh; }
   .sidebar-head { display: flex; justify-content: flex-end; margin-top: 6px; padding-right: 14px; }
   .sidebar-collapse { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 15px; line-height: 1; }
-  #sidebarNav { display: grid; gap: 2px; align-content: start; min-height: 0; overflow: visible; padding-right: 0; }
+  #sidebarNav { display: grid; gap: 2px; align-content: start; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
   .nav-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 6px 8px 2px; }
   .nav-item { display: flex; align-items: center; gap: 10px; border-left: 3px solid transparent; margin-bottom: 0; }
   .nav-item .nav-icon { font-size: 15px; min-width: 18px; text-align: center; }
