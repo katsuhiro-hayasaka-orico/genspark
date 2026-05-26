@@ -41,6 +41,20 @@ const IMPORT_STATUS_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.map(t => t.value);
 const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
 const NOT_IMPORTED_MESSAGE = 'データ未取込';
 const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
+const MONEY_UNITS_STORAGE_KEY = 'moneyUnits';
+
+function loadSavedMoneyUnits() {
+  const defaults = { alert: 'thousand', newProject: 'thousand', summary: 'thousand', trend: 'thousand', category: 'thousand', vendor: 'thousand', depreciation: 'thousand', oacis: 'thousand' };
+  try {
+    const raw = localStorage.getItem(MONEY_UNITS_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    const valid = ['thousand', 'million', 'oku'];
+    return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, valid.includes(parsed?.[key]) ? parsed[key] : fallback]));
+  } catch (_) {
+    return defaults;
+  }
+}
 
 const state = {
   page: 'import',
@@ -61,7 +75,7 @@ const state = {
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
     importFileType: 'budget',
     depreciationFilters: { fiscalPeriod: '', categoryName: '' },
-    units: { alert: 'thousand', newProject: 'thousand', summary: 'thousand', trend: 'thousand', category: 'thousand', vendor: 'thousand', depreciation: 'thousand', oacis: 'thousand' },
+    units: loadSavedMoneyUnits(),
   },
 };
 
@@ -97,6 +111,12 @@ const bindMoneyUnitControl = (controlId, currentUnit, onChange) => {
       onChange(next);
     };
   });
+};
+const persistMoneyUnits = () => localStorage.setItem(MONEY_UNITS_STORAGE_KEY, JSON.stringify(state.ui.units));
+const updateMoneyUnit = (key, nextUnit, rerender) => {
+  state.ui.units[key] = normalizeMoneyUnit(nextUnit);
+  persistMoneyUnits();
+  rerender();
 };
 const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
 const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
@@ -1387,7 +1407,7 @@ function renderSummary() {
       renderPage();
     };
   }
-  bindMoneyUnitControl('summary_unit', state.ui.units.summary, (next) => { state.ui.units.summary = next; renderSummary(); });
+  bindMoneyUnitControl('summary_unit', state.ui.units.summary, (next) => updateMoneyUnit('summary', next, renderSummary));
   bindManagementNoDrilldowns();
 }
 
@@ -1425,9 +1445,9 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
-  bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => { state.ui.units.trend = next; renderTrend(); });
+  bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => updateMoneyUnit('trend', next, renderTrend));
   bindDetailFilterLinks();
-  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => updateMoneyUnit('vendor', next, renderVendor));
 }
 
 function aggregateBy(rows, key) {
@@ -1469,7 +1489,7 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
-  bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => { state.ui.units.category = next; renderCategory(); });
+  bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => updateMoneyUnit('category', next, renderCategory));
   bindDetailFilterLinks();
   const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
@@ -1604,7 +1624,7 @@ async function renderProject() {
   document.getElementById('npf_keyword').oninput=async e=>{filterState.keyword=e.target.value; await renderAll();};
   document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
-  bindMoneyUnitControl('np_unit', state.ui.units.newProject, async (next)=>{state.ui.units.newProject = next; await renderProject();});
+  bindMoneyUnitControl('np_unit', state.ui.units.newProject, (next) => updateMoneyUnit('newProject', next, renderProject));
   renderAll();
 }
 
@@ -1644,7 +1664,7 @@ function renderAlert() {
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
-  bindMoneyUnitControl('alert_unit', state.ui.units.alert, (next) => { state.ui.units.alert = next; renderAlert(); });
+  bindMoneyUnitControl('alert_unit', state.ui.units.alert, (next) => updateMoneyUnit('alert', next, renderAlert));
 }
 
 function renderVendor() {
@@ -1691,7 +1711,7 @@ function renderVendor() {
     </section>`;
 
   bindDetailFilterLinks();
-  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => updateMoneyUnit('vendor', next, renderVendor));
 }
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -2088,7 +2108,7 @@ function renderDepreciation() {
     ['最大区分', escapeHtml(topCategory?.depreciation_category_name || '-'), topCategory ? `${topCategory.depreciation_category_name} が最大（${money(topCategory.full)}）です。` : '該当データなし', '確認対象', 'neutral'],
   ].map(([l, v, h, st, tone], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, statusLabel: st, tone, scopeText: depScope }, idx)).join('');
   animateNumericValues(content);
-  bindMoneyUnitControl('depreciation_unit', state.ui.units.depreciation, (next) => { state.ui.units.depreciation = next; renderDepreciation(); });
+  bindMoneyUnitControl('depreciation_unit', state.ui.units.depreciation, (next) => updateMoneyUnit('depreciation', next, renderDepreciation));
   drawDepreciationMonthlyChart('depMonthlyChart', scoped);
   drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費', state.ui.units.depreciation);
 }
@@ -2118,7 +2138,7 @@ function renderOacisActual() {
     ['予実番号あり金額', money(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
     ['予実番号なし金額', money(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
   ].map(([l, v, h], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, scopeText: 'OACIS実績 / 全体' }, idx)).join('');
-  bindMoneyUnitControl('oacis_unit', state.ui.units.oacis, (next) => { state.ui.units.oacis = next; renderOacisActual(); });
+  bindMoneyUnitControl('oacis_unit', state.ui.units.oacis, (next) => updateMoneyUnit('oacis', next, renderOacisActual));
 }
 
 async function renderPage() {
