@@ -41,6 +41,20 @@ const IMPORT_STATUS_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.map(t => t.value);
 const ADDITIONAL_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.filter(t => t.value !== 'budget').map(t => t.value);
 const NOT_IMPORTED_MESSAGE = 'データ未取込';
 const APP_ZOOM = { min: 75, max: 150, step: 5, defaultValue: 100 };
+const MONEY_UNITS_STORAGE_KEY = 'moneyUnits';
+
+function loadSavedMoneyUnits() {
+  const defaults = { alert: 'thousand', newProject: 'thousand', summary: 'thousand', trend: 'thousand', category: 'thousand', vendor: 'thousand', depreciation: 'thousand', oacis: 'thousand' };
+  try {
+    const raw = localStorage.getItem(MONEY_UNITS_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    const valid = ['thousand', 'million', 'oku'];
+    return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, valid.includes(parsed?.[key]) ? parsed[key] : fallback]));
+  } catch (_) {
+    return defaults;
+  }
+}
 
 const state = {
   page: 'import',
@@ -61,7 +75,7 @@ const state = {
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
     importFileType: 'budget',
     depreciationFilters: { fiscalPeriod: '', categoryName: '' },
-    units: { alert: 'thousand', newProject: 'thousand', summary: 'thousand', trend: 'thousand', category: 'thousand', vendor: 'thousand', oacis: 'thousand' },
+    units: loadSavedMoneyUnits(),
   },
 };
 
@@ -97,6 +111,12 @@ const bindMoneyUnitControl = (controlId, currentUnit, onChange) => {
       onChange(next);
     };
   });
+};
+const persistMoneyUnits = () => localStorage.setItem(MONEY_UNITS_STORAGE_KEY, JSON.stringify(state.ui.units));
+const updateMoneyUnit = (key, nextUnit, rerender) => {
+  state.ui.units[key] = normalizeMoneyUnit(nextUnit);
+  persistMoneyUnits();
+  rerender();
 };
 const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
 const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
@@ -1387,7 +1407,7 @@ function renderSummary() {
       renderPage();
     };
   }
-  bindMoneyUnitControl('summary_unit', state.ui.units.summary, (next) => { state.ui.units.summary = next; renderSummary(); });
+  bindMoneyUnitControl('summary_unit', state.ui.units.summary, (next) => updateMoneyUnit('summary', next, renderSummary));
   bindManagementNoDrilldowns();
 }
 
@@ -1425,9 +1445,9 @@ function renderTrend() {
 
   document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
   document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
-  bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => { state.ui.units.trend = next; renderTrend(); });
+  bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => updateMoneyUnit('trend', next, renderTrend));
   bindDetailFilterLinks();
-  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => updateMoneyUnit('vendor', next, renderVendor));
 }
 
 function aggregateBy(rows, key) {
@@ -1469,7 +1489,7 @@ function renderCategory() {
     </div>`;
 
   document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
-  bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => { state.ui.units.category = next; renderCategory(); });
+  bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => updateMoneyUnit('category', next, renderCategory));
   bindDetailFilterLinks();
   const palette = chartColors().pie;
   new Chart(document.getElementById('catPie'), {
@@ -1604,7 +1624,7 @@ async function renderProject() {
   document.getElementById('npf_keyword').oninput=async e=>{filterState.keyword=e.target.value; await renderAll();};
   document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
-  bindMoneyUnitControl('np_unit', state.ui.units.newProject, async (next)=>{state.ui.units.newProject = next; await renderProject();});
+  bindMoneyUnitControl('np_unit', state.ui.units.newProject, (next) => updateMoneyUnit('newProject', next, renderProject));
   renderAll();
 }
 
@@ -1644,7 +1664,7 @@ function renderAlert() {
   const dialog = document.getElementById('alertDetailDialog');
   const btn = document.getElementById('alertDetailBtn');
   if (dialog && btn) btn.onclick = () => dialog.showModal();
-  bindMoneyUnitControl('alert_unit', state.ui.units.alert, (next) => { state.ui.units.alert = next; renderAlert(); });
+  bindMoneyUnitControl('alert_unit', state.ui.units.alert, (next) => updateMoneyUnit('alert', next, renderAlert));
 }
 
 function renderVendor() {
@@ -1691,7 +1711,7 @@ function renderVendor() {
     </section>`;
 
   bindDetailFilterLinks();
-  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => { state.ui.units.vendor = next; renderVendor(); });
+  bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => updateMoneyUnit('vendor', next, renderVendor));
 }
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -2027,14 +2047,15 @@ function drawDepreciationMonthlyChart(canvasId, rows) {
   });
 }
 
-function drawDepreciationBarChart(canvasId, labels, values, label) {
+function drawDepreciationBarChart(canvasId, labels, values, label, unit = 'thousand') {
   const el = document.getElementById(canvasId);
   if (!el) return;
   const colors = chartColors();
-  new Chart(el, { type: 'bar', data: { labels, datasets: [{ label, data: values, backgroundColor: colors.c2, borderColor: colors.c1, borderWidth: 1 }] }, options: baseChartOptions({ indexAxis: labels.length > 8 ? 'y' : 'x', maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => yen(ctx.parsed.x ?? ctx.parsed.y) } } }, scales: { x: { beginAtZero: true, ticks: { color: 'var(--text)', callback: value => fmt(value) }, grid: { color: 'var(--line)' } }, y: { beginAtZero: true, ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } }) });
+  new Chart(el, { type: 'bar', data: { labels, datasets: [{ label, data: values, backgroundColor: colors.c2, borderColor: colors.c1, borderWidth: 1 }] }, options: baseChartOptions({ indexAxis: labels.length > 8 ? 'y' : 'x', maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => formatMoneyByUnit(ctx.parsed.x ?? ctx.parsed.y, unit) } } }, scales: { x: { beginAtZero: true, ticks: { color: 'var(--text)', callback: value => formatMoneyByUnit(value, unit) }, grid: { color: 'var(--line)' } }, y: { beginAtZero: true, ticks: { color: 'var(--text)' }, grid: { color: 'var(--line)' } } } }) });
 }
 
 function renderDepreciation() {
+  const money = (value) => formatMoneyByUnit(value, state.ui.units.depreciation);
   const rows = state.data.depreciation || [];
   const content = document.getElementById('content');
   if (!rows.length) {
@@ -2061,6 +2082,7 @@ function renderDepreciation() {
     <div class="panel depreciation-dashboard">
       <div class="card-title-row"><div><p class="eyebrow">Depreciation Simulation</p><h3>減価償却シミュレーション専用ビュー</h3><p class="muted">CSVをロング形式のまま保持し、選択期・償却展開区分名でフロント側集計します。</p></div></div>
       <div class="controls detail-controls">
+        <span>金額単位</span>${moneyUnitSegmentedControlHtml('depreciation_unit', state.ui.units.depreciation)}
         <label>期 <select id="depFiscalPeriod">${periods.map(v => optionHtml(v, selectedPeriod)).join('')}</select></label>
         <label>償却展開区分名 <select id="depCategoryName"><option value="">全区分</option>${names.map(v => optionHtml(v, filters.categoryName)).join('')}</select></label>
       </div>
@@ -2069,25 +2091,26 @@ function renderDepreciation() {
     <div class="dashboard-bento depreciation-bento">
       <section class="panel bento-card bento-card--wide chart-card"><h3>月次推移（4月〜翌年3月）</h3><div class="chart-frame chart-frame--large"><canvas id="depMonthlyChart"></canvas></div></section>
       <section class="panel bento-card bento-card--small chart-card"><h3>65期〜70期 通期推移</h3><div class="chart-frame"><canvas id="depPeriodChart"></canvas></div></section>
-      <section class="panel bento-card bento-card--small ranking-card"><h3>償却展開区分別 Top10</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">通期償却費</th></tr></thead><tbody>${top10.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${yen(row.full)}</td></tr>`).join('')}</tbody></table></div></section>
-      <section class="panel bento-card bento-card--small ranking-card"><h3>前期差ランキング</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">前期差</th><th class="right">差率</th></tr></thead><tbody>${diffTop.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${yen(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
-      <section class="panel bento-card bento-card--wide"><h3>半期・通期 / 明細一覧</h3><div class="table-wrap"><table><thead><tr><th>区分</th><th>償却展開区分</th><th>償却展開区分名</th><th class="right">選択期上期</th><th class="right">選択期下期</th><th class="right">選択期通期</th><th class="right">前期通期</th><th class="right">前期差</th><th class="right">前期差率</th></tr></thead><tbody>${detailRows.map(row => `<tr><td>${escapeHtml(row.division)}</td><td>${escapeHtml(row.depreciation_category)}</td><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${yen(row.h1)}</td><td class="right">${yen(row.h2)}</td><td class="right">${yen(row.full)}</td><td class="right">${yen(row.previousFull)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${yen(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card bento-card--small ranking-card"><h3>償却展開区分別 Top10</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">通期償却費</th></tr></thead><tbody>${top10.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${money(row.full)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card bento-card--small ranking-card"><h3>前期差ランキング</h3><div class="table-wrap"><table><thead><tr><th>区分名</th><th class="right">前期差</th><th class="right">差率</th></tr></thead><tbody>${diffTop.map(row => `<tr><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${money(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel bento-card bento-card--wide"><h3>半期・通期 / 明細一覧</h3><div class="table-wrap"><table><thead><tr><th>区分</th><th>償却展開区分</th><th>償却展開区分名</th><th class="right">選択期上期</th><th class="right">選択期下期</th><th class="right">選択期通期</th><th class="right">前期通期</th><th class="right">前期差</th><th class="right">前期差率</th></tr></thead><tbody>${detailRows.map(row => `<tr><td>${escapeHtml(row.division)}</td><td>${escapeHtml(row.depreciation_category)}</td><td>${escapeHtml(row.depreciation_category_name)}</td><td class="right">${money(row.h1)}</td><td class="right">${money(row.h2)}</td><td class="right">${money(row.full)}</td><td class="right">${money(row.previousFull)}</td><td class="right ${row.previousDiff < 0 ? 'ok' : 'warn'}">${money(row.previousDiff)}</td><td class="right">${pct(row.previousDiffRate)}</td></tr>`).join('')}</tbody></table></div></section>
     </div>`;
 
   document.getElementById('depFiscalPeriod').onchange = (event) => { state.ui.depreciationFilters.fiscalPeriod = event.target.value; renderPage(); };
   document.getElementById('depCategoryName').onchange = (event) => { state.ui.depreciationFilters.categoryName = event.target.value; renderPage(); };
   const depScope = `${selectedPeriod}期 / ${filters.categoryName || '全区分'}`;
   document.getElementById('dep_kpi_strip').innerHTML = [
-    ['通期償却費', animatedValueHtml(full), '選択期の償却費合計です。', '確認対象', 'neutral'],
-    ['上期償却費', animatedValueHtml(h1), 'H1の償却費合計です。', '確認対象', 'neutral'],
-    ['下期償却費', animatedValueHtml(h2), 'H2の償却費合計です。', '確認対象', 'neutral'],
-    ['上期下期差', animatedValueHtml(h2 - h1), '下期 - 上期の差分です。', '確認対象', 'neutral'],
-    ['前期差', animatedValueHtml(full - previousFull), `前期通期 ${yen(previousFull)} との差分です。`, full - previousFull < 0 ? '改善' : '要確認', full - previousFull < 0 ? 'ok' : 'warn'],
-    ['最大区分', escapeHtml(topCategory?.depreciation_category_name || '-'), topCategory ? `${topCategory.depreciation_category_name} が最大（${yen(topCategory.full)}）です。` : '該当データなし', '確認対象', 'neutral'],
+    ['通期償却費', money(full), '選択期の償却費合計です。', '確認対象', 'neutral'],
+    ['上期償却費', money(h1), 'H1の償却費合計です。', '確認対象', 'neutral'],
+    ['下期償却費', money(h2), 'H2の償却費合計です。', '確認対象', 'neutral'],
+    ['上期下期差', money(h2 - h1), '下期 - 上期の差分です。', '確認対象', 'neutral'],
+    ['前期差', money(full - previousFull), `前期通期 ${money(previousFull)} との差分です。`, full - previousFull < 0 ? '改善' : '要確認', full - previousFull < 0 ? 'ok' : 'warn'],
+    ['最大区分', escapeHtml(topCategory?.depreciation_category_name || '-'), topCategory ? `${topCategory.depreciation_category_name} が最大（${money(topCategory.full)}）です。` : '該当データなし', '確認対象', 'neutral'],
   ].map(([l, v, h, st, tone], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, statusLabel: st, tone, scopeText: depScope }, idx)).join('');
   animateNumericValues(content);
+  bindMoneyUnitControl('depreciation_unit', state.ui.units.depreciation, (next) => updateMoneyUnit('depreciation', next, renderDepreciation));
   drawDepreciationMonthlyChart('depMonthlyChart', scoped);
-  drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費');
+  drawDepreciationBarChart('depPeriodChart', transitionPeriods.map(p => `${p}期`), transitionValues, '通期償却費', state.ui.units.depreciation);
 }
 
 function renderOacisActual() {
@@ -2115,7 +2138,7 @@ function renderOacisActual() {
     ['予実番号あり金額', money(s.yojitsuNoPresentAmount || 0), '予実番号が設定されている明細の金額合計です。'],
     ['予実番号なし金額', money(s.yojitsuNoMissingAmount || 0), '予実番号が未設定の明細金額合計です。'],
   ].map(([l, v, h], idx) => standardKpiCardHtml({ label: l, valueHtml: v, helpText: h, note: h, scopeText: 'OACIS実績 / 全体' }, idx)).join('');
-  bindMoneyUnitControl('oacis_unit', state.ui.units.oacis, (next) => { state.ui.units.oacis = next; renderOacisActual(); });
+  bindMoneyUnitControl('oacis_unit', state.ui.units.oacis, (next) => updateMoneyUnit('oacis', next, renderOacisActual));
 }
 
 async function renderPage() {
