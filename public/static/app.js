@@ -97,8 +97,10 @@ const MONEY_UNITS = {
 const normalizeMoneyUnit = (unit) => (MONEY_UNITS[unit] ? unit : 'thousand');
 const unitLabel = (unit) => MONEY_UNITS[normalizeMoneyUnit(unit)].label;
 const convertFromThousandYen = (value, unit) => Number(value || 0) / MONEY_UNITS[normalizeMoneyUnit(unit)].divisor;
+const convertFromYen = (value, unit) => Number(value || 0) / (MONEY_UNITS[normalizeMoneyUnit(unit)].divisor * 1000);
 const formatUnitValue = (value, digits = 1) => Number(value || 0).toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const formatMoneyByUnit = (thousandYen, unit, digits = 1) => `${formatUnitValue(convertFromThousandYen(thousandYen, unit), digits)} ${unitLabel(unit)}`;
+const formatMoneyFromYenByUnit = (yen, unit, digits = 1) => `${formatUnitValue(convertFromYen(yen, unit), digits)} ${unitLabel(unit)}`;
 const moneyUnitOptionsHtml = (selectedUnit) => ['thousand', 'million', 'oku'].map(key => `<option value="${key}" ${normalizeMoneyUnit(selectedUnit)===key?'selected':''}>${unitLabel(key)}</option>`).join('');
 const moneyUnitSegmentedControlHtml = (controlId, selectedUnit) => `<fieldset class="unit-switch" role="radiogroup" aria-label="金額単位" data-unit-control="${dataAttr(controlId)}">${['thousand', 'million', 'oku'].map((key) => `<label class="unit-switch__btn ${normalizeMoneyUnit(selectedUnit)===key?'active':''}"><input type="radio" name="${dataAttr(controlId)}_unit" value="${key}" data-unit-value="${key}" ${normalizeMoneyUnit(selectedUnit)===key?'checked':''}><span>${unitLabel(key)}</span></label>`).join('')}</fieldset>`;
 const bindMoneyUnitControl = (controlId, currentUnit, onChange) => {
@@ -2155,7 +2157,7 @@ function renderDepreciation() {
 }
 
 function renderOacisActual() {
-  const money = (value) => formatMoneyByUnit(value, state.ui.units.oacis);
+  const money = (value) => formatMoneyFromYenByUnit(value, state.ui.units.oacis);
   const payload = state.data.oacisActual || { summary: {}, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] };
   const s = payload.summary || {};
   const asPct = v => `${Number(v || 0).toFixed(1)}%`;
