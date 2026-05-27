@@ -1240,8 +1240,19 @@ function renderSummary() {
   const s = scopedPeriodSummary(items);
   const periodVariance = calculateVariance(s.totalPlan, s.comparable);
   const periodBurnRate = calculateBurnRate(s.totalPlan, s.comparable);
-  const fullComparable = items.reduce((sum, item) => sum + getComparableActual(item), 0);
-  const fullPlan = items.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
+  const periodScopeItems = state.data.items.filter((item) => {
+    if (state.filters.department && item.department_name !== state.filters.department) return false;
+    if (state.filters.target === '新規案件' && !isNewProject(item)) return false;
+    if (state.filters.target === '継続案件' && isNewProject(item)) return false;
+    if ((state.filters.target || '').startsWith('ベンダー:')) {
+      const vendor = state.filters.target.replace('ベンダー:', '');
+      if ((item.vendor_name || item.payee_name || '') !== vendor) return false;
+    }
+    if (state.filters.fiscalPeriod && String(item.fiscal_period || '') !== String(state.filters.fiscalPeriod)) return false;
+    return true;
+  });
+  const fullComparable = periodScopeItems.reduce((sum, item) => sum + getComparableActual(item), 0);
+  const fullPlan = periodScopeItems.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
   const fullBurnRate = calculateBurnRate(fullPlan, fullComparable);
   const reduction = Math.max(periodVariance.amount, 0);
   const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
@@ -1514,6 +1525,12 @@ async function renderProject() {
     const year = Number(m[1]); const month = Number(m[2]);
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return '';
     const table = [
+      { period: '59期', from: 201804, to: 201903 },
+      { period: '60期', from: 201904, to: 202003 },
+      { period: '61期', from: 202004, to: 202103 },
+      { period: '62期', from: 202104, to: 202203 },
+      { period: '63期', from: 202204, to: 202303 },
+      { period: '64期', from: 202304, to: 202403 },
       { period: '65期', from: 202404, to: 202503 },
       { period: '66期', from: 202504, to: 202603 },
       { period: '67期', from: 202604, to: 202703 },
