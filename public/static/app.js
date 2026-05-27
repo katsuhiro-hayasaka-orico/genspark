@@ -1514,6 +1514,12 @@ async function renderProject() {
     const year = Number(m[1]); const month = Number(m[2]);
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return '';
     const table = [
+      { period: '59期', from: 201804, to: 201903 },
+      { period: '60期', from: 201904, to: 202003 },
+      { period: '61期', from: 202004, to: 202103 },
+      { period: '62期', from: 202104, to: 202203 },
+      { period: '63期', from: 202204, to: 202303 },
+      { period: '64期', from: 202304, to: 202403 },
       { period: '65期', from: 202404, to: 202503 },
       { period: '66期', from: 202504, to: 202603 },
       { period: '67期', from: 202604, to: 202703 },
