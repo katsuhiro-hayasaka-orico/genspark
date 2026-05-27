@@ -1240,8 +1240,19 @@ function renderSummary() {
   const s = scopedPeriodSummary(items);
   const periodVariance = calculateVariance(s.totalPlan, s.comparable);
   const periodBurnRate = calculateBurnRate(s.totalPlan, s.comparable);
-  const fullComparable = items.reduce((sum, item) => sum + getComparableActual(item), 0);
-  const fullPlan = items.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
+  const periodScopeItems = state.data.items.filter((item) => {
+    if (state.filters.department && item.department_name !== state.filters.department) return false;
+    if (state.filters.target === '新規案件' && !isNewProject(item)) return false;
+    if (state.filters.target === '継続案件' && isNewProject(item)) return false;
+    if ((state.filters.target || '').startsWith('ベンダー:')) {
+      const vendor = state.filters.target.replace('ベンダー:', '');
+      if ((item.vendor_name || item.payee_name || '') !== vendor) return false;
+    }
+    if (state.filters.fiscalPeriod && String(item.fiscal_period || '') !== String(state.filters.fiscalPeriod)) return false;
+    return true;
+  });
+  const fullComparable = periodScopeItems.reduce((sum, item) => sum + getComparableActual(item), 0);
+  const fullPlan = periodScopeItems.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
   const fullBurnRate = calculateBurnRate(fullPlan, fullComparable);
   const reduction = Math.max(periodVariance.amount, 0);
   const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
