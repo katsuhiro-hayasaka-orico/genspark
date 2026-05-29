@@ -343,3 +343,77 @@
 .gap-formula-note { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface-muted); }
 .gap-formula-details p { margin: 6px 0; }
 .alert-level-progress-ahead { color: #1565c0; font-weight: 700; }
+
+@layer components {
+  .dashboard-page { display: grid; gap: var(--space-3); }
+  .export-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-sm); }
+  .export-page-toolbar h3 { margin: 0; }
+  .export-status { min-height: 1.4em; margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
+  .export-status--ok { color: var(--ok); font-weight: 700; }
+  .export-status--warn { color: var(--warning); font-weight: 700; }
+  .export-status--error { color: var(--danger); font-weight: 700; }
+  .export-controls { position: relative; display: inline-flex; align-items: stretch; gap: 0; }
+  .export-primary { border-radius: var(--radius-md) 0 0 var(--radius-md); border-color: transparent; background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #FB5B01)); color: #fff; font-weight: 800; box-shadow: var(--shadow-sm); }
+  .export-menu-toggle { min-width: 40px; border-left: 1px solid color-mix(in srgb, white 38%, transparent); border-radius: 0 var(--radius-md) var(--radius-md) 0; border-color: transparent; background: color-mix(in srgb, var(--primary) 85%, #000); color: #fff; font-weight: 800; }
+  .export-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; min-width: 190px; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-lg); }
+  .export-menu button { width: 100%; justify-content: flex-start; background: transparent; color: var(--text); border-color: transparent; text-align: left; }
+  .export-menu button:hover { background: var(--surface-muted); }
+  .export-root { display: grid; gap: var(--space-3); }
+  .export-report-header { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, var(--surface)), var(--surface-raised)); box-shadow: var(--shadow-sm); }
+  .export-report-header h1 { margin: 0; font-size: 24px; }
+  .export-report-header h2 { margin: var(--space-2) 0 0; font-size: 14px; }
+  .export-filter-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+  .export-filter-list div { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); padding: 8px 10px; min-width: 0; }
+  .export-filter-list dt { color: var(--text-muted); font-size: 11px; }
+  .export-filter-list dd { margin: 3px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+  .export-content-body { display: contents; }
+  .export-chart-image { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); background: #fff; }
+}
+
+@layer utilities {
+  @media (max-width: 900px) {
+    .export-page-toolbar { align-items: flex-start; flex-direction: column; }
+    .export-filter-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @page { size: A4 landscape; margin: 12mm; }
+  @media print {
+    body.export-mode { background: #fff !important; color: #17181C !important; zoom: 1 !important; }
+    body.export-mode .layout { display: block; min-height: auto; }
+    body.export-mode .sidebar,
+    body.export-mode .topbar,
+    body.export-mode .export-page-toolbar,
+    body.export-mode .mobile-menu-backdrop,
+    body.export-mode [data-export-controls],
+    body.export-mode button,
+    body.export-mode .tooltip-wrap .popover-card { display: none !important; }
+    body.export-mode .main,
+    body.export-mode .content { display: block; padding: 0; }
+    body.export-mode .dashboard-page,
+    body.export-mode .export-root { display: block; max-width: none; }
+    body.export-mode .export-report-header { display: block; margin-bottom: 10mm; color: #17181C; background: #fff; border: 1px solid #D7DAE2; box-shadow: none; page-break-after: avoid; }
+    body.export-mode .export-filter-list { grid-template-columns: repeat(4, 1fr); }
+    body.export-mode .panel,
+    body.export-mode .bento-card,
+    body.export-mode .kpi,
+    body.export-mode .alert-card,
+    body.export-mode .renewal-card,
+    body.export-mode .gap-summary-card { break-inside: avoid; page-break-inside: avoid; box-shadow: none !important; transform: none !important; background: #fff !important; color: #17181C !important; }
+    body.export-mode .dashboard-bento,
+    body.export-mode .vendor-bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; }
+    body.export-mode .bento-card--wide { grid-column: span 8; }
+    body.export-mode .bento-card--tall,
+    body.export-mode .bento-card--small { grid-column: span 4; }
+    body.export-mode .bento-card--hero,
+    body.export-mode .bento-card.kpi-strip { grid-column: span 12; }
+    body.export-mode .chart-card,
+    body.export-mode .chart-frame,
+    body.export-mode .chart-frame--large { break-inside: avoid; page-break-inside: avoid; min-height: 220px; height: 260px; }
+    body.export-mode canvas { max-width: 100% !important; }
+    body.export-mode .table-wrap { overflow: visible; max-height: none; border-color: #D7DAE2; }
+    body.export-mode table { font-size: 9px; table-layout: auto; }
+    body.export-mode th,
+    body.export-mode td { padding: 5px 6px; white-space: normal; color: #17181C; position: static; }
+    body.export-mode a { color: #0017C1; }
+  }
+}
