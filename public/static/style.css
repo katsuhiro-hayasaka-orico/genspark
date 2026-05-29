@@ -360,6 +360,13 @@
   .export-menu button:hover { background: var(--surface-muted); }
   .export-root { display: grid; gap: var(--space-3); }
   .export-report-header { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, var(--surface)), var(--surface-raised)); box-shadow: var(--shadow-sm); }
+  .export-report-header summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-weight: 800; list-style: none; }
+  .export-report-header summary::-webkit-details-marker { display: none; }
+  .export-report-header summary::before { content: '▼'; color: var(--primary); font-size: 12px; transition: transform .16s ease; }
+  .export-report-header:not([open]) summary::before { transform: rotate(-90deg); }
+  .export-report-summary-title { flex: 1; font-size: 16px; }
+  .export-report-summary-hint { color: var(--text-muted); font-size: 12px; font-weight: 500; }
+  .export-report-header-body { margin-top: var(--space-3); }
   .export-report-header h1 { margin: 0; font-size: 24px; }
   .export-report-header h2 { margin: var(--space-2) 0 0; font-size: 14px; }
   .export-filter-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
@@ -392,6 +399,8 @@
     body.export-mode .dashboard-page,
     body.export-mode .export-root { display: block; max-width: none; }
     body.export-mode .export-report-header { display: block; margin-bottom: 10mm; color: #17181C; background: #fff; border: 1px solid #D7DAE2; box-shadow: none; page-break-after: avoid; }
+    body.export-mode .export-report-header summary { display: none; }
+    body.export-mode .export-report-header-body { margin-top: 0; }
     body.export-mode .export-filter-list { grid-template-columns: repeat(4, 1fr); }
     body.export-mode .panel,
     body.export-mode .bento-card,

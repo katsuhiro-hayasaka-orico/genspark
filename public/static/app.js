@@ -1151,10 +1151,9 @@ function renderExportControls({ screenName = currentScreenName(), targetSelector
   host.innerHTML = `
     <div class="export-controls" data-export-controls>
       <button type="button" class="export-primary" data-export-format="pdf">PDF出力</button>
-      <button type="button" class="export-menu-toggle" aria-label="HTML/PNG出力メニューを開く" aria-expanded="false">▼</button>
+      <button type="button" class="export-menu-toggle" aria-label="HTML出力メニューを開く" aria-expanded="false">▼</button>
       <div class="export-menu" role="menu" hidden>
         <button type="button" role="menuitem" data-export-format="html">HTMLとして保存</button>
-        <button type="button" role="menuitem" data-export-format="png">PNG画像として保存</button>
       </div>
     </div>`;
   const menu = host.querySelector('.export-menu');
@@ -1199,13 +1198,19 @@ function ensureExportableView() {
       <div id="exportControlsHost"></div>
     </div>
     <section id="export-root" class="export-root" data-screen-name="${dataAttr(screenName)}">
-      <header class="export-report-header" aria-label="出力レポート情報">
-        <p class="eyebrow">${escapeHtml(EXPORT_APP_TITLE)}</p>
-        <h1>${escapeHtml(screenName)} レポート</h1>
-        <p>出力日時: <span data-export-generated-at>${escapeHtml(formatExportDate())}</span></p>
-        <h2>適用条件</h2>
-        <div data-export-filter-summary>${filterSummaryHtml()}</div>
-      </header>
+      <details class="export-report-header" aria-label="出力レポート情報" open>
+        <summary>
+          <span class="export-report-summary-title">${escapeHtml(screenName)} レポート</span>
+          <span class="export-report-summary-hint">クリックで閉じる／展開</span>
+        </summary>
+        <div class="export-report-header-body">
+          <p class="eyebrow">${escapeHtml(EXPORT_APP_TITLE)}</p>
+          <h1>${escapeHtml(screenName)} レポート</h1>
+          <p>出力日時: <span data-export-generated-at>${escapeHtml(formatExportDate())}</span></p>
+          <h2>適用条件</h2>
+          <div data-export-filter-summary>${filterSummaryHtml()}</div>
+        </div>
+      </details>
       <div class="export-content-body"></div>
     </section>`;
   const body = shell.querySelector('.export-content-body');
@@ -1276,8 +1281,18 @@ function buildStandaloneHtml(root) {
   return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(EXPORT_APP_TITLE)}_${escapeHtml(currentScreenName())}</title><style>${collectEmbeddedStyles()}\nbody{background:#fff;padding:24px;} .export-report-header{display:block!important;} .export-page-toolbar,.sidebar,.topbar{display:none!important;} .export-root{max-width:none;}</style></head><body class="export-mode">${clone.outerHTML}</body></html>`;
 }
 
+
+function openExportReportHeaders() {
+  const states = [];
+  document.querySelectorAll('details.export-report-header').forEach((details) => {
+    states.push([details, details.open]);
+    details.open = true;
+  });
+  return () => states.forEach(([details, wasOpen]) => { details.open = wasOpen; });
+}
+
 function exportErrorMessage(format, error) {
-  const name = { pdf: 'PDF', html: 'HTML', png: 'PNG画像' }[format] || '出力';
+  const name = { pdf: 'PDF', html: 'HTML' }[format] || '出力';
   if (/cancel/i.test(String(error?.message || ''))) return '保存をキャンセルしました。';
   if (/Chart/.test(String(error?.message || ''))) return error.message;
   return `${name}出力に失敗しました。保存先を変更して再度お試しください。`;
@@ -1290,7 +1305,7 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
     return;
   }
   if (!window.desktop || typeof window.desktop.exportPdf !== 'function') {
-    setExportStatus('Electron環境ではないためPDF/HTML/PNG出力できません。', 'error');
+    setExportStatus('Electron環境ではないためPDF/HTML出力できません。', 'error');
     return;
   }
 
@@ -1298,6 +1313,7 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
   const options = { screenName, timestamp, orientation: 'landscape' };
   setExportStatus('出力準備中です…');
   document.body.classList.add('export-mode');
+  const restoreExportReportHeaders = openExportReportHeaders();
   try {
     refreshExportReportMeta();
     await waitForChartsReady();
@@ -1306,9 +1322,6 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
       result = await window.desktop.exportPdf(options);
     } else if (format === 'html') {
       result = await window.desktop.exportHtml({ ...options, html: buildStandaloneHtml(root) });
-    } else if (format === 'png') {
-      const rect = root.getBoundingClientRect();
-      result = await window.desktop.exportPng({ ...options, rect: { x: rect.left, y: rect.top, width: Math.min(rect.width, window.innerWidth), height: Math.min(rect.height, window.innerHeight - Math.max(rect.top, 0)) } });
     } else {
       throw new Error('未対応の出力形式です。');
     }
@@ -1321,6 +1334,7 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
     console.error('[export] failed:', error);
     setExportStatus(exportErrorMessage(format, error), 'error');
   } finally {
+    restoreExportReportHeaders();
     document.body.classList.remove('export-mode');
     await waitFrames(1);
   }

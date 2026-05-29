@@ -23,6 +23,6 @@
 
 ## 共通出力操作
 
-主要ダッシュボード画面（`summary`、`trend`、`category`、`alert`、`vendor`、`detail`、`project`、`depreciation`、`oacis`）では、`renderPage` の描画後に共通の出力ラッパーを付与します。画面タイトル付近に「PDF出力」主ボタンを表示し、補助メニューからHTML保存、PNG画像保存を実行できます。
+主要ダッシュボード画面（`summary`、`trend`、`category`、`alert`、`vendor`、`detail`、`project`、`depreciation`、`oacis`）では、`renderPage` の描画後に共通の出力ラッパーを付与します。画面タイトル付近に「PDF出力」主ボタンを表示し、補助メニューからHTML保存を実行できます。
 
 出力対象は `#export-root` 配下に描画済みの現在DOMです。グローバルフィルター、画面内フィルター、金額単位、ランキング、ドリルダウン状態など、画面に反映済みの状態を業務報告用レイアウトとして出力します。

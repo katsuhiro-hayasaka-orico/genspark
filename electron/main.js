@@ -25,16 +25,15 @@ function normalizeTimestamp(value = new Date()) {
 }
 
 function defaultExportFileName({ screenName, format, timestamp }) {
-  const ext = format === 'html' ? 'html' : format === 'png' ? 'png' : 'pdf';
+  const ext = format === 'html' ? 'html' : 'pdf';
   return `IT予実績管理ダッシュボード_${sanitizeExportFileNamePart(screenName)}_${normalizeTimestamp(timestamp)}.${ext}`;
 }
 
 async function chooseExportPath(window, { screenName, format, timestamp }) {
-  const ext = format === 'html' ? 'html' : format === 'png' ? 'png' : 'pdf';
+  const ext = format === 'html' ? 'html' : 'pdf';
   const filters = {
     pdf: [{ name: 'PDFファイル', extensions: ['pdf'] }],
     html: [{ name: 'HTMLファイル', extensions: ['html'] }],
-    png: [{ name: 'PNG画像', extensions: ['png'] }],
   };
   const result = await dialog.showSaveDialog(window, {
     title: `${ext.toUpperCase()}として保存`,
@@ -70,23 +69,6 @@ ipcMain.handle('export:html', async (event, options = {}) => {
   return { canceled: false, filePath: save.filePath };
 });
 
-ipcMain.handle('export:png', async (event, options = {}) => {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  if (!window) throw new Error('出力対象の画面が見つかりません。');
-  const save = await chooseExportPath(window, { ...options, format: 'png' });
-  if (save.canceled) return { canceled: true };
-  const rect = options.rect && Number.isFinite(options.rect.width) && Number.isFinite(options.rect.height)
-    ? {
-        x: Math.max(0, Math.floor(options.rect.x || 0)),
-        y: Math.max(0, Math.floor(options.rect.y || 0)),
-        width: Math.max(1, Math.floor(options.rect.width)),
-        height: Math.max(1, Math.floor(options.rect.height)),
-      }
-    : undefined;
-  const image = await window.webContents.capturePage(rect);
-  await fs.writeFile(save.filePath, image.toPNG());
-  return { canceled: false, filePath: save.filePath };
-});
 
 
 async function createWindow() {
