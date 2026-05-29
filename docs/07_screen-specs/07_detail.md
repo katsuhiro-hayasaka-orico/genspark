@@ -1,0 +1,74 @@
+# 明細ドリルダウン画面
+
+## 1. 画面概要
+
+検索、フィルター、追加列選択により予実績明細を確認する保守向け詳細画面です。
+
+## 2. 表示条件
+
+メインCSV取込済み。サマリー/カテゴリ/アラート等から `state.ui.detailFilter` が設定される場合があります。
+
+## 3. 主な利用データ
+
+| データ | 用途 |
+|---|---|
+| `state.data.items` | 表示明細 |
+| `state.ui.detailSearch` | 検索語 |
+| `state.ui.extraDetailCols` | 追加表示列 |
+| `state.ui.detailFilter` | ドリルダウン条件 |
+
+## 4. 主な利用API
+
+`GET /api/items`。関連APIとして `GET /api/raw-rows`。
+
+## 5. 画面レイアウト
+
+検索/フィルター操作エリア、追加列選択、明細テーブル、選択条件表示で構成します。
+
+## 6. 表示項目
+
+| 表示列 | 内部キー例 |
+|---|---|
+| 管理番号 | `management_no` |
+| 項番 | `item_no` |
+| 期/対象年月 | `fiscal_period`, `target_year_month` |
+| 案件/システム | `project_name`, `system_name` |
+| 部署/担当/ベンダー | `department_name`, `owner_name`, `vendor_name` |
+| 金額 | `totalPlan`, `totalForecast`, `totalActual`, `variance` |
+| 追加列 | `state.ui.extraDetailCols` |
+
+## 7. 操作仕様
+
+検索語入力、フィルター解除、追加列変更、管理番号リンクの操作があります。
+
+## 8. フィルター・ソート仕様
+
+`itemMatchesDetailFilter` と `detailSearch` により絞り込みます。ソートは表示列や差額順の実装があるかコード照合が必要です。
+
+## 9. グラフ・テーブル仕様
+
+グラフはありません。テーブル中心です。
+
+## 10. ドリルダウン仕様
+
+他画面から `setDetailFilter(type, value)` で条件が設定されます。管理番号クリックは `bindManagementNoDrilldowns` が処理します。
+
+## 11. 計算仕様
+
+表示金額は既に `state.data.items` に含まれる集計済み項目、またはフロント側の対象期間集計を利用します。
+
+## 12. エラー・空データ時の表示
+
+検索結果0件の場合は空テーブル。データ未取込時は取込画面へ戻ります。
+
+## 13. 関連ソース
+
+| ソース | 関数 |
+|---|---|
+| `public/static/app.js` | `renderDetail`, `setDetailFilter`, `detailFilterLabel`, `itemMatchesDetailFilter`, `DETAIL_COLUMN_LABELS` |
+| `server.js` | `app.get(/api/items)`, `app.get(/api/raw-rows)` |
+
+## 14. 未確認事項
+
+- 行クリックで編集/詳細モーダルがあるかは未確認。
+- raw rows の画面上の露出範囲。

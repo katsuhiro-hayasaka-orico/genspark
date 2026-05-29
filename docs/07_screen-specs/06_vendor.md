@@ -1,0 +1,67 @@
+# ベンダー／契約更新画面
+
+## 1. 画面概要
+
+ベンダー別の金額状況と、契約更新・レビュー候補を確認する画面です。
+
+## 2. 表示条件
+
+メインCSV取込済み。`refreshAllData` で `/api/contracts` の取得を試みます。
+
+## 3. 主な利用データ
+
+| データ | 用途 |
+|---|---|
+| `state.data.items` | ベンダー別集計 |
+| `state.data.contracts` | 契約情報 |
+| `vendor_name` | ベンダー識別 |
+| 契約関連項目 | 更新アラート |
+
+## 4. 主な利用API
+
+`GET /api/items`, `GET /api/contracts`。関連APIとして `/api/contracts/renewals`, `/api/contracts/review-candidates`, `/api/analysis/vendor-detail` があります。
+
+## 5. 画面レイアウト
+
+ベンダー別KPI/ランキング、契約更新アラート、レビュー候補、明細テーブルで構成されます。
+
+## 6. 表示項目
+
+ベンダー名、予算、見込み/実績、差額、契約番号、契約終了日、更新ステータス等を表示する実装が確認できます。
+
+## 7. 操作仕様
+
+金額単位切替、ベンダー/管理番号クリックによる明細遷移、契約関連操作の可能性があります。
+
+## 8. フィルター・ソート仕様
+
+グローバルフィルター適用後、ベンダー名で集計します。契約更新は基準年月に基づく可能性があります。
+
+## 9. グラフ・テーブル仕様
+
+ベンダーランキングテーブルと契約アラートカードが中心です。
+
+## 10. ドリルダウン仕様
+
+ベンダー値または管理番号で明細ドリルダウンへ遷移します。
+
+## 11. 計算仕様
+
+ベンダー単位の金額合計、差額、契約終了までの月数差を算出する実装があります。
+
+## 12. エラー・空データ時の表示
+
+契約データ取得失敗時は `refreshAllData` で空配列にフォールバックします。追加の契約情報がない場合はメインCSV由来項目のみ表示されます。
+
+## 13. 関連ソース
+
+| ソース | 関数 |
+|---|---|
+| `public/static/app.js` | `renderVendor`, `displayContractDate`, `displayContractValue` |
+| `server.js` | `app.get(/api/contracts)`, `app.get(/api/contracts/renewals)`, `detectContractAlerts`, `buildContractRecord`, `app.get(/api/analysis/vendor-detail)` |
+
+## 14. 未確認事項
+
+- 契約更新アラートの正式しきい値。
+- 契約情報の正式入力元。
+- ベンダー名の名寄せルール。
