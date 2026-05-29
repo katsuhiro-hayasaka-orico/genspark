@@ -26,3 +26,11 @@
 | `adr/0001-use-docs-as-code.md` | なし | なし | なし | Docs as Code採用判断 |
 | `adr/0002-separate-screen-spec-api-data-and-calculation-logic.md` | なし | なし | なし | 仕様書分割判断 |
 | `adr/0003-manage-screen-specs-by-render-function.md` | `public/static/app.js` | `render*` | 画面ごと | 画面仕様管理単位 |
+
+## 共通出力機能の対応
+
+| 仕様/機能 | 対応ソース | 主な関数/API | 備考 |
+|---|---|---|---|
+| 画面DOM基準のPDF/HTML出力 | `public/static/app.js`, `public/static/style.css` | `ensureExportableView`, `renderExportControls`, `exportCurrentView`, `waitForChartsReady`, `buildStandaloneHtml`, `bindExportReportHeaderState` | `#export-root` の現在DOMを出力対象にし、レポートヘッダー開閉状態を画面単位で保存する。 |
+| Electron保存処理 | `electron/main.js`, `electron/preload.js` | IPC `export:pdf`, `export:html`; `webContents.printToPDF()` | rendererにはpreload経由で必要最小限のAPIのみ公開。 |
+| 出力エラー表示 | `public/static/app.js`, `docs/09_error-handling.md` | `setExportStatus`, `exportErrorMessage` | ユーザー向けの短いメッセージを画面内に表示。 |

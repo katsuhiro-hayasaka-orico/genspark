@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const fs = require('fs/promises');
 const path = require('path');
 const { startServer, stopServer } = require('../server');
 
@@ -8,6 +9,67 @@ const SERVER_URL = `http://${SERVER_HOST}:${SERVER_PORT}`;
 
 let mainWindow = null;
 let quitting = false;
+
+function sanitizeExportFileNamePart(value) {
+  return String(value || '画面')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[\u0000-\u001F]/g, '')
+    .replace(/\s+/g, '_')
+    .slice(0, 80) || '画面';
+}
+
+function normalizeTimestamp(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function defaultExportFileName({ screenName, format, timestamp }) {
+  const ext = format === 'html' ? 'html' : 'pdf';
+  return `IT予実績管理ダッシュボード_${sanitizeExportFileNamePart(screenName)}_${normalizeTimestamp(timestamp)}.${ext}`;
+}
+
+async function chooseExportPath(window, { screenName, format, timestamp }) {
+  const ext = format === 'html' ? 'html' : 'pdf';
+  const filters = {
+    pdf: [{ name: 'PDFファイル', extensions: ['pdf'] }],
+    html: [{ name: 'HTMLファイル', extensions: ['html'] }],
+  };
+  const result = await dialog.showSaveDialog(window, {
+    title: `${ext.toUpperCase()}として保存`,
+    defaultPath: defaultExportFileName({ screenName, format: ext, timestamp }),
+    filters: filters[ext],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  return { canceled: false, filePath: result.filePath };
+}
+
+ipcMain.handle('export:pdf', async (event, options = {}) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window) throw new Error('出力対象の画面が見つかりません。');
+  const save = await chooseExportPath(window, { ...options, format: 'pdf' });
+  if (save.canceled) return { canceled: true };
+  const pdf = await window.webContents.printToPDF({
+    printBackground: true,
+    landscape: options.orientation !== 'portrait',
+    pageSize: 'A4',
+    margins: { marginType: 'default' },
+    preferCSSPageSize: true,
+  });
+  await fs.writeFile(save.filePath, pdf);
+  return { canceled: false, filePath: save.filePath };
+});
+
+ipcMain.handle('export:html', async (event, options = {}) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window) throw new Error('出力対象の画面が見つかりません。');
+  const save = await chooseExportPath(window, { ...options, format: 'html' });
+  if (save.canceled) return { canceled: true };
+  await fs.writeFile(save.filePath, String(options.html || ''), 'utf8');
+  return { canceled: false, filePath: save.filePath };
+});
+
+
 
 async function createWindow() {
   startServer({ host: SERVER_HOST, port: SERVER_PORT });
