@@ -118,7 +118,9 @@ const persistMoneyUnits = () => localStorage.setItem(MONEY_UNITS_STORAGE_KEY, JS
 const updateMoneyUnit = (key, nextUnit, rerender) => {
   state.ui.units[key] = normalizeMoneyUnit(nextUnit);
   persistMoneyUnits();
-  rerender();
+  const result = rerender();
+  if (result && typeof result.then === 'function') result.then(() => ensureExportableView());
+  else ensureExportableView();
 };
 const MONTHLY_AXIS_SCALE_OKU_YEN = { min: 0, max: 40, stepSize: 5 };
 const CUMULATIVE_AXIS_SCALE_OKU_YEN = { min: 0, max: 400, stepSize: 50 };
@@ -1081,6 +1083,263 @@ function chartColors() {
   return { c1: '#AC3E00', c2: '#541E00', c3: '#FB5B01', c4: '#197A4B', pie: ['#541E00','#AC3E00','#FB5B01','#FF8D44','#FFC199','#A58000','#D2A400','#FFC700','#666666','#999999'] };
 }
 
+
+const EXPORTABLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail', 'project', 'depreciation', 'oacis'];
+const EXPORT_APP_TITLE = 'IT予実績管理ダッシュボード';
+
+function currentScreenName() {
+  return NAV_PAGES.find(p => p.key === state.page)?.label || document.getElementById('pageTitle')?.textContent || '画面';
+}
+
+function formatExportDate(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function buildFilterSummaryEntries() {
+  const entries = [];
+  const add = (label, value) => {
+    const text = String(value ?? '').trim();
+    if (text) entries.push({ label, value: text });
+  };
+
+  if (shouldShowGlobalFilters(state.page)) {
+    add('期間モード', state.filters.periodMode);
+    if (state.filters.periodMode === '月次') add('対象月', formatYearMonth(state.filters.targetYearMonth));
+    if (state.filters.periodMode === '四半期') add('対象期範囲', [state.filters.fiscalPeriodFrom, state.filters.fiscalPeriodTo].filter(Boolean).join(' 〜 '));
+    if (state.filters.periodMode === '通期') add('対象期', state.filters.fiscalPeriod);
+    add('部門', state.filters.department || '全部門');
+    add('視点', state.filters.perspective);
+    add('対象', state.filters.target || 'すべて');
+  }
+
+  if (state.page === 'summary') add('表示単位', unitLabel(state.ui.units.summary));
+  if (state.page === 'trend') {
+    add('表示単位', unitLabel(state.ui.units.trend));
+    add('表示月数', `${state.ui.trendMonths}か月`);
+    add('指標', state.ui.trendMetric);
+  }
+  if (state.page === 'category') {
+    add('表示単位', unitLabel(state.ui.units.category));
+    add('分類タブ', state.ui.categoryTab);
+  }
+  if (state.page === 'alert') add('表示単位', unitLabel(state.ui.units.alert));
+  if (state.page === 'vendor') add('表示単位', unitLabel(state.ui.units.vendor));
+  if (state.page === 'detail') {
+    add('検索', state.ui.detailSearch);
+    add('ドリルダウン条件', detailFilterLabel());
+    add('追加列', (state.ui.extraDetailCols || []).map(detailColumnLabel).join(' / '));
+  }
+  if (state.page === 'project') add('表示単位', unitLabel(state.ui.units.newProject));
+  if (state.page === 'depreciation') {
+    add('対象期', state.ui.depreciationFilters.fiscalPeriod);
+    add('償却区分', state.ui.depreciationFilters.categoryName);
+    add('表示単位', unitLabel(state.ui.units.depreciation));
+  }
+  if (state.page === 'oacis') add('表示単位', unitLabel(state.ui.units.oacis));
+
+  return entries.length ? entries : [{ label: 'フィルタ条件', value: '全件' }];
+}
+
+function filterSummaryHtml(entries = buildFilterSummaryEntries()) {
+  return `<dl class="export-filter-list">${entries.map(({ label, value }) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>`;
+}
+
+function renderExportControls({ screenName = currentScreenName(), targetSelector = '#export-root' } = {}) {
+  const host = document.getElementById('exportControlsHost');
+  if (!host) return;
+  host.innerHTML = `
+    <div class="export-controls" data-export-controls>
+      <button type="button" class="export-primary" data-export-format="pdf">PDF出力</button>
+      <button type="button" class="export-menu-toggle" aria-label="HTML出力メニューを開く" aria-expanded="false">▼</button>
+      <div class="export-menu" role="menu" hidden>
+        <button type="button" role="menuitem" data-export-format="html">HTMLとして保存</button>
+      </div>
+    </div>`;
+  const menu = host.querySelector('.export-menu');
+  const toggle = host.querySelector('.export-menu-toggle');
+  toggle.onclick = () => {
+    const hidden = !menu.hidden;
+    menu.hidden = hidden;
+    toggle.setAttribute('aria-expanded', String(!hidden));
+  };
+  host.querySelectorAll('[data-export-format]').forEach((button) => {
+    button.onclick = async () => {
+      menu.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      await exportCurrentView(button.dataset.exportFormat, { screenName, targetSelector });
+    };
+  });
+}
+
+function setExportStatus(message, tone = 'info') {
+  const el = document.getElementById('exportStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = `export-status export-status--${tone}`;
+}
+
+function ensureExportableView() {
+  const content = document.getElementById('content');
+  if (!content || !EXPORTABLE_PAGES.includes(state.page)) return;
+  if (content.querySelector('#export-root')) return;
+  const nodes = Array.from(content.childNodes);
+  content.innerHTML = '';
+  const screenName = currentScreenName();
+  const shell = document.createElement('main');
+  shell.className = 'dashboard-page';
+  shell.innerHTML = `
+    <div class="export-page-toolbar">
+      <div>
+        <p class="eyebrow">Report export</p>
+        <h3>${escapeHtml(screenName)}</h3>
+        <p id="exportStatus" class="export-status" aria-live="polite"></p>
+      </div>
+      <div id="exportControlsHost"></div>
+    </div>
+    <section id="export-root" class="export-root" data-screen-name="${dataAttr(screenName)}">
+      <details class="export-report-header" aria-label="出力レポート情報" open>
+        <summary>
+          <span class="export-report-summary-title">${escapeHtml(screenName)} レポート</span>
+          <span class="export-report-summary-hint">クリックで閉じる／展開</span>
+        </summary>
+        <div class="export-report-header-body">
+          <p class="eyebrow">${escapeHtml(EXPORT_APP_TITLE)}</p>
+          <h1>${escapeHtml(screenName)} レポート</h1>
+          <p>出力日時: <span data-export-generated-at>${escapeHtml(formatExportDate())}</span></p>
+          <h2>適用条件</h2>
+          <div data-export-filter-summary>${filterSummaryHtml()}</div>
+        </div>
+      </details>
+      <div class="export-content-body"></div>
+    </section>`;
+  const body = shell.querySelector('.export-content-body');
+  nodes.forEach(node => body.appendChild(node));
+  content.appendChild(shell);
+  renderExportControls({ screenName });
+}
+
+function refreshExportReportMeta() {
+  document.querySelectorAll('[data-export-generated-at]').forEach(el => { el.textContent = formatExportDate(); });
+  const summary = document.querySelector('[data-export-filter-summary]');
+  if (summary) summary.innerHTML = filterSummaryHtml();
+}
+
+function waitFrames(count = 3) {
+  return new Promise(resolve => {
+    const step = () => {
+      count -= 1;
+      if (count <= 0) resolve();
+      else requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+async function waitForChartsReady() {
+  const canvases = Array.from(document.querySelectorAll('#export-root canvas'));
+  for (const canvas of canvases) {
+    const chart = window.Chart?.getChart?.(canvas);
+    if (chart) {
+      chart.resize();
+      chart.update('none');
+    }
+  }
+  await waitFrames(4);
+  if (canvases.some(canvas => canvas.width === 0 || canvas.height === 0)) {
+    throw new Error('Chart.jsの描画が完了していません。');
+  }
+}
+
+function cloneExportRootForHtml(root) {
+  const clone = root.cloneNode(true);
+  clone.querySelectorAll('canvas').forEach((canvas, idx) => {
+    const source = root.querySelectorAll('canvas')[idx];
+    const img = document.createElement('img');
+    img.className = 'export-chart-image';
+    img.alt = source.getAttribute('aria-label') || 'グラフ';
+    try { img.src = source.toDataURL('image/png'); } catch (_) { img.alt = 'グラフ画像を埋め込めませんでした'; }
+    canvas.replaceWith(img);
+  });
+  return clone;
+}
+
+function collectEmbeddedStyles() {
+  return Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).map((node) => {
+    if (node.tagName === 'STYLE') return node.textContent || '';
+    try {
+      const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === node);
+      return sheet ? Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n') : '';
+    } catch (_) {
+      return '';
+    }
+  }).filter(Boolean).join('\n');
+}
+
+function buildStandaloneHtml(root) {
+  const clone = cloneExportRootForHtml(root);
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(EXPORT_APP_TITLE)}_${escapeHtml(currentScreenName())}</title><style>${collectEmbeddedStyles()}\nbody{background:#fff;padding:24px;} .export-report-header{display:block!important;} .export-page-toolbar,.sidebar,.topbar{display:none!important;} .export-root{max-width:none;}</style></head><body class="export-mode">${clone.outerHTML}</body></html>`;
+}
+
+
+function openExportReportHeaders() {
+  const states = [];
+  document.querySelectorAll('details.export-report-header').forEach((details) => {
+    states.push([details, details.open]);
+    details.open = true;
+  });
+  return () => states.forEach(([details, wasOpen]) => { details.open = wasOpen; });
+}
+
+function exportErrorMessage(format, error) {
+  const name = { pdf: 'PDF', html: 'HTML' }[format] || '出力';
+  if (/cancel/i.test(String(error?.message || ''))) return '保存をキャンセルしました。';
+  if (/Chart/.test(String(error?.message || ''))) return error.message;
+  return `${name}出力に失敗しました。保存先を変更して再度お試しください。`;
+}
+
+async function exportCurrentView(format, { screenName = currentScreenName(), targetSelector = '#export-root' } = {}) {
+  const root = document.querySelector(targetSelector);
+  if (!root) {
+    setExportStatus('出力対象の画面が見つかりません。', 'error');
+    return;
+  }
+  if (!window.desktop || typeof window.desktop.exportPdf !== 'function') {
+    setExportStatus('Electron環境ではないためPDF/HTML出力できません。', 'error');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  const options = { screenName, timestamp, orientation: 'landscape' };
+  setExportStatus('出力準備中です…');
+  document.body.classList.add('export-mode');
+  const restoreExportReportHeaders = openExportReportHeaders();
+  try {
+    refreshExportReportMeta();
+    await waitForChartsReady();
+    let result;
+    if (format === 'pdf') {
+      result = await window.desktop.exportPdf(options);
+    } else if (format === 'html') {
+      result = await window.desktop.exportHtml({ ...options, html: buildStandaloneHtml(root) });
+    } else {
+      throw new Error('未対応の出力形式です。');
+    }
+    if (result?.canceled) {
+      setExportStatus('保存をキャンセルしました。', 'warn');
+      return;
+    }
+    setExportStatus('保存しました。', 'ok');
+  } catch (error) {
+    console.error('[export] failed:', error);
+    setExportStatus(exportErrorMessage(format, error), 'error');
+  } finally {
+    restoreExportReportHeaders();
+    document.body.classList.remove('export-mode');
+    await waitFrames(1);
+  }
+}
+
 function renderImport() {
   document.getElementById('content').innerHTML = `
     <div class="panel">
@@ -1480,8 +1739,8 @@ function renderTrend() {
     { label: '実績', data: series.map(v => v.actual), borderColor: cc.c2 },
   ]);
 
-  document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderTrend(); };
-  document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderTrend(); };
+  document.getElementById('trendMonths').onchange = e => { state.ui.trendMonths = Number(e.target.value); renderPage(); };
+  document.getElementById('trendMetric').onchange = e => { state.ui.trendMetric = e.target.value; renderPage(); };
   bindMoneyUnitControl('trend_unit', state.ui.units.trend, (next) => updateMoneyUnit('trend', next, renderTrend));
   bindDetailFilterLinks();
   bindMoneyUnitControl('vendor_unit', state.ui.units.vendor, (next) => updateMoneyUnit('vendor', next, renderVendor));
@@ -1525,7 +1784,7 @@ function renderCategory() {
       </div>
     </div>`;
 
-  document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderCategory(); });
+  document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderPage(); });
   bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => updateMoneyUnit('category', next, renderCategory));
   bindDetailFilterLinks();
   const palette = chartColors().pie;
@@ -1668,7 +1927,7 @@ async function renderProject() {
   document.getElementById('np_rank_sort').onchange=async e=>{filterState.rankSort=e.target.value; await renderAll();};
   document.getElementById('np_compare_mode').onchange=renderAll;
   bindMoneyUnitControl('np_unit', state.ui.units.newProject, (next) => updateMoneyUnit('newProject', next, renderProject));
-  renderAll();
+  await renderAll();
 }
 
 
@@ -1813,7 +2072,7 @@ function renderDetail() {
   };
 
   const clearFilter = document.getElementById('dClearFilter');
-  if (clearFilter) clearFilter.onclick = () => { state.ui.detailFilter = null; renderDetail(); };
+  if (clearFilter) clearFilter.onclick = () => { state.ui.detailFilter = null; renderPage(); };
 
   renderRows();
   document.getElementById('dSearch').oninput = renderRows;
@@ -2196,12 +2455,13 @@ async function renderPage() {
   if (state.page === 'summary') renderSummary();
   else if (state.page === 'trend') renderTrend();
   else if (state.page === 'category') renderCategory();
-  else if (state.page === 'project') renderProject();
+  else if (state.page === 'project') await renderProject();
   else if (state.page === 'alert') renderAlert();
   else if (state.page === 'vendor') renderVendor();
   else if (state.page === 'detail') renderDetail();
   else if (state.page === 'depreciation') renderDepreciation();
   else if (state.page === 'oacis') renderOacisActual();
+  ensureExportableView();
   showAdditionalDataNotice();
 }
 
