@@ -78,3 +78,32 @@ npm run check:external
 | GET | /api/analysis/system-detail | システム詳細（?system= 必須） |
 | POST | /api/clear | データクリア |
 | GET | /api/health | ヘルスチェック |
+
+## Documentation
+
+このリポジトリでは、仕様書をコードと同じPull Requestで管理する Docs as Code 方式を採用しています。
+
+| 入口 | 内容 |
+|---|---|
+| [docs/README.md](./docs/README.md) | 仕様書全体の入口、読み方、更新ルール |
+| [docs/02_screen-list.md](./docs/02_screen-list.md) | 画面キー、画面名、render関数、利用APIの対応 |
+| [docs/04_api-spec.md](./docs/04_api-spec.md) | API仕様 |
+| [docs/03_data-import.md](./docs/03_data-import.md) | CSV取込仕様 |
+| [docs/05_data-dictionary.md](./docs/05_data-dictionary.md) | データ項目辞書 |
+| [docs/06_calculation-logic.md](./docs/06_calculation-logic.md) | 計算ロジック仕様 |
+| [docs/07_screen-specs/](./docs/07_screen-specs/) | 画面別仕様 |
+| [adr/](./adr/) | 設計判断履歴（ADR） |
+
+### 仕様書の読み方
+
+- 画面を変更する場合は、まず [docs/02_screen-list.md](./docs/02_screen-list.md) で画面キーと `render*` 関数を確認し、対応する画面仕様を参照してください。
+- APIやレスポンス項目を変更する場合は、[docs/04_api-spec.md](./docs/04_api-spec.md) と [docs/05_data-dictionary.md](./docs/05_data-dictionary.md) を確認してください。
+- CSV取込や正規化を変更する場合は、[docs/03_data-import.md](./docs/03_data-import.md) と [docs/09_error-handling.md](./docs/09_error-handling.md) を確認してください。
+- 計算式やアラート判定を変更する場合は、[docs/06_calculation-logic.md](./docs/06_calculation-logic.md) を確認してください。
+
+### 仕様変更時のルール
+
+- 実装変更と関連仕様書の更新は、原則として同じPull Requestに含めてください。
+- Pull Request作成時は `.github/pull_request_template.md` の仕様書更新チェックに従ってください。
+- コードから確認できない業務仕様は推測で断定せず、仕様書の「未確認事項」に記載してください。
+- 設計判断を伴う変更は、[adr/](./adr/) にADRを追加または更新してください。
