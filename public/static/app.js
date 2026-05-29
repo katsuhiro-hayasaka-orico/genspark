@@ -1086,6 +1086,37 @@ function chartColors() {
 
 const EXPORTABLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail', 'project', 'depreciation', 'oacis'];
 const EXPORT_APP_TITLE = 'IT予実績管理ダッシュボード';
+const EXPORT_HEADER_STORAGE_PREFIX = 'exportReportHeaderOpen:';
+let isExportingReport = false;
+
+
+function exportHeaderStorageKey(page = state.page) {
+  return `${EXPORT_HEADER_STORAGE_PREFIX}${page || 'unknown'}`;
+}
+
+function isExportReportHeaderOpen(page = state.page) {
+  try {
+    return localStorage.getItem(exportHeaderStorageKey(page)) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function persistExportReportHeaderOpen(open, page = state.page) {
+  try {
+    localStorage.setItem(exportHeaderStorageKey(page), open ? '1' : '0');
+  } catch (_) {
+    // localStorage が利用できない環境では、画面操作のみ反映します。
+  }
+}
+
+function bindExportReportHeaderState(details, page = state.page) {
+  if (!details) return;
+  details.addEventListener('toggle', () => {
+    if (isExportingReport) return;
+    persistExportReportHeaderOpen(details.open, page);
+  });
+}
 
 function currentScreenName() {
   return NAV_PAGES.find(p => p.key === state.page)?.label || document.getElementById('pageTitle')?.textContent || '画面';
@@ -1186,6 +1217,7 @@ function ensureExportableView() {
   const nodes = Array.from(content.childNodes);
   content.innerHTML = '';
   const screenName = currentScreenName();
+  const reportHeaderOpen = isExportReportHeaderOpen(state.page);
   const shell = document.createElement('main');
   shell.className = 'dashboard-page';
   shell.innerHTML = `
@@ -1198,7 +1230,7 @@ function ensureExportableView() {
       <div id="exportControlsHost"></div>
     </div>
     <section id="export-root" class="export-root" data-screen-name="${dataAttr(screenName)}">
-      <details class="export-report-header" aria-label="出力レポート情報" open>
+      <details class="export-report-header" aria-label="出力レポート情報" ${reportHeaderOpen ? 'open' : ''}>
         <summary>
           <span class="export-report-summary-title">${escapeHtml(screenName)} レポート</span>
           <span class="export-report-summary-hint">クリックで閉じる／展開</span>
@@ -1216,6 +1248,7 @@ function ensureExportableView() {
   const body = shell.querySelector('.export-content-body');
   nodes.forEach(node => body.appendChild(node));
   content.appendChild(shell);
+  bindExportReportHeaderState(shell.querySelector('details.export-report-header'), state.page);
   renderExportControls({ screenName });
 }
 
@@ -1313,6 +1346,7 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
   const options = { screenName, timestamp, orientation: 'landscape' };
   setExportStatus('出力準備中です…');
   document.body.classList.add('export-mode');
+  isExportingReport = true;
   const restoreExportReportHeaders = openExportReportHeaders();
   try {
     refreshExportReportMeta();
@@ -1337,6 +1371,7 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
     restoreExportReportHeaders();
     document.body.classList.remove('export-mode');
     await waitFrames(1);
+    isExportingReport = false;
   }
 }
 
