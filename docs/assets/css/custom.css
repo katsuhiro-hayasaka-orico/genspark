@@ -1,0 +1,121 @@
+:root {
+  --doc-border: rgba(86, 104, 134, 0.22);
+  --doc-muted-bg: rgba(70, 100, 150, 0.07);
+  --doc-code-bg: rgba(42, 53, 71, 0.07);
+  --doc-accent-soft: rgba(63, 81, 181, 0.10);
+}
+
+[data-md-color-scheme="slate"] {
+  --doc-border: rgba(180, 195, 220, 0.22);
+  --doc-muted-bg: rgba(180, 195, 220, 0.08);
+  --doc-code-bg: rgba(255, 255, 255, 0.08);
+  --doc-accent-soft: rgba(129, 140, 248, 0.16);
+}
+
+.md-typeset {
+  line-height: 1.78;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h1 {
+  border-bottom: 2px solid var(--doc-border);
+  padding-bottom: 0.35em;
+}
+
+.md-typeset h2 {
+  border-left: 0.32rem solid var(--md-primary-fg-color);
+  padding-left: 0.65rem;
+}
+
+.md-typeset table:not([class]) {
+  border: 1px solid var(--doc-border);
+  box-shadow: none;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--doc-muted-bg);
+  font-weight: 700;
+}
+
+.md-typeset table:not([class]) td,
+.md-typeset table:not([class]) th {
+  border-color: var(--doc-border);
+  vertical-align: top;
+}
+
+.md-typeset code {
+  background: var(--doc-code-bg);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.28rem;
+}
+
+.md-typeset pre > code {
+  border-radius: 0.55rem;
+  padding: 1rem;
+}
+
+.md-typeset blockquote {
+  background: var(--doc-muted-bg);
+  border-left-color: var(--md-primary-fg-color);
+  border-radius: 0 0.45rem 0.45rem 0;
+  padding-bottom: 0.7rem;
+  padding-top: 0.7rem;
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-color: var(--doc-border);
+  box-shadow: none;
+}
+
+.md-nav__title,
+.md-nav__item .md-nav__link--active {
+  font-weight: 700;
+}
+
+.md-typeset .tag,
+.md-typeset mark {
+  background: var(--doc-accent-soft);
+  border-radius: 999px;
+  color: var(--md-typeset-color);
+  padding: 0.1rem 0.55rem;
+}
+
+.md-typeset .manual-step {
+  border: 1px solid var(--doc-border);
+  border-radius: 0.7rem;
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+}
+
+/* User manual presentation helpers */
+.md-typeset ol > li::marker {
+  font-weight: 700;
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .manual-flow {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.md-typeset .manual-flow > * {
+  background: var(--doc-muted-bg);
+  border: 1px solid var(--doc-border);
+  border-radius: 0.7rem;
+  padding: 0.8rem 1rem;
+}
+
+.md-typeset .manual-note {
+  background: var(--doc-accent-soft);
+  border-left: 0.32rem solid var(--md-primary-fg-color);
+  border-radius: 0.45rem;
+  padding: 0.75rem 1rem;
+}
