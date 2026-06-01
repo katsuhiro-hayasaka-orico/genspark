@@ -20,6 +20,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MANUALS = ROOT / "docs" / "manuals"
 SOURCE_ASSETS = ROOT / "docs" / "assets"
+SOURCE_MANUAL_ASSETS = SOURCE_MANUALS / "assets"
 BUILD_DOCS = ROOT / ".build" / "user-manual-docs"
 SITE_DIR = ROOT / "site-user-manual"
 DIST_DIR = ROOT / "dist"
@@ -76,6 +77,10 @@ def prepare_docs() -> None:
             raise FileNotFoundError(f"Required user manual source is missing: {src}")
         shutil.copy2(src, BUILD_DOCS / name)
 
+    if SOURCE_MANUAL_ASSETS.is_dir():
+        shutil.copytree(SOURCE_MANUAL_ASSETS, BUILD_DOCS / "assets", dirs_exist_ok=True)
+
+    # Keep the shared MkDocs stylesheet available for mkdocs.user*.yml.
     css_src = SOURCE_ASSETS / "css" / "custom.css"
     css_dst = BUILD_DOCS / "assets" / "css" / "custom.css"
     if not css_src.is_file():
