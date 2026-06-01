@@ -59,7 +59,6 @@ extra_css:
 nav:
   - ホーム: index.md
   - 仕様書:
-      - 仕様書入口: README.md
       - 全体概要: 01_overview.md
       - 画面一覧: 02_screen-list.md
       - CSV取込仕様: 03_data-import.md
