@@ -60,6 +60,14 @@ python scripts/build_user_manual_zip.py
 5. `dist/user-manual-offline.zip` を作成する。
 6. ZIP直下に `index.html` があること、内部仕様書が混入していないことを簡易チェックする。
 
+
+## スクリーンショット撮影時の注意
+
+- 一般利用者向けマニュアルのスクリーンショットは、必ず実アプリを起動し、ダミーデータを使って撮影してください。
+- 画像を想像で作成したり、実データ・個人情報・社内機密を含む画面を追加したりしないでください。
+- 撮影環境でブラウザまたはElectronを起動できない場合は、Markdown上の `TODO: 画面キャプチャを追加してください。` を残し、PR説明に未撮影箇所と理由を記載してください。
+- 画像を追加する場合は `docs/manuals/assets/images/<page>/` に保存し、一般利用者向けZIPへ含めるため、必要に応じて `scripts/build_user_manual_zip.py` のコピー対象も確認してください。
+
 ## ユーザーマニュアル更新ルール
 
 - 一般利用者向けMarkdownは `docs/manuals/` 配下に配置します。
