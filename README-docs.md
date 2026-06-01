@@ -93,6 +93,14 @@ python scripts/build_user_manual_zip.py
 - `scripts/build_user_manual_zip.py` は、許可されたMarkdownとCSSだけを一時ディレクトリにコピーします。
 - ビルド後、ZIP内に仕様書、ADR、API仕様、内部設計書、管理者向け文書に該当するファイル名や文言がないか簡易チェックします。
 
+## 画像クリック拡大の運用ルール
+
+- ユーザーマニュアルのスクリーンショットは、通常のMarkdown画像として埋め込みます。例: `![初期表示](assets/images/getting-started/initial-screen.webp)`。
+- スクリーンショット画像には `.no-lightbox` を付けません。クリックすると拡大表示される対象にします。
+- アイコン、ロゴ、バッジ、小さな装飾画像には `{ .no-lightbox }` を付けます。例: `![ヘルプアイコン](assets/images/icons/help.svg){ .no-lightbox }`。
+- 画像を追加したら、通常ビルドと一般利用者向けoffline ZIPビルドを確認します。
+- offline ZIPを展開し、`index.html` を直接開いて、画像クリック拡大、バックドロップ表示、閉じる操作、検索欄、ライト/ダーク切替を確認します。
+
 ## Markdown追加時のnav更新ルール
 
 - 内部向けサイトにページを追加する場合は `mkdocs.yml` の `nav` を更新します。

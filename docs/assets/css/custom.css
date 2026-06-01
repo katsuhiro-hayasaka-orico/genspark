@@ -119,3 +119,29 @@
   border-radius: 0.45rem;
   padding: 0.75rem 1rem;
 }
+
+/* Lightbox affordance for manual screenshots */
+.md-typeset a.glightbox img:not(.no-lightbox),
+.md-typeset img[src*="manuals/assets/images/"]:not(.no-lightbox),
+.md-typeset img[src*="assets/images/"]:not(.no-lightbox) {
+  cursor: zoom-in;
+  border: 1px solid var(--doc-border);
+  border-radius: 0.55rem;
+  transition: border-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.md-typeset a.glightbox:hover img:not(.no-lightbox),
+.md-typeset img[src*="manuals/assets/images/"]:not(.no-lightbox):hover,
+.md-typeset img[src*="assets/images/"]:not(.no-lightbox):hover {
+  border-color: var(--md-primary-fg-color);
+  opacity: 0.92;
+}
+
+.md-typeset img.no-lightbox,
+.md-typeset .no-lightbox img,
+.md-typeset img.icon,
+.md-typeset img.inline-icon {
+  cursor: default;
+  border: 0;
+  border-radius: 0;
+}

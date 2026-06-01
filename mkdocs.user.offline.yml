@@ -27,4 +27,9 @@ theme:
 plugins:
   - search:
       lang: ja
+  - glightbox:
+      skip_classes:
+        - no-lightbox
+        - icon
+        - inline-icon
   - offline
