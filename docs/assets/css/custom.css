@@ -93,3 +93,29 @@
   margin: 1rem 0;
   padding: 0.9rem 1rem;
 }
+
+/* User manual presentation helpers */
+.md-typeset ol > li::marker {
+  font-weight: 700;
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .manual-flow {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.md-typeset .manual-flow > * {
+  background: var(--doc-muted-bg);
+  border: 1px solid var(--doc-border);
+  border-radius: 0.7rem;
+  padding: 0.8rem 1rem;
+}
+
+.md-typeset .manual-note {
+  background: var(--doc-accent-soft);
+  border-left: 0.32rem solid var(--md-primary-fg-color);
+  border-radius: 0.45rem;
+  padding: 0.75rem 1rem;
+}

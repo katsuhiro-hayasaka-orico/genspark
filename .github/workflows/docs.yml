@@ -8,6 +8,7 @@ on:
       - 'requirements-docs.txt'
       - 'requirements.txt'
       - 'scripts/build_docs_offline_zip.py'
+      - 'scripts/build_user_manual_zip.py'
       - '.github/workflows/docs.yml'
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - 'requirements-docs.txt'
       - 'requirements.txt'
       - 'scripts/build_docs_offline_zip.py'
+      - 'scripts/build_user_manual_zip.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -41,8 +43,11 @@ jobs:
       - name: Install documentation dependencies
         run: pip install -r requirements.txt
 
-      - name: Build documentation site
+      - name: Build internal documentation site
         run: python -m mkdocs build --strict
+
+      - name: Build user manual site
+        run: python scripts/build_user_manual_zip.py --web-only
 
   offline-zip:
     name: Build offline documentation ZIP
@@ -64,13 +69,24 @@ jobs:
       - name: Install documentation dependencies
         run: pip install -r requirements.txt
 
-      - name: Build offline ZIP
+      - name: Build internal documentation ZIP
         run: python scripts/build_docs_offline_zip.py
 
-      - name: Upload offline ZIP artifact
+      - name: Build user manual ZIP
+        run: python scripts/build_user_manual_zip.py
+
+      - name: Upload internal documentation ZIP artifact
         if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
         uses: actions/upload-artifact@v4
         with:
           name: budget-csv-viewer-docs-offline
           path: dist/budget-csv-viewer-docs-offline.zip
+          if-no-files-found: error
+
+      - name: Upload user manual ZIP artifact
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-manual-offline
+          path: dist/user-manual-offline.zip
           if-no-files-found: error

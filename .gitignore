@@ -24,6 +24,8 @@ Thumbs.db
 
 # Documentation build outputs and local Python env
 site/
+.build/
+site-user-manual/
 dist/
 .cache/
 .venv/

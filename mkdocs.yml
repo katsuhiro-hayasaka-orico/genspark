@@ -93,7 +93,8 @@ nav:
           - 使い方: 07_screen-specs/12_manual.md
   - 取扱説明書:
       - はじめに: manuals/index.md
-      - ユーザーガイド: manuals/user-guide.md
-      - 管理者ガイド: manuals/admin-guide.md
+      - 初回利用: manuals/getting-started.md
+      - 日常操作ガイド: manuals/user-guide.md
+      - 取込・出力ガイド: manuals/import-export.md
       - FAQ: manuals/faq.md
       - トラブルシューティング: manuals/troubleshooting.md
