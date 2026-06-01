@@ -21,3 +21,9 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Documentation build outputs and local Python env
+site/
+dist/
+.cache/
+.venv/
