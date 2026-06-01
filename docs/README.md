@@ -16,7 +16,7 @@
 | UI/UX | [08_ui-ux.md](./08_ui-ux.md) | レイアウト、テーマ、表示倍率、レスポンシブ、アクセシビリティを確認する |
 | エラー処理 | [09_error-handling.md](./09_error-handling.md) | CSV/API/空データ/計算不可などの扱いを確認する |
 | ソース対応 | [99_source-map.md](./99_source-map.md) | 仕様書と対応ソース・関数・API の対応表を確認する |
-| ADR | [../adr/](../adr/) | 設計判断とその背景・影響を確認する |
+| ADR | [ADRテンプレート](./adr/template.md) | 設計判断とその背景・影響を確認する |
 
 ## 仕様書同士の関係
 

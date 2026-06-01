@@ -1,0 +1,70 @@
+name: Documentation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - 'scripts/build_docs_offline_zip.py'
+      - '.github/workflows/docs.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - 'scripts/build_docs_offline_zip.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    name: Build MkDocs site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Build documentation site
+        run: python -m mkdocs build --strict
+
+  offline-zip:
+    name: Build offline documentation ZIP
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: build-docs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Build offline ZIP
+        run: python scripts/build_docs_offline_zip.py
+
+      - name: Upload offline ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-csv-viewer-docs-offline
+          path: dist/budget-csv-viewer-docs-offline.zip
+          if-no-files-found: error
