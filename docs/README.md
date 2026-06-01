@@ -12,7 +12,7 @@
 | API | [04_api-spec.md](./04_api-spec.md) | Express ルート、リクエスト、レスポンス、関連処理関数を確認する |
 | データ辞書 | [05_data-dictionary.md](./05_data-dictionary.md) | 内部キー、日本語項目名、生成元、算出項目かどうかを確認する |
 | 計算ロジック | [06_calculation-logic.md](./06_calculation-logic.md) | 金額、年月、会計期、差額率、アラート、新規案件コスト計算を確認する |
-| 画面仕様 | [07_screen-specs/](./07_screen-specs/) | render関数単位で、表示項目・操作・API・計算を実装と照合する |
+| 画面仕様 | [画面別仕様](./07_screen-specs/01_import.md) | render関数単位で、表示項目・操作・API・計算を実装と照合する |
 | UI/UX | [08_ui-ux.md](./08_ui-ux.md) | レイアウト、テーマ、表示倍率、レスポンシブ、アクセシビリティを確認する |
 | エラー処理 | [09_error-handling.md](./09_error-handling.md) | CSV/API/空データ/計算不可などの扱いを確認する |
 | ソース対応 | [99_source-map.md](./99_source-map.md) | 仕様書と対応ソース・関数・API の対応表を確認する |

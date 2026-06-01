@@ -68,6 +68,6 @@ READMEでは、`A JavaScript error occurred in the main process` や `Error: spa
 ## ドキュメントサイトがビルドできない
 
 1. Python環境を用意します。
-2. `pip install -r requirements-docs.txt` を実行します。
+2. `pip install -r requirements.txt` を実行します。
 3. `python -m mkdocs build --strict` を実行します。
 4. navに存在しないMarkdownを指定していないか確認します。

@@ -9,7 +9,7 @@
 | Nodeサーバ起動 | Node.js、npm | バージョン要件は `package.json` では明示されていません。要確認です。 |
 | Electron起動 | Node.js、npm、Electron依存関係 | `npm run electron` を使用します。 |
 | Windows配布物作成 | Node.js、npm、electron-builder | `npm run dist` を使用します。 |
-| ドキュメントサイト生成 | Python、pip | `requirements-docs.txt` を使用します。 |
+| ドキュメントサイト生成 | Python、pip | `requirements.txt`（内部で `requirements-docs.txt` を参照）を使用します。 |
 
 ### 初回セットアップ
 
@@ -51,7 +51,7 @@ npm run check:external
 ### ドキュメントサイト
 
 ```bash
-pip install -r requirements-docs.txt
+pip install -r requirements.txt
 python -m mkdocs build --strict
 python scripts/build_docs_offline_zip.py
 ```
