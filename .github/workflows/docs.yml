@@ -1,0 +1,92 @@
+name: Documentation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - 'requirements.txt'
+      - 'scripts/build_docs_offline_zip.py'
+      - 'scripts/build_user_manual_zip.py'
+      - '.github/workflows/docs.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - 'requirements.txt'
+      - 'scripts/build_docs_offline_zip.py'
+      - 'scripts/build_user_manual_zip.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    name: Build MkDocs site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build internal documentation site
+        run: python -m mkdocs build --strict
+
+      - name: Build user manual site
+        run: python scripts/build_user_manual_zip.py --web-only
+
+  offline-zip:
+    name: Build offline documentation ZIP
+    runs-on: ubuntu-latest
+    needs: build-docs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build internal documentation ZIP
+        run: python scripts/build_docs_offline_zip.py
+
+      - name: Build user manual ZIP
+        run: python scripts/build_user_manual_zip.py
+
+      - name: Upload internal documentation ZIP artifact
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-csv-viewer-docs-offline
+          path: dist/budget-csv-viewer-docs-offline.zip
+          if-no-files-found: error
+
+      - name: Upload user manual ZIP artifact
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-manual-offline
+          path: dist/user-manual-offline.zip
+          if-no-files-found: error
