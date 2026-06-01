@@ -1,6 +1,11 @@
 site_name: 予実績管理ダッシュボード ドキュメント
 site_description: Budget CSV Viewer の仕様書と取扱説明書
 docs_dir: docs
+# docs/README.md remains the source-only Docs as Code entry.
+# docs/index.md is the MkDocs homepage, so exclude README.md explicitly
+# to avoid MkDocs README/index homepage conflict warnings in --strict builds.
+exclude_docs: |
+  README.md
 site_dir: site
 
 repo_name: budget-csv-viewer
