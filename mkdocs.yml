@@ -1,0 +1,105 @@
+site_name: 予実績管理ダッシュボード ドキュメント
+site_description: Budget CSV Viewer の仕様書と取扱説明書
+docs_dir: docs
+# docs/README.md remains the source-only Docs as Code entry.
+# docs/index.md is the MkDocs homepage, so exclude README.md explicitly
+# to avoid MkDocs README/index homepage conflict warnings in --strict builds.
+exclude_docs: |
+  README.md
+site_dir: site
+
+repo_name: budget-csv-viewer
+
+use_directory_urls: true
+
+theme:
+  name: material
+  language: ja
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: ダークモードに切り替え
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: ライトモードに切り替え
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+
+plugins:
+  - search:
+      lang: ja
+  - glightbox:
+      skip_classes:
+        - no-lightbox
+        - icon
+        - inline-icon
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - assets/css/custom.css
+
+nav:
+  - ホーム: index.md
+  - 仕様書:
+      - 全体概要: 01_overview.md
+      - 画面一覧: 02_screen-list.md
+      - CSV取込仕様: 03_data-import.md
+      - API仕様: 04_api-spec.md
+      - データ項目辞書: 05_data-dictionary.md
+      - 計算ロジック仕様: 06_calculation-logic.md
+      - UI/UX共通仕様: 08_ui-ux.md
+      - エラー・例外処理仕様: 09_error-handling.md
+      - ソース対応表: 99_source-map.md
+      - ADR:
+          - Docs as Code採用: adr/0001-use-docs-as-code.md
+          - 仕様書分割: adr/0002-separate-screen-spec-api-data-and-calculation-logic.md
+          - 画面仕様管理単位: adr/0003-manage-screen-specs-by-render-function.md
+          - ADRテンプレート: adr/template.md
+      - 画面別仕様:
+          - データ取込: 07_screen-specs/01_import.md
+          - 全体サマリー: 07_screen-specs/02_summary.md
+          - 推移分析: 07_screen-specs/03_trend.md
+          - カテゴリ別分析: 07_screen-specs/04_category.md
+          - アラート: 07_screen-specs/05_alert.md
+          - ベンダー／契約更新: 07_screen-specs/06_vendor.md
+          - 明細ドリルダウン: 07_screen-specs/07_detail.md
+          - 新規案件コスト: 07_screen-specs/08_new-project-cost.md
+          - 減価償却シミュレーション: 07_screen-specs/09_depreciation.md
+          - OACIS実績: 07_screen-specs/10_oacis.md
+          - 表示設定: 07_screen-specs/11_settings.md
+          - 使い方: 07_screen-specs/12_manual.md
+  - 取扱説明書:
+      - はじめに: manuals/index.md
+      - 初回利用: manuals/getting-started.md
+      - 日常操作ガイド: manuals/user-guide.md
+      - 取込・出力ガイド: manuals/import-export.md
+      - FAQ: manuals/faq.md
+      - トラブルシューティング: manuals/troubleshooting.md
