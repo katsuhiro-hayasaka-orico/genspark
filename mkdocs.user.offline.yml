@@ -1,0 +1,30 @@
+INHERIT: mkdocs.user.yml
+use_directory_urls: false
+
+theme:
+  name: material
+  language: ja
+  font: false
+  palette:
+    - scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/weather-night
+        name: ダークモードに切り替え
+    - scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/weather-sunny
+        name: ライトモードに切り替え
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+
+plugins:
+  - search:
+      lang: ja
+  - offline
