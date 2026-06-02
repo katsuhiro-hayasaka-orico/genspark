@@ -93,6 +93,11 @@ python scripts/build_user_manual_zip.py
 - `scripts/build_user_manual_zip.py` は、許可されたMarkdownとCSSだけを一時ディレクトリにコピーします。
 - ビルド後、ZIP内に仕様書、ADR、API仕様、内部設計書、管理者向け文書に該当するファイル名や文言がないか簡易チェックします。
 
+## ページ内リンクのスムーススクロール
+
+- 右側目次や本文中のページ内リンクは、`docs/assets/css/custom.css` のCSSだけでスムーススクロールと固定ヘッダー分の余白を調整しています。
+- OSやブラウザで「動きを減らす」設定が有効な場合は、CSSの `prefers-reduced-motion` により通常スクロールになります。
+
 ## 画像クリック拡大の運用ルール
 
 - ユーザーマニュアルのスクリーンショットは、通常のMarkdown画像として埋め込みます。例: `![初期表示](assets/images/getting-started/initial-screen.webp)`。

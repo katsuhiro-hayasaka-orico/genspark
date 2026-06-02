@@ -12,6 +12,26 @@
   --doc-accent-soft: rgba(129, 140, 248, 0.16);
 }
 
+/* Smooth in-page anchor scrolling with fixed-header offset. */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset [id] {
+  scroll-margin-top: 5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 .md-typeset {
   line-height: 1.78;
 }
