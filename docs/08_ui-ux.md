@@ -37,7 +37,7 @@
 | 部署 | `state.filters.department` | `department_name` |
 | 分析視点 | `state.filters.perspective` | カテゴリ分析等に影響 |
 | 対象 | `state.filters.target` | 値の正式定義は未確認 |
-| 期 | `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | 範囲指定あり |
+| 期 | `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | 範囲指定あり。対象年月候補は選択期範囲にカスケードし、67期=2026/04〜2027/03を基準にする |
 | 対象年月 | `targetYearMonth` | `YYYYMM` |
 
 ## 5. カード・KPI

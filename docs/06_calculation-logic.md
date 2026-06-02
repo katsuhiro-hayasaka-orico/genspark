@@ -7,7 +7,7 @@
 | 文字列正規化 | `safeString` | 不可視文字除去、NBSP/全角スペース正規化、全角英数字記号の半角化、trim |
 | 金額正規化 | `normalizeAmount` | 通貨記号・カンマ・空白除去、全角マイナス統一、括弧/△/▲負数対応、数値化不能は invalid |
 | 年月正規化 | `normalizeDateString`, `normalizeYearMonthString` | `YYYYMM` または `YYYY/MM` 等を `YYYYMM` 化。年1900〜2200、月1〜12 |
-| 会計期導出 | `deriveFiscalPeriodFromYearMonth` | 月が1〜3月なら前年、それ以外は当年を会計年度とし、`fiscalYear - 1960` を期とする |
+| 会計期導出 | `deriveFiscalPeriodFromYearMonth`, `yearMonthForFiscalPeriodMonth` | 67期を2026年4月〜2027年3月（FY2026）とする。年月から期を導出する場合は月が1〜3月なら前年、それ以外は当年を会計年度とし、`fiscalYear - 1959` を期とする。期＋月から対象年月を導出する場合は `period + 1959` を年度開始年とし、4〜12月は当年、1〜3月は翌年に配置する。 |
 
 ## 2. plan / forecast / actual の扱い
 

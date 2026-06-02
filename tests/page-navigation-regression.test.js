@@ -49,7 +49,10 @@ function createRenderHarness() {
   };
 
   vm.createContext(context);
-  vm.runInContext(`${codeWithoutBoot}\nthis.__runPage = async (page) => {\n  state.hasData = true;\n  state.page = page;\n  state.filters.fiscalPeriod = '81';\n  state.filters.targetYearMonth = '202504';\n  state.data.status = {\n    periods: ['81'],\n    sortedYMs: ['202504'],\n    departments: ['IT'],\n    vendors: ['テストベンダー'],\n    itemCount: 1,\n  };\n  state.data.items = [{\n    management_no: 'M-001',\n    project_name: 'テスト案件',\n    department_name: 'IT',\n    vendor_name: 'テストベンダー',\n    payee_name: 'テストベンダー',\n    system_name: 'テストシステム',\n    budget_category: '運用',\n    fiscal_period: '81',\n    fiscal_year: 2025,\n    totalPlan: 1000,\n    totalForecast: 900,\n    totalActual: 800,\n    monthly: { '202504': { plan: 1000, forecast: 900, actual: 800 } },\n  }];\n  state.data.contracts = [{\n    vendor_name: 'テストベンダー',\n    project_name: 'テスト案件',\n    review_required: true,\n    months_until_renewal: 2,\n  }];\n  await renderPage();\n  return document.getElementById('content').innerHTML;\n};`, context);
+  vm.runInContext(`${codeWithoutBoot}\nthis.__runPage = async (page) => {\n  state.hasData = true;\n  state.page = page;\n  state.filters.fiscalPeriod = '81';\n  state.filters.targetYearMonth = '202504';\n  state.data.status = {\n    periods: ['81'],\n    sortedYMs: ['202504'],\n    departments: ['IT'],\n    vendors: ['テストベンダー'],\n    itemCount: 1,\n  };\n  state.data.items = [{\n    management_no: 'M-001',\n    project_name: 'テスト案件',\n    department_name: 'IT',\n    vendor_name: 'テストベンダー',\n    payee_name: 'テストベンダー',\n    system_name: 'テストシステム',\n    budget_category: '運用',\n    fiscal_period: '81',\n    fiscal_year: 2025,\n    totalPlan: 1000,\n    totalForecast: 900,\n    totalActual: 800,\n    monthly: { '202504': { plan: 1000, forecast: 900, actual: 800 } },\n  }];\n  state.data.contracts = [{\n    vendor_name: 'テストベンダー',\n    project_name: 'テスト案件',\n    review_required: true,\n    months_until_renewal: 2,\n  }];\n  await renderPage();\n  return document.getElementById('content').innerHTML;\n};
+this.state = state;
+this.normalizeGlobalScopeFilters = normalizeGlobalScopeFilters;
+this.getYearMonthOptions = getYearMonthOptions;`, context);
 
   return context;
 }
@@ -66,3 +69,30 @@ test('summary, vendor, and detail pages render without leaving prior content in 
   const detailHtml = await context.__runPage('detail');
   assert.match(detailHtml, /明細テーブル/);
 });
+
+test('global fiscal period month options cascade from 67期 base calendar', () => {
+  const context = createRenderHarness();
+  context.state.data.status = {
+    periods: ['66', '67', '68'],
+    sortedYMs: ['202504', '202604', '202703', '202704'],
+    departments: [],
+    vendors: [],
+  };
+  context.state.data.items = [
+    { fiscal_period: '67', monthly: { '202604': { plan: 1 }, '202703': { plan: 1 }, '202704': { plan: 1 } } },
+    { fiscal_period: '66', monthly: { '202504': { plan: 1 } } },
+  ];
+  context.state.filters.fiscalPeriod = '67';
+  context.state.filters.fiscalPeriodFrom = '67';
+  context.state.filters.fiscalPeriodTo = '67';
+  context.state.filters.targetYearMonth = '202704';
+
+  context.normalizeGlobalScopeFilters();
+  const yms = context.getYearMonthOptions();
+
+  assert.equal(yms[0], '202604');
+  assert.equal(yms.at(-1), '202703');
+  assert.equal(yms.includes('202704'), false);
+  assert.equal(context.state.filters.targetYearMonth, '202703');
+});
+
