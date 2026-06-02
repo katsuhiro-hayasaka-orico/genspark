@@ -696,6 +696,19 @@ function inSelectedFiscalPeriodRange(period) {
   return true;
 }
 
+function inSelectedFiscalPeriodRange(period) {
+  const from = state.filters.fiscalPeriodFrom || fiscalPeriodFromYearMonth(state.filters.targetYearMonthFrom) || state.filters.fiscalPeriod || '';
+  const to = state.filters.fiscalPeriodTo || fiscalPeriodFromYearMonth(state.filters.targetYearMonthTo) || state.filters.fiscalPeriod || '';
+  if (!from && !to) return true;
+  const value = Number(periodSortValue(period));
+  const min = from ? Number(periodSortValue(from)) : null;
+  const max = to ? Number(periodSortValue(to)) : null;
+  if (!Number.isFinite(value)) return false;
+  if (Number.isFinite(min) && value < min) return false;
+  if (Number.isFinite(max) && value > max) return false;
+  return true;
+}
+
 function ymCompare(a, b) {
   return String(a || '').localeCompare(String(b || ''));
 }
