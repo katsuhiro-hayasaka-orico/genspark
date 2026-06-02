@@ -188,10 +188,23 @@
   .panel:has(.warn) { border-color: color-mix(in srgb, var(--danger) 42%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 10%, transparent), var(--shadow-sm); }
   input[type="file"], input[type="text"], input[type="number"], select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--surface); color: var(--text); }
   .topbar-filters select { width: 100%; }
-  .period-scope-control { grid-column: span 2; display: grid; gap: 6px; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface-muted) 72%, transparent); }
-  .period-scope-control label { display: grid; gap: 4px; min-width: 0; }
+  .period-scope-control { grid-column: span 2; position: relative; display: grid; gap: 5px; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface-muted) 72%, transparent); }
+  .period-scope-label { font-size: 12px; color: var(--text-muted); }
+  .period-scope-trigger { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: var(--surface); }
   .period-scope-summary { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
-  .period-scope-popover { display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .period-scope-menu { position: absolute; z-index: 30; inset-block-start: calc(100% + 6px); inset-inline-start: 0; width: min(720px, calc(100vw - 32px)); max-height: min(72vh, 620px); overflow: auto; display: grid; gap: 10px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-lg); }
+  .period-scope-menu__head, .period-scope-menu__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .period-scope-tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .period-scope-tab.active, .period-preset-button.active { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 42%, var(--border)); font-weight: 700; }
+  .period-scope-panel { display: grid; gap: 10px; }
+  .period-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .period-preset-button { display: grid; gap: 3px; text-align: left; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); }
+  .period-preset-button span { font-size: 12px; color: var(--text-muted); }
+  .period-month-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .period-month-button { padding: 8px; }
+  .period-month-button.active { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 42%, var(--border)); }
+  .period-year-selector { display: grid; gap: 4px; }
+  .period-search-results { display: grid; gap: 6px; max-height: 360px; overflow: auto; }
   .period-range-unit { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
   .period-range-unit label { display: inline-flex; align-items: center; gap: 4px; color: var(--text); }
   .period-range-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: center; }
@@ -321,7 +334,7 @@
     .hero-metric { text-align: left; }
     .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-  @media (max-width: 560px) { .topbar-row { align-items: flex-start; flex-direction: column; } .topbar-actions { width: 100%; justify-content: flex-start; } .topbar-quick-menu { flex-wrap: wrap; } .topbar-filters, .kpi-strip, .alert-grid, .additional-status-grid { grid-template-columns: 1fr; } .period-scope-control { grid-column: 1; } .period-range-fields { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .topbar-row { align-items: flex-start; flex-direction: column; } .topbar-actions { width: 100%; justify-content: flex-start; } .topbar-quick-menu { flex-wrap: wrap; } .topbar-filters, .kpi-strip, .alert-grid, .additional-status-grid { grid-template-columns: 1fr; } .period-scope-control { grid-column: 1; } .period-scope-menu { position: fixed; inset: 96px 12px auto 12px; width: auto; max-height: calc(100vh - 120px); } .period-preset-grid, .period-month-grid, .period-range-fields { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; } ::view-transition-old(root), ::view-transition-new(root) { animation: none; } }
 }
 .new-project-cost-page .controls label { display: grid; gap: 4px; font-size: 12px; }

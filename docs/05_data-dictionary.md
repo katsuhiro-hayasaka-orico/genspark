@@ -8,8 +8,9 @@
 | `item_no` | 項番 | 明細行識別、差額理由キー | 明細、差額理由 | CSV `項番` 等 | いいえ | `makeItemKey` の一部 |
 | `fiscal_period` | 期 | 会計期フィルター・集計 | 全体、推移、カテゴリ、減価償却 | CSV `期`、または年月から導出 | 一部はい | 年月からの導出は `deriveFiscalPeriodFromYearMonth`。67期=2026/04〜2027/03を基準にする |
 | `target_year_month` | 対象年月 | 月次集計、推移、スコープ | 全体、推移、明細、新規案件 | CSV年月列、正規化処理 | いいえ | `YYYYMM` 形式。`67期4月` は `202604`、`67期3月` は `202703` |
-| `state.filters.scopeMode` | 対象期間選択方式 | グローバルフィルターの単月/プリセット/カスタム切替 | 全体、推移、カテゴリ、アラート、ベンダー、明細 | フロント状態 | いいえ | `periodMode`（月次/四半期/通期の集計軸）とは分離 |
-| `state.filters.targetYearMonthFrom` / `targetYearMonthTo` | 対象月範囲 | カスタム対象月範囲、対象期範囲の月換算 | 全体、推移、カテゴリ、アラート、ベンダー、明細 | フロント状態 | 一部はい | `YYYYMM` 形式。対象月範囲から `fiscalPeriodFrom` / `fiscalPeriodTo` を補正する |
+| `state.filters.scopeMode` | 対象期間選択方式 | グローバルフィルターの単月/プリセット/カスタム切替 | 全体、推移、カテゴリ、アラート、ベンダー、明細 | フロント状態 | いいえ | `periodMode` には依存しない。対象期間ポップオーバーで更新 |
+| `state.filters.targetYearMonthFrom` / `targetYearMonthTo` | 対象月範囲 | カスタム対象月範囲、プリセット、対象期範囲の月換算 | 全体、推移、カテゴリ、アラート、ベンダー、明細 | フロント状態 | 一部はい | `YYYYMM` 形式。対象月範囲から `fiscalPeriodFrom` / `fiscalPeriodTo` を補正する |
+| `state.ui.trendAggregationUnit` | 推移表示単位 | 推移分析の月別/四半期別/期別/累計推移切替 | 推移 | フロント状態 | いいえ | 上部共通フィルターではなく推移分析内で操作する |
 | `project_name` | 案件名 | 明細名、ランキング名 | 全体、明細、新規案件 | CSV `案件名` 等 | いいえ | 未設定補完あり |
 | `department_name` | 部署名/部門名 | グローバルフィルター、部署別集計 | 全体、カテゴリ、明細 | CSV `部署名`/`部門名` 等 | いいえ | 正式な部門階層は未確認 |
 | `owner_name` | 担当者/案件担当者 | 明細追加列、新規案件担当 | 明細、新規案件 | CSV `担当者`, `案件担当者` | いいえ |  |

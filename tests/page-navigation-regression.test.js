@@ -35,6 +35,7 @@ function createRenderHarness() {
 
   const context = {
     console,
+    setTimeout,
     localStorage: { getItem: () => null, setItem: () => {} },
     document: {
       body: { dataset: {}, insertAdjacentHTML: () => {} },
@@ -55,7 +56,10 @@ this.normalizeGlobalScopeFilters = normalizeGlobalScopeFilters;
 this.getYearMonthOptions = getYearMonthOptions;
 this.filteredItems = filteredItems;
 this.formatScopeSummary = formatScopeSummary;
-this.initFilterBar = initFilterBar;`, context);
+this.initFilterBar = initFilterBar;
+this.resolveDefaultTargetYearMonth = resolveDefaultTargetYearMonth;
+this.presetMonthRange = presetMonthRange;
+this.buildTimeSeries = buildTimeSeries;`, context);
 
   return context;
 }
@@ -73,17 +77,79 @@ test('summary, vendor, and detail pages render without leaving prior content in 
   assert.match(detailHtml, /明細テーブル/);
 });
 
-test('global period scope defaults to single month without always-visible fiscal range controls', async () => {
+test('global period scope uses compact trigger without topbar aggregation axis', async () => {
   const context = createRenderHarness();
 
   await context.__runPage('summary');
   context.initFilterBar();
   const filterHtml = context.document.getElementById('globalFilters').innerHTML;
 
-  assert.match(filterHtml, /period-scope-control/);
+  assert.match(filterHtml, /period-scope-trigger/);
   assert.match(filterHtml, /対象期間/);
+  assert.match(filterHtml, /部門/);
+  assert.match(filterHtml, /分析軸/);
+  assert.match(filterHtml, /対象/);
+  assert.doesNotMatch(filterHtml, /集計軸/);
+  assert.doesNotMatch(filterHtml, /月次/);
+  assert.doesNotMatch(filterHtml, /四半期/);
+  assert.doesNotMatch(filterHtml, /通期/);
   assert.doesNotMatch(filterHtml, /対象期\(自\)/);
   assert.doesNotMatch(filterHtml, /対象期\(至\)/);
+});
+
+test('period scope popover renders required tabs', () => {
+  const context = createRenderHarness();
+  context.state.hasData = true;
+  context.state.page = 'summary';
+  context.state.data.status = { periods: ['66', '67'], sortedYMs: ['202604', '202605', '202606'], departments: [], vendors: [] };
+  context.state.data.items = [];
+  context.state.ui.periodScopePopoverOpen = true;
+
+  context.initFilterBar();
+  const filterHtml = context.document.getElementById('globalFilters').innerHTML;
+
+  assert.match(filterHtml, /period-scope-menu/);
+  assert.match(filterHtml, /よく使う/);
+  assert.match(filterHtml, /月で指定/);
+  assert.match(filterHtml, /期で指定/);
+  assert.match(filterHtml, /検索/);
+  assert.match(filterHtml, /当月/);
+  assert.match(filterHtml, /データ最新月/);
+});
+
+
+test('default target month and presets use browser date rather than future data latest month', () => {
+  const context = createRenderHarness();
+  const yms = ['202504', '202605', '202606', '202803'];
+  const date = new Date('2026-06-02T00:00:00');
+
+  assert.equal(context.resolveDefaultTargetYearMonth(yms, date), '202606');
+  assert.equal(JSON.stringify(context.presetMonthRange('last3Months', yms, date)), JSON.stringify({ from: '202604', to: '202606' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('last12Months', yms, date)), JSON.stringify({ from: '202507', to: '202606' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('currentFiscalPeriodToDate', yms, date)), JSON.stringify({ period: '67', from: '202604', to: '202606' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('previousFiscalPeriodFull', yms, date)), JSON.stringify({ period: '66', from: '202504', to: '202603' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('dataLatestMonth', yms, date)), JSON.stringify({ from: '202803', to: '202803' }));
+});
+
+test('trend time series aggregation unit is independent from selected period scope', () => {
+  const context = createRenderHarness();
+  context.state.data.status = { periods: ['67'], sortedYMs: ['202604', '202605', '202606'], departments: [], vendors: [] };
+  context.state.filters.scopeMode = 'custom';
+  context.state.filters.scopePreset = 'custom';
+  context.state.filters.customRangeUnit = 'month';
+  context.state.filters.targetYearMonthFrom = '202604';
+  context.state.filters.targetYearMonthTo = '202606';
+  const items = [{ fiscal_period: '67', monthly: {
+    '202604': { plan: 10, forecast: 8, actual: 6 },
+    '202605': { plan: 20, forecast: 18, actual: 16 },
+    '202606': { plan: 30, forecast: 28, actual: 26 },
+  } }];
+
+  context.normalizeGlobalScopeFilters();
+  assert.equal(JSON.stringify(context.buildTimeSeries(items, 'month').labels), JSON.stringify(['202604', '202605', '202606']));
+  assert.equal(JSON.stringify(context.buildTimeSeries(items, 'fiscalPeriod').labels), JSON.stringify(['第67期']));
+  const cumulative = context.buildTimeSeries(items, 'cumulative');
+  assert.equal(cumulative.bucket['202606'].plan, 60);
 });
 
 test('custom month range crosses fiscal periods without dropping needed rows', () => {

@@ -27,14 +27,13 @@
 | ページタイトル | `#pageTitle` に現在ページ名を表示 |
 | ステータス | `#statusBadge` にデータ状態を表示 |
 | クイック設定 | テーマ切替、表示倍率±、リセット |
-| グローバルフィルター | `#globalFilters` に集計軸、対象期間、部署、分析軸、対象を表示。取込/設定/使い方では非表示 |
+| グローバルフィルター | `#globalFilters` に対象期間、部署、分析軸、対象を表示。取込/設定/使い方では非表示 |
 
 ## 4. グローバルフィルター
 
 | フィルター | 内部キー | 備考 |
 |---|---|---|
-| 集計軸 | `state.filters.periodMode` | 月次/四半期/通期。対象期間の選択方式とは分離する |
-| 対象期間 | `scopeMode`, `scopePreset`, `customRangeUnit`, `targetYearMonth`, `targetYearMonthFrom`, `targetYearMonthTo`, `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | 単月、直近3/12か月、対象期累計、カスタム範囲を1つのコントロールで指定する。カスタム時のみ対象月/対象期の範囲指定UIを表示する |
+| 対象期間 | `scopeMode`, `scopePreset`, `customRangeUnit`, `targetYearMonth`, `targetYearMonthFrom`, `targetYearMonthTo`, `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | ポップオーバーで当月、前月、直近3/12か月、当期累計、前期通期、データ最新月、カスタム月/期範囲を指定する。現在日時ベースのプリセットとデータ最新月は明示的に分ける |
 | 部署 | `state.filters.department` | `department_name` |
 | 分析視点 | `state.filters.perspective` | カテゴリ分析等に影響 |
 | 対象 | `state.filters.target` | 値の正式定義は未確認 |
@@ -118,3 +117,7 @@
 - レポート冒頭にはアプリ名、画面名、出力日時、適用条件サマリーを表示します。フィルタUIそのものではなく、期・年月・部門・視点・対象・金額単位などの条件を読みやすい一覧として表示します。
 - レポートヘッダーは `<details>` / `<summary>` で表示し、初期状態は閉じた状態です。画面単位の閉じる／展開状態を `localStorage` に保存し、次回描画時に復元します。PDF/HTML保存時は出力内容の欠落を防ぐため、保存処理中だけ自動的に展開し、保存後に元の状態へ戻します。
 - Chart.jsグラフは出力前に `resize()` / `update('none')` を実行し、複数フレーム待機してからPDF/HTMLの保存処理を行います。
+
+### 推移分析の表示単位
+
+`月別` / `四半期別` / `期別` / `累計推移` は上部共通フィルターではなく、推移分析画面内の `state.ui.trendAggregationUnit` で切り替えます。
