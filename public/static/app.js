@@ -56,6 +56,120 @@ function loadSavedMoneyUnits() {
   }
 }
 
+
+const PERIOD_QUICK_FILTERS_STORAGE_KEY = 'periodQuickFilters';
+const PERIOD_QUICK_DEFAULT_STORAGE_KEY = 'periodQuickDefault';
+const BUILT_IN_PERIOD_PRESETS = {
+  currentMonth: { label: '当月' },
+  previousMonth: { label: '前月' },
+  currentFiscalPeriodFull: { label: '当期通期' },
+  previousFiscalPeriodFull: { label: '前期通期' },
+  last3Months: { label: '直近3か月' },
+  last12Months: { label: '直近12か月' },
+  dataLatestMonth: { label: 'データ最新月' },
+};
+const DEFAULT_PERIOD_QUICK_FILTERS = Object.entries(BUILT_IN_PERIOD_PRESETS).map(([id, preset]) => ({ id, type: 'builtInPreset', label: preset.label, enabled: true }));
+const LEGACY_PERIOD_PRESET_ALIASES = {
+  fiscalYtd: 'currentFiscalPeriodFull',
+  currentFiscalPeriodToDate: 'currentFiscalPeriodFull',
+  fiscalPeriodCurrent: 'currentFiscalPeriodFull',
+  currentFiscalPeriod: 'currentFiscalPeriodFull',
+  previousFiscalPeriod: 'previousFiscalPeriodFull',
+};
+
+function normalizeBuiltInPresetId(id) {
+  const key = String(id || '');
+  return LEGACY_PERIOD_PRESET_ALIASES[key] || key;
+}
+
+function clonePeriodQuickFilter(item) {
+  return JSON.parse(JSON.stringify(item));
+}
+
+function defaultPeriodQuickFilters() {
+  return DEFAULT_PERIOD_QUICK_FILTERS.map(clonePeriodQuickFilter);
+}
+
+function formatStoredYearMonth(ym) {
+  const s = String(ym || '');
+  return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}/${s.slice(4, 6)}` : s;
+}
+
+function normalizePeriodQuickFilter(item) {
+  if (!item || typeof item !== 'object') return null;
+  const type = item.type || 'builtInPreset';
+  if (type === 'builtInPreset') {
+    const id = normalizeBuiltInPresetId(item.id);
+    const preset = BUILT_IN_PERIOD_PRESETS[id];
+    if (!preset) return null;
+    return { id, type, label: item.label || preset.label, enabled: item.enabled !== false };
+  }
+  if (type === 'fixedMonthRange') {
+    const fromYM = String(item.fromYM || '');
+    const toYM = String(item.toYM || '');
+    if (!/^\d{6}$/.test(fromYM) || !/^\d{6}$/.test(toYM)) return null;
+    const [from, to] = orderPair(fromYM, toYM);
+    return { id: String(item.id || `custom_${from}_${to}`), type, label: item.label || `${formatStoredYearMonth(from)}〜${formatStoredYearMonth(to)}`, enabled: item.enabled !== false, fromYM: from, toYM: to };
+  }
+  if (type === 'fixedFiscalPeriodRange') {
+    const fromFiscalPeriod = String(item.fromFiscalPeriod || '');
+    const toFiscalPeriod = String(item.toFiscalPeriod || '');
+    if (!fromFiscalPeriod || !toFiscalPeriod) return null;
+    const [from, to] = orderPair(fromFiscalPeriod, toFiscalPeriod, (a, b) => Number(periodSortValue(a)) - Number(periodSortValue(b)));
+    const label = from === to ? fiscalPeriodLabel(from) : `${fiscalPeriodLabel(from)}〜${fiscalPeriodLabel(to)}`;
+    return { id: String(item.id || `custom_period_${from}_${to}`), type, label: item.label || label, enabled: item.enabled !== false, fromFiscalPeriod: from, toFiscalPeriod: to };
+  }
+  return null;
+}
+
+function loadPeriodQuickFilters() {
+  try {
+    const raw = localStorage.getItem(PERIOD_QUICK_FILTERS_STORAGE_KEY);
+    if (!raw) return defaultPeriodQuickFilters();
+    const parsed = JSON.parse(raw);
+    const source = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.filters) ? parsed.filters : []);
+    const normalized = source.map(normalizePeriodQuickFilter).filter(Boolean);
+    return normalized.length ? normalized : defaultPeriodQuickFilters();
+  } catch (_) {
+    return defaultPeriodQuickFilters();
+  }
+}
+
+function loadPeriodQuickDefaultId(filters = loadPeriodQuickFilters()) {
+  try {
+    const raw = localStorage.getItem(PERIOD_QUICK_DEFAULT_STORAGE_KEY);
+    const parsed = raw ? normalizeBuiltInPresetId(JSON.parse(raw)) : '';
+    const exists = filters.some(item => item.id === parsed && item.enabled !== false);
+    return exists ? parsed : 'currentMonth';
+  } catch (_) {
+    return 'currentMonth';
+  }
+}
+
+function savePeriodQuickFilters(filters, defaultId = loadPeriodQuickDefaultId(filters)) {
+  const normalized = (filters || []).map(normalizePeriodQuickFilter).filter(Boolean);
+  const nextFilters = normalized.length ? normalized : defaultPeriodQuickFilters();
+  localStorage.setItem(PERIOD_QUICK_FILTERS_STORAGE_KEY, JSON.stringify(nextFilters));
+  const normalizedDefault = normalizeBuiltInPresetId(defaultId);
+  const safeDefault = nextFilters.some(item => item.id === normalizedDefault && item.enabled !== false) ? normalizedDefault : 'currentMonth';
+  localStorage.setItem(PERIOD_QUICK_DEFAULT_STORAGE_KEY, JSON.stringify(safeDefault));
+  if (state?.ui) {
+    state.ui.periodQuickFilters = nextFilters;
+    state.ui.periodQuickDefaultId = safeDefault;
+  }
+  return nextFilters;
+}
+
+function resetPeriodQuickFilters() {
+  const defaults = defaultPeriodQuickFilters();
+  savePeriodQuickFilters(defaults, 'currentMonth');
+  return defaults;
+}
+
+function getEnabledPeriodQuickFilters() {
+  return loadPeriodQuickFilters().filter(item => item.enabled !== false);
+}
+
 const state = {
   page: 'import',
   hasData: false,
@@ -91,6 +205,9 @@ const state = {
     periodScopePeriodMode: 'single',
     periodScopeYear: '',
     periodScopeSearch: '',
+    periodScopeInitialized: false,
+    periodQuickFilters: loadPeriodQuickFilters(),
+    periodQuickDefaultId: loadPeriodQuickDefaultId(),
     detailSearch: '',
     extraDetailCols: ['owner_name', 'vendor_name', 'budget_category', 'totalForecast'],
     importFileType: 'budget',
@@ -538,7 +655,7 @@ function currentFiscalPeriodRange(date = new Date()) {
   const currentYM = getCurrentYearMonthKey(date);
   const period = fiscalPeriodFromYearMonth(currentYM);
   const range = fiscalPeriodToMonthRange(period);
-  return { period, from: range.from, to: currentYM };
+  return { period, from: range.from, to: range.to };
 }
 
 function previousFiscalPeriodRange(date = new Date()) {
@@ -548,6 +665,7 @@ function previousFiscalPeriodRange(date = new Date()) {
 }
 
 function presetMonthRange(preset, yms = getYearMonthOptions(), date = new Date()) {
+  preset = normalizeBuiltInPresetId(preset);
   const currentYM = getCurrentYearMonthKey(date);
   const previousYM = getPreviousYearMonthKey(date);
   const dataLatestYM = getDataLatestYearMonth(yms);
@@ -555,10 +673,71 @@ function presetMonthRange(preset, yms = getYearMonthOptions(), date = new Date()
   if (preset === 'previousMonth') return { from: previousYM, to: previousYM };
   if (preset === 'last3Months') return { from: monthShift(currentYM, -2), to: currentYM };
   if (preset === 'last12Months') return { from: monthShift(currentYM, -11), to: currentYM };
-  if (preset === 'currentFiscalPeriodToDate') return currentFiscalPeriodRange(date);
+  if (preset === 'currentFiscalPeriodFull') return currentFiscalPeriodRange(date);
   if (preset === 'previousFiscalPeriodFull') return previousFiscalPeriodRange(date);
   if (preset === 'dataLatestMonth') return { from: dataLatestYM, to: dataLatestYM };
   return { from: '', to: '' };
+}
+
+function resolveBuiltInPeriodPreset(presetId, yms = getYearMonthOptions(), date = new Date()) {
+  const id = normalizeBuiltInPresetId(presetId);
+  const range = presetMonthRange(id, yms, date);
+  if (!range.from && !range.to) return null;
+  const single = ['currentMonth', 'previousMonth', 'dataLatestMonth'].includes(id);
+  const fiscal = ['currentFiscalPeriodFull', 'previousFiscalPeriodFull'].includes(id);
+  return {
+    scopeMode: single ? 'single' : 'preset',
+    scopePreset: id,
+    customRangeUnit: fiscal ? 'fiscalPeriod' : 'month',
+    fiscalPeriod: range.period || fiscalPeriodFromYearMonth(range.to || range.from) || '',
+    fiscalPeriodFrom: range.period || fiscalPeriodFromYearMonth(range.from) || '',
+    fiscalPeriodTo: range.period || fiscalPeriodFromYearMonth(range.to) || '',
+    targetYearMonth: range.to || range.from || '',
+    targetYearMonthFrom: range.from || range.to || '',
+    targetYearMonthTo: range.to || range.from || '',
+  };
+}
+
+function resolvePeriodQuickFilter(item, yms = getYearMonthOptions(), date = new Date()) {
+  const normalized = normalizePeriodQuickFilter(item);
+  if (!normalized) return null;
+  if (normalized.type === 'builtInPreset') return resolveBuiltInPeriodPreset(normalized.id, yms, date);
+  if (normalized.type === 'fixedMonthRange') {
+    return {
+      scopeMode: normalized.fromYM === normalized.toYM ? 'single' : 'custom',
+      scopePreset: normalized.fromYM === normalized.toYM ? 'specificMonth' : 'custom',
+      customRangeUnit: 'month',
+      targetYearMonth: normalized.toYM,
+      targetYearMonthFrom: normalized.fromYM,
+      targetYearMonthTo: normalized.toYM,
+      fiscalPeriod: fiscalPeriodFromYearMonth(normalized.toYM),
+      fiscalPeriodFrom: fiscalPeriodFromYearMonth(normalized.fromYM),
+      fiscalPeriodTo: fiscalPeriodFromYearMonth(normalized.toYM),
+    };
+  }
+  if (normalized.type === 'fixedFiscalPeriodRange') {
+    const fromRange = fiscalPeriodToMonthRange(normalized.fromFiscalPeriod);
+    const toRange = fiscalPeriodToMonthRange(normalized.toFiscalPeriod);
+    return {
+      scopeMode: 'custom',
+      scopePreset: 'custom',
+      customRangeUnit: 'fiscalPeriod',
+      fiscalPeriod: normalized.toFiscalPeriod,
+      fiscalPeriodFrom: normalized.fromFiscalPeriod,
+      fiscalPeriodTo: normalized.toFiscalPeriod,
+      targetYearMonth: toRange.to,
+      targetYearMonthFrom: fromRange.from,
+      targetYearMonthTo: toRange.to,
+    };
+  }
+  return null;
+}
+
+function applyResolvedScope(resolved) {
+  if (!resolved) return false;
+  Object.assign(state.filters, resolved);
+  normalizeGlobalScopeFilters();
+  return true;
 }
 
 function orderPair(a, b, compare = ymCompare) {
@@ -606,8 +785,18 @@ function normalizeGlobalScopeFilters() {
   const yms = getYearMonthOptions();
   const defaultYM = resolveDefaultTargetYearMonth(yms);
   const defaultPeriod = fiscalPeriodFromYearMonth(defaultYM) || periods[periods.length - 1] || '';
-  const allowedPresets = ['currentMonth', 'previousMonth', 'last3Months', 'last12Months', 'currentFiscalPeriodToDate', 'previousFiscalPeriodFull', 'dataLatestMonth', 'specificMonth', 'fiscalPeriod', 'custom'];
+  const allowedPresets = ['currentMonth', 'previousMonth', 'last3Months', 'last12Months', 'currentFiscalPeriodFull', 'previousFiscalPeriodFull', 'dataLatestMonth', 'specificMonth', 'fiscalPeriod', 'custom'];
 
+  if (!state.ui.periodScopeInitialized && !state.filters.targetYearMonth && !state.filters.targetYearMonthFrom && !state.filters.fiscalPeriodFrom) {
+    state.ui.periodScopeInitialized = true;
+    const quickFilters = loadPeriodQuickFilters();
+    const defaultId = loadPeriodQuickDefaultId(quickFilters);
+    const defaultQuick = quickFilters.find(item => item.id === defaultId && item.enabled !== false) || quickFilters.find(item => item.id === 'currentMonth') || DEFAULT_PERIOD_QUICK_FILTERS[0];
+    const resolved = resolvePeriodQuickFilter(defaultQuick, yms);
+    if (resolved) Object.assign(state.filters, resolved);
+  }
+
+  state.filters.scopePreset = normalizeBuiltInPresetId(state.filters.scopePreset);
   if (!['single', 'preset', 'custom'].includes(state.filters.scopeMode)) state.filters.scopeMode = 'single';
   if (!['month', 'fiscalPeriod'].includes(state.filters.customRangeUnit)) state.filters.customRangeUnit = 'month';
   if (!allowedPresets.includes(state.filters.scopePreset)) state.filters.scopePreset = state.filters.scopeMode === 'custom' ? 'custom' : 'currentMonth';
@@ -655,17 +844,22 @@ function normalizeGlobalScopeFilters() {
   }
 
   if (state.filters.scopeMode === 'single') {
-    const ym = state.filters.scopePreset === 'dataLatestMonth'
-      ? getDataLatestYearMonth(yms)
-      : (state.filters.targetYearMonth || defaultYM);
-    state.filters.scopePreset = state.filters.scopePreset === 'dataLatestMonth' ? 'dataLatestMonth' : 'specificMonth';
-    setMonthRange(ym, ym);
+    const singlePreset = normalizeBuiltInPresetId(state.filters.scopePreset);
+    if (['currentMonth', 'previousMonth', 'dataLatestMonth'].includes(singlePreset)) {
+      const range = presetMonthRange(singlePreset, yms);
+      state.filters.scopePreset = singlePreset;
+      setMonthRange(range.from, range.to);
+    } else {
+      const ym = state.filters.targetYearMonth || defaultYM;
+      state.filters.scopePreset = 'specificMonth';
+      setMonthRange(ym, ym);
+    }
     return;
   }
 
-  if (['currentMonth', 'previousMonth', 'last3Months', 'last12Months', 'currentFiscalPeriodToDate', 'previousFiscalPeriodFull', 'dataLatestMonth'].includes(state.filters.scopePreset)) {
+  if (['currentMonth', 'previousMonth', 'last3Months', 'last12Months', 'currentFiscalPeriodFull', 'previousFiscalPeriodFull', 'dataLatestMonth'].includes(state.filters.scopePreset)) {
     const range = presetMonthRange(state.filters.scopePreset, yms);
-    if (state.filters.scopePreset === 'previousFiscalPeriodFull') {
+    if (['currentFiscalPeriodFull', 'previousFiscalPeriodFull'].includes(state.filters.scopePreset)) {
       setFiscalPeriodRange(range.period, range.period);
     } else {
       setMonthRange(range.from, range.to);
@@ -681,19 +875,6 @@ function normalizeGlobalScopeFilters() {
   state.filters.scopeMode = 'single';
   state.filters.scopePreset = 'specificMonth';
   setMonthRange(state.filters.targetYearMonth || defaultYM, state.filters.targetYearMonth || defaultYM);
-}
-
-function inSelectedFiscalPeriodRange(period) {
-  const from = state.filters.fiscalPeriodFrom || fiscalPeriodFromYearMonth(state.filters.targetYearMonthFrom) || state.filters.fiscalPeriod || '';
-  const to = state.filters.fiscalPeriodTo || fiscalPeriodFromYearMonth(state.filters.targetYearMonthTo) || state.filters.fiscalPeriod || '';
-  if (!from && !to) return true;
-  const value = Number(periodSortValue(period));
-  const min = from ? Number(periodSortValue(from)) : null;
-  const max = to ? Number(periodSortValue(to)) : null;
-  if (!Number.isFinite(value)) return false;
-  if (Number.isFinite(min) && value < min) return false;
-  if (Number.isFinite(max) && value > max) return false;
-  return true;
 }
 
 function inSelectedFiscalPeriodRange(period) {
@@ -984,7 +1165,7 @@ function initNav() {
 function scopeTriggerLabel() {
   if (state.filters.scopePreset === 'dataLatestMonth') return `データ最新月 ${formatYearMonth(state.filters.targetYearMonth)}`;
   if (state.filters.scopeMode === 'single') return formatYearMonth(state.filters.targetYearMonth);
-  if (state.filters.customRangeUnit === 'fiscalPeriod' || ['fiscalPeriod', 'previousFiscalPeriodFull'].includes(state.filters.scopePreset)) {
+  if (state.filters.customRangeUnit === 'fiscalPeriod' || ['fiscalPeriod', 'currentFiscalPeriodFull', 'previousFiscalPeriodFull'].includes(state.filters.scopePreset)) {
     const fromPeriod = state.filters.fiscalPeriodFrom || state.filters.fiscalPeriod;
     const toPeriod = state.filters.fiscalPeriodTo || state.filters.fiscalPeriod;
     return fromPeriod === toPeriod ? fiscalPeriodLabel(fromPeriod) : `${fiscalPeriodLabel(fromPeriod)}〜${fiscalPeriodLabel(toPeriod)}`;
@@ -994,11 +1175,12 @@ function scopeTriggerLabel() {
 }
 
 function presetDescription(preset, yms = getYearMonthOptions()) {
+  preset = normalizeBuiltInPresetId(preset);
   const range = presetMonthRange(preset, yms);
   const currentYM = getCurrentYearMonthKey();
   if (preset === 'currentMonth') return formatYearMonth(range.to);
   if (preset === 'previousMonth') return formatYearMonth(range.to);
-  if (preset === 'currentFiscalPeriodToDate') return `${formatYearMonth(range.from)}〜${formatYearMonth(range.to)}`;
+  if (preset === 'currentFiscalPeriodFull') return `${fiscalPeriodLabel(range.period)} ${formatYearMonth(range.from)}〜${formatYearMonth(range.to)}`;
   if (preset === 'previousFiscalPeriodFull') return `${fiscalPeriodLabel(range.period)} ${formatYearMonth(range.from)}〜${formatYearMonth(range.to)}`;
   if (preset === 'last3Months' || preset === 'last12Months') return `${formatYearMonth(range.from)}〜${formatYearMonth(range.to)}`;
   if (preset === 'dataLatestMonth') return `${formatYearMonth(range.to)}${range.to && range.to > currentYM ? '（将来計画）' : ''}`;
@@ -1006,11 +1188,24 @@ function presetDescription(preset, yms = getYearMonthOptions()) {
 }
 
 function periodPresetButtonHtml(preset, label, yms) {
+  preset = normalizeBuiltInPresetId(preset);
   const desc = presetDescription(preset, yms);
   const needsData = ['currentMonth', 'previousMonth', 'dataLatestMonth'].includes(preset);
   const target = presetMonthRange(preset, yms).to;
   const disabled = needsData && target && !new Set(yms).has(target) && preset !== 'dataLatestMonth';
   return `<button type="button" class="period-preset-button" data-scope-preset="${dataAttr(preset)}" ${disabled ? 'disabled' : ''}><strong>${escapeHtml(label)}</strong><span>${escapeHtml(disabled ? `${desc}（データなし）` : desc)}</span></button>`;
+}
+
+function periodQuickFilterButtonHtml(item, yms) {
+  const normalized = normalizePeriodQuickFilter(item);
+  if (!normalized) return '';
+  if (normalized.type === 'builtInPreset') return periodPresetButtonHtml(normalized.id, normalized.label, yms).replace('data-scope-preset', 'data-quick-filter-id');
+  const resolved = resolvePeriodQuickFilter(normalized, yms);
+  if (!resolved) return '';
+  const desc = normalized.type === 'fixedFiscalPeriodRange'
+    ? `${formatYearMonth(resolved.targetYearMonthFrom)}〜${formatYearMonth(resolved.targetYearMonthTo)}`
+    : `${formatYearMonth(resolved.targetYearMonthFrom)}〜${formatYearMonth(resolved.targetYearMonthTo)}`;
+  return `<button type="button" class="period-preset-button" data-quick-filter-id="${dataAttr(normalized.id)}"><strong>${escapeHtml(normalized.label)}</strong><span>${escapeHtml(desc)}</span></button>`;
 }
 
 function fiscalYearOptions(yms = getYearMonthOptions()) {
@@ -1033,6 +1228,7 @@ function periodSearchResults(query, yms, periods) {
   const normalized = q.replace(/\s/g, '');
   if (/^(当月|今月)$/.test(normalized)) add('当月', 'currentMonth', 'preset', presetDescription('currentMonth', yms));
   if (/^前月$/.test(normalized)) add('前月', 'previousMonth', 'preset', presetDescription('previousMonth', yms));
+  if (/^(当期|当期通期|当期累計)$/.test(normalized)) add('当期通期', 'currentFiscalPeriodFull', 'preset', presetDescription('currentFiscalPeriodFull', yms));
   if (/^前期/.test(normalized)) add('前期通期', 'previousFiscalPeriodFull', 'preset', presetDescription('previousFiscalPeriodFull', yms));
   if (/直近3/.test(normalized)) add('直近3か月', 'last3Months', 'preset', presetDescription('last3Months', yms));
   if (/直近12/.test(normalized)) add('直近12か月', 'last12Months', 'preset', presetDescription('last12Months', yms));
@@ -1065,24 +1261,17 @@ function periodScopeMenuHtml(yms, periods) {
   const periodOptions = periods.map(period => `<option value="${dataAttr(period)}">${escapeHtml(fiscalPeriodLabel(period))}</option>`).join('');
   const monthOptions = fiscalPeriodMonths(selectedYear).map(ym => `<option value="${dataAttr(ym)}">${escapeHtml(formatYearMonth(ym))}</option>`).join('');
   const results = periodSearchResults(state.ui.periodScopeSearch, yms, periods);
+  const quickButtons = getEnabledPeriodQuickFilters().map(item => periodQuickFilterButtonHtml(item, yms)).filter(Boolean).join('');
   return `<div class="period-scope-menu" id="periodScopeMenu" role="dialog" aria-label="対象期間を選択">
     <div class="period-scope-menu__head"><strong>対象期間を選択</strong><button type="button" class="icon-button" id="periodScopeClose" aria-label="閉じる">×</button></div>
     <div class="period-scope-tabs" role="tablist">${tabs.map(([key, label]) => `<button type="button" class="period-scope-tab ${tab === key ? 'active' : ''}" data-period-tab="${key}">${label}</button>`).join('')}</div>
     <div class="period-scope-panel">
-      ${tab === 'presets' ? `<div class="period-preset-grid">
-        ${periodPresetButtonHtml('currentMonth', '当月', yms)}
-        ${periodPresetButtonHtml('previousMonth', '前月', yms)}
-        ${periodPresetButtonHtml('currentFiscalPeriodToDate', '当期累計', yms)}
-        ${periodPresetButtonHtml('previousFiscalPeriodFull', '前期通期', yms)}
-        ${periodPresetButtonHtml('last3Months', '直近3か月', yms)}
-        ${periodPresetButtonHtml('last12Months', '直近12か月', yms)}
-        ${periodPresetButtonHtml('dataLatestMonth', 'データ最新月', yms)}
-      </div>` : ''}
+      ${tab === 'presets' ? `<div class="period-preset-grid">${quickButtons || '<p class="muted">表示設定で「よく使う」の項目を有効にしてください。</p>'}</div><div class="period-quick-help">データ最新月は取込データ内の最大年月です。将来計画・見込みが含まれる場合、未来年月になることがあります。</div>` : ''}
       ${tab === 'month' ? `<div class="period-range-unit"><span>指定方法</span><label><input type="radio" name="monthScopeMode" value="single" ${state.ui.periodScopeMonthMode !== 'range' ? 'checked' : ''}> 単月</label><label><input type="radio" name="monthScopeMode" value="range" ${state.ui.periodScopeMonthMode === 'range' ? 'checked' : ''}> 範囲</label></div><label class="period-year-selector">年度 <select id="periodScopeYear">${yearOptions}</select></label><div class="period-month-grid">${monthGridForPeriod(selectedYear)}</div>${state.ui.periodScopeMonthMode === 'range' ? `<div class="period-range-fields"><select id="periodMonthFrom">${monthOptions}</select><span>〜</span><select id="periodMonthTo">${monthOptions}</select></div><button type="button" class="primary" id="applyMonthRange">適用</button>` : ''}` : ''}
       ${tab === 'period' ? `<div class="period-range-unit"><span>指定方法</span><label><input type="radio" name="periodScopeMode" value="single" ${state.ui.periodScopePeriodMode !== 'range' ? 'checked' : ''}> 単期</label><label><input type="radio" name="periodScopeMode" value="range" ${state.ui.periodScopePeriodMode === 'range' ? 'checked' : ''}> 範囲</label></div><div class="period-preset-grid">${[...periods].sort((a, b) => Number(periodSortValue(b)) - Number(periodSortValue(a))).slice(0, 30).map(period => `<button type="button" class="period-preset-button" data-period-select="${dataAttr(period)}"><strong>${escapeHtml(fiscalPeriodLabel(period))}</strong><span>${escapeHtml(formatYearMonth(fiscalPeriodToMonthRange(period).from))}〜${escapeHtml(formatYearMonth(fiscalPeriodToMonthRange(period).to))}</span></button>`).join('')}</div>${state.ui.periodScopePeriodMode === 'range' ? `<div class="period-range-fields"><select id="periodFromSelect">${periodOptions}</select><span>〜</span><select id="periodToSelect">${periodOptions}</select></div><button type="button" class="primary" id="applyPeriodRange">適用</button>` : ''}` : ''}
       ${tab === 'search' ? `<label>検索 <input id="periodScopeSearch" type="text" value="${dataAttr(state.ui.periodScopeSearch || '')}" placeholder="2026/06、67期、直近3 など"></label><div class="period-search-results">${results.map(r => `<button type="button" class="period-preset-button" data-search-type="${dataAttr(r.type)}" data-search-value="${dataAttr(r.value)}"><strong>${escapeHtml(r.label)}</strong><span>${escapeHtml(r.description || '')}</span></button>`).join('') || '<p class="muted">検索語を入力してください。</p>'}</div>` : ''}
     </div>
-    <div class="period-scope-menu__foot"><button type="button" id="periodScopeCancel">キャンセル</button></div>
+    <div class="period-scope-menu__foot"><button type="button" id="periodQuickAddCurrent">現在の対象期間を「よく使う」に追加</button><button type="button" id="periodScopeCancel">キャンセル</button></div>
   </div>`;
 }
 
@@ -1094,11 +1283,12 @@ function formatScopeSummary() {
     return `表示中：データ最新月 ${formatYearMonth(state.filters.targetYearMonth)}${future}　集計単位：単月`;
   }
   if (state.filters.scopeMode === 'single') return `表示中：${formatYearMonth(state.filters.targetYearMonth)}　集計単位：${unit}`;
-  if (state.filters.customRangeUnit === 'fiscalPeriod' || ['fiscalPeriod', 'previousFiscalPeriodFull'].includes(state.filters.scopePreset)) {
+  if (state.filters.customRangeUnit === 'fiscalPeriod' || ['fiscalPeriod', 'currentFiscalPeriodFull', 'previousFiscalPeriodFull'].includes(state.filters.scopePreset)) {
     const fromPeriod = state.filters.fiscalPeriodFrom || state.filters.fiscalPeriod;
     const toPeriod = state.filters.fiscalPeriodTo || state.filters.fiscalPeriod;
     const periodLabel = fromPeriod === toPeriod ? fiscalPeriodLabel(fromPeriod) : `${fiscalPeriodLabel(fromPeriod)}〜${fiscalPeriodLabel(toPeriod)}`;
-    return `表示中：${periodLabel}　対象月：${formatYearMonth(from)}〜${formatYearMonth(to)}　集計単位：${unit}`;
+    const months = monthDiffInclusive(from, to);
+    return `表示中：${periodLabel}　対象月：${formatYearMonth(from)}〜${formatYearMonth(to)}${months ? `　${months}か月` : ''}　集計単位：${unit}`;
   }
   const months = monthDiffInclusive(from, to);
   return `表示中：${formatYearMonth(from)}〜${formatYearMonth(to)}${months ? `　${months}か月` : ''}　集計単位：${unit}`;
@@ -1110,7 +1300,8 @@ function closePeriodScopePopover() {
 }
 
 function applyPresetScope(preset) {
-  state.filters.scopeMode = preset === 'dataLatestMonth' ? 'single' : 'preset';
+  preset = normalizeBuiltInPresetId(preset);
+  state.filters.scopeMode = ['currentMonth', 'previousMonth', 'dataLatestMonth'].includes(preset) ? 'single' : 'preset';
   state.filters.scopePreset = preset;
   normalizeGlobalScopeFilters();
   closePeriodScopePopover();
@@ -1120,6 +1311,7 @@ function applyPresetScope(preset) {
 function applyMonthScope(ym) {
   state.filters.scopeMode = 'single';
   state.filters.scopePreset = 'specificMonth';
+  state.filters.customRangeUnit = 'month';
   state.filters.targetYearMonth = ym;
   normalizeGlobalScopeFilters();
   closePeriodScopePopover();
@@ -1171,6 +1363,71 @@ function applySearchScope(type, value) {
   }
 }
 
+
+
+function findPeriodQuickFilter(id) {
+  const normalizedId = normalizeBuiltInPresetId(id);
+  return loadPeriodQuickFilters().find(item => item.id === normalizedId || item.id === id) || null;
+}
+
+function applyPeriodQuickFilter(itemOrId) {
+  const item = typeof itemOrId === 'string' ? findPeriodQuickFilter(itemOrId) : itemOrId;
+  const resolved = resolvePeriodQuickFilter(item);
+  if (!applyResolvedScope(resolved)) return false;
+  closePeriodScopePopover();
+  renderPage();
+  return true;
+}
+
+function quickFilterLabelFromScope() {
+  return formatScopeSummary().replace(/^表示中：/, '').replace(/　集計単位：.+$/, '');
+}
+
+function addCurrentScopeToQuickFilters() {
+  normalizeGlobalScopeFilters();
+  const filters = loadPeriodQuickFilters();
+  const presetId = normalizeBuiltInPresetId(state.filters.scopePreset);
+  if (BUILT_IN_PERIOD_PRESETS[presetId]) {
+    const existing = filters.find(item => item.id === presetId && item.type === 'builtInPreset');
+    if (existing) existing.enabled = true;
+    else filters.push({ id: presetId, type: 'builtInPreset', label: BUILT_IN_PERIOD_PRESETS[presetId].label, enabled: true });
+    savePeriodQuickFilters(filters, loadPeriodQuickDefaultId(filters));
+    return true;
+  }
+  let item;
+  if (state.filters.customRangeUnit === 'fiscalPeriod' || state.filters.scopePreset === 'fiscalPeriod') {
+    const from = state.filters.fiscalPeriodFrom || state.filters.fiscalPeriod;
+    const to = state.filters.fiscalPeriodTo || state.filters.fiscalPeriod || from;
+    item = { id: `custom_period_${from}_${to}_${Date.now()}`, type: 'fixedFiscalPeriodRange', label: quickFilterLabelFromScope(), enabled: true, fromFiscalPeriod: from, toFiscalPeriod: to };
+  } else {
+    const { from, to } = getSelectedMonthRange();
+    item = { id: `custom_${from}_${to}_${Date.now()}`, type: 'fixedMonthRange', label: quickFilterLabelFromScope(), enabled: true, fromYM: from, toYM: to };
+  }
+  filters.push(item);
+  savePeriodQuickFilters(filters, loadPeriodQuickDefaultId(filters));
+  return true;
+}
+
+function movePeriodQuickFilter(id, direction) {
+  const filters = loadPeriodQuickFilters();
+  const index = filters.findIndex(item => item.id === id);
+  const nextIndex = direction === 'up' ? index - 1 : index + 1;
+  if (index < 0 || nextIndex < 0 || nextIndex >= filters.length) return filters;
+  [filters[index], filters[nextIndex]] = [filters[nextIndex], filters[index]];
+  return savePeriodQuickFilters(filters, loadPeriodQuickDefaultId(filters));
+}
+
+function togglePeriodQuickFilter(id, enabled) {
+  const filters = loadPeriodQuickFilters();
+  const item = filters.find(entry => entry.id === id);
+  if (item) item.enabled = Boolean(enabled);
+  return savePeriodQuickFilters(filters, loadPeriodQuickDefaultId(filters));
+}
+
+function removePeriodQuickFilter(id) {
+  const filters = loadPeriodQuickFilters().filter(item => item.id !== id);
+  return savePeriodQuickFilters(filters, loadPeriodQuickDefaultId(filters));
+}
 
 function initFilterBar() {
   const root = document.getElementById('globalFilters');
@@ -1229,6 +1486,9 @@ function initFilterBar() {
     };
   });
   root.querySelectorAll('[data-scope-preset]').forEach(btn => { btn.onclick = () => applyPresetScope(btn.dataset.scopePreset); });
+  root.querySelectorAll('[data-quick-filter-id]').forEach(btn => { btn.onclick = () => applyPeriodQuickFilter(btn.dataset.quickFilterId); });
+  const addCurrentQuick = root.querySelector('#periodQuickAddCurrent');
+  if (addCurrentQuick) addCurrentQuick.onclick = () => { addCurrentScopeToQuickFilters(); initFilterBar(); };
   root.querySelectorAll('input[name="monthScopeMode"]').forEach(input => { input.onchange = () => { state.ui.periodScopeMonthMode = input.value; initFilterBar(); }; });
   root.querySelectorAll('input[name="periodScopeMode"]').forEach(input => { input.onchange = () => { state.ui.periodScopePeriodMode = input.value; initFilterBar(); }; });
   const yearSelect = root.querySelector('#periodScopeYear');
@@ -2547,6 +2807,59 @@ function renderDetail() {
   });
 }
 
+
+function periodQuickSettingsHtml() {
+  const filters = loadPeriodQuickFilters();
+  const defaultId = loadPeriodQuickDefaultId(filters);
+  const defaultOptions = filters.map(item => `<option value="${dataAttr(item.id)}" ${item.id === defaultId ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
+  const itemsHtml = filters.map((item, index) => {
+    const userDefined = item.type !== 'builtInPreset';
+    const meta = item.type === 'builtInPreset'
+      ? (item.id === 'dataLatestMonth' ? '取込データ内の最大年月（未来計画になる場合があります）' : 'ブラウザの現在日時で毎回再計算')
+      : (item.type === 'fixedFiscalPeriodRange' ? `${fiscalPeriodLabel(item.fromFiscalPeriod)}〜${fiscalPeriodLabel(item.toFiscalPeriod)}` : `${formatYearMonth(item.fromYM)}〜${formatYearMonth(item.toYM)}`);
+    return `<div class="period-quick-item" data-period-quick-id="${dataAttr(item.id)}">
+      <label class="period-quick-check"><input type="checkbox" class="periodQuickEnabled" ${item.enabled !== false ? 'checked' : ''}> <span>${escapeHtml(item.label)}</span></label>
+      <span class="period-quick-meta">${escapeHtml(meta)}</span>
+      <div class="period-quick-actions">
+        <button type="button" class="periodQuickMove" data-direction="up" ${index === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" class="periodQuickMove" data-direction="down" ${index === filters.length - 1 ? 'disabled' : ''}>↓</button>
+        ${userDefined ? '<button type="button" class="danger periodQuickRemove">削除</button>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="panel period-quick-settings">
+    <h4>対象期間ショートカット</h4>
+    <p class="period-quick-help">対象期間ポップオーバーの「よく使う」に表示する項目・順序・初期表示を設定します。動的プリセットは保存時点の年月ではなく、利用時点のブラウザ日時で再計算します。</p>
+    <div class="period-quick-list">${itemsHtml}</div>
+    <div class="period-quick-default"><label>初期表示 <select id="periodQuickDefault">${defaultOptions}</select></label></div>
+    <p class="period-quick-help">データ最新月は取込データ内の最大年月です。将来計画・見込みが含まれる場合、未来年月になることがあります。当期通期は現在日時が属する対象期の4月〜翌3月の12か月です。</p>
+    <div class="controls"><button type="button" id="periodQuickAddCurrentSetting">現在の対象期間を「よく使う」に追加</button><button type="button" id="periodQuickReset">初期設定に戻す</button><button type="button" class="primary" id="periodQuickSave">保存</button></div>
+  </div>`;
+}
+
+function bindPeriodQuickSettings() {
+  document.querySelectorAll('.period-quick-item').forEach(row => {
+    const id = row.dataset.periodQuickId;
+    const checkbox = row.querySelector('.periodQuickEnabled');
+    if (checkbox) checkbox.onchange = () => { togglePeriodQuickFilter(id, checkbox.checked); renderSettings(); initFilterBar(); };
+    row.querySelectorAll('.periodQuickMove').forEach(btn => { btn.onclick = () => { movePeriodQuickFilter(id, btn.dataset.direction); renderSettings(); initFilterBar(); }; });
+    const remove = row.querySelector('.periodQuickRemove');
+    if (remove) remove.onclick = () => { removePeriodQuickFilter(id); renderSettings(); initFilterBar(); };
+  });
+  const defaultSelect = document.getElementById('periodQuickDefault');
+  const saveButton = document.getElementById('periodQuickSave');
+  if (saveButton) saveButton.onclick = () => {
+    const filters = loadPeriodQuickFilters();
+    savePeriodQuickFilters(filters, defaultSelect?.value || 'currentMonth');
+    initFilterBar();
+    alert('対象期間ショートカットを保存しました');
+  };
+  const reset = document.getElementById('periodQuickReset');
+  if (reset) reset.onclick = () => { resetPeriodQuickFilters(); renderSettings(); initFilterBar(); };
+  const add = document.getElementById('periodQuickAddCurrentSetting');
+  if (add) add.onclick = () => { addCurrentScopeToQuickFilters(); renderSettings(); initFilterBar(); };
+}
+
 function renderSettings() {
   const t = state.settings.thresholds;
   document.getElementById('content').innerHTML = `
@@ -2561,6 +2874,7 @@ function renderSettings() {
       <label>重要KPI 並び順（カンマ区切り）<input id="sKpi" type="text" style="width:100%" value="${dataAttr(state.settings.kpiOrder.join(','))}"></label>
       <div class="controls"><button class="primary" id="saveSetting">反映</button></div>
     </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', periodQuickSettingsHtml());
   document.getElementById('content').insertAdjacentHTML('beforeend', `
     <div class="panel">
       <h4>表示倍率</h4>
@@ -2584,6 +2898,7 @@ function renderSettings() {
       </div>
     </div>
   `);
+  bindPeriodQuickSettings();
   document.getElementById('zoomRange').oninput = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomNumber').onchange = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomSettingReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
@@ -2619,7 +2934,7 @@ function renderManual() {
       <h4>2. 全体サマリー（月次レポート）</h4>
       <p><strong>見方：</strong>予算・見込・実績の合計、差額、達成率をカードとグラフで俯瞰します。色分け（良化/悪化）で当月の状態を即時判断できます。</p>
       <ul>
-        <li><strong>操作：</strong>上部の対象期間で、単月・当期累計・直近期間・カスタム範囲を選択し、部門・カテゴリのフィルタと合わせて数値を再計算します。</li>
+        <li><strong>操作：</strong>上部の対象期間で、単月・当期通期・直近期間・カスタム範囲を選択し、部門・カテゴリのフィルタと合わせて数値を再計算します。対象期間ポップオーバーの「よく使う」は、表示設定から表示項目・順序・初期表示を変更できます。</li>
         <li><strong>操作：</strong>主要KPIカードを上から順に確認し、差額の大きい項目を「5. アラート」「7. 明細」に遷移して深掘りします。</li>
       </ul>
       <h4>3. 推移（前年差／トレンド）</h4>
@@ -2675,6 +2990,8 @@ function renderManual() {
       <ul>
         <li><strong>操作：</strong>乖離率・乖離額・MoM/YoY閾値を調整し、「5. アラート」の検出感度を最適化します。</li>
         <li><strong>操作：</strong>表示倍率（75〜150%）とテーマを変更して、会議室の投影環境に合わせます。</li>
+        <li><strong>操作：</strong>対象期間ショートカットで「よく使う」の表示項目・順序・初期表示を変更できます。当月、前月、直近期間はブラウザの現在日時を基準に毎回再計算されます。データ最新月は取込データ内の最大年月であり、将来計画・見込みが含まれる場合は未来年月になることがあります。</li>
+        <li><strong>注意：</strong>当期通期は、ブラウザの現在日時が属する対象期を4月〜翌3月の12か月レンジとして表示します。現在月までの累計や四半期ではありません。</li>
       </ul>
       <h4>12. 使い方（本画面）</h4>
       <p><strong>見方：</strong>各画面で迷った際の早見表です。まず「どの数字を確認したいか」を決め、対応する画面へ移動してください。</p>

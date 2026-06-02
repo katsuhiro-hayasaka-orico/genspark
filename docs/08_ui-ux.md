@@ -33,7 +33,7 @@
 
 | フィルター | 内部キー | 備考 |
 |---|---|---|
-| 対象期間 | `scopeMode`, `scopePreset`, `customRangeUnit`, `targetYearMonth`, `targetYearMonthFrom`, `targetYearMonthTo`, `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | ポップオーバーで当月、前月、直近3/12か月、当期累計、前期通期、データ最新月、カスタム月/期範囲を指定する。現在日時ベースのプリセットとデータ最新月は明示的に分ける |
+| 対象期間 | `scopeMode`, `scopePreset`, `customRangeUnit`, `targetYearMonth`, `targetYearMonthFrom`, `targetYearMonthTo`, `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | ポップオーバーで当月、前月、直近3/12か月、当期通期、前期通期、データ最新月、カスタム月/期範囲を指定する。現在日時ベースのプリセットとデータ最新月は明示的に分ける |
 | 部署 | `state.filters.department` | `department_name` |
 | 分析視点 | `state.filters.perspective` | カテゴリ分析等に影響 |
 | 対象 | `state.filters.target` | 値の正式定義は未確認 |
@@ -121,3 +121,8 @@
 ### 推移分析の表示単位
 
 `月別` / `四半期別` / `期別` / `累計推移` は上部共通フィルターではなく、推移分析画面内の `state.ui.trendAggregationUnit` で切り替えます。
+
+
+## 対象期間ショートカット
+
+対象期間ポップオーバーの `よく使う` タブは localStorage の `periodQuickFilters` / `periodQuickDefault` を利用し、表示有無・表示順・初期表示をユーザーごとに保持します。`当月`、`前月`、`直近3か月`、`直近12か月`、`当期通期`、`前期通期` は保存時点の年月ではなく、利用時点のブラウザ現在日時で再計算します。`データ最新月` は取込データ内の最大年月であり、未来計画を含む場合は将来年月として表示します。

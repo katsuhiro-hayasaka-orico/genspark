@@ -2,7 +2,7 @@
 
 ## 1. 画面概要
 
-テーマ、表示倍率、しきい値、KPI順序など、フロントエンド表示設定を変更する画面です。
+テーマ、表示倍率、しきい値、KPI順序、対象期間ショートカットなど、フロントエンド表示設定を変更する画面です。
 
 ## 2. 表示条件
 
@@ -16,6 +16,7 @@
 | `state.ui.displayZoom` | 表示倍率 |
 | `state.settings.thresholds` | アラートしきい値 |
 | `state.settings.kpiOrder` | KPI順序 |
+| `periodQuickFilters` / `periodQuickDefault` | 対象期間ポップオーバーの「よく使う」表示項目・順序・初期表示 |
 
 ## 4. 主な利用API
 
@@ -23,15 +24,15 @@ APIは利用しません。localStorage と `state` を利用します。
 
 ## 5. 画面レイアウト
 
-テーマ選択、表示倍率操作、しきい値入力、KPI順序設定のパネルで構成されます。
+テーマ選択、表示倍率操作、しきい値入力、KPI順序設定、対象期間ショートカット設定のパネルで構成されます。
 
 ## 6. 表示項目
 
-ライト/ダーク/ネオン、表示倍率、差額率しきい値、金額差しきい値、前月比しきい値、前年比しきい値、KPI順序を表示します。
+ライト/ダーク/ネオン、表示倍率、差額率しきい値、金額差しきい値、前月比しきい値、前年比しきい値、KPI順序、対象期間ショートカット（有効/無効、表示順、初期表示、ユーザー定義の削除）を表示します。
 
 ## 7. 操作仕様
 
-テーマ切替、倍率±/リセット、しきい値変更を行います。トップバーのクイック設定からも一部操作可能です。
+テーマ切替、倍率±/リセット、しきい値変更、対象期間ショートカットのON/OFF・上下移動・現在の対象期間の追加・ユーザー定義削除・初期設定へのリセットを行います。トップバーのクイック設定からも一部操作可能です。
 
 ## 8. フィルター・ソート仕様
 
@@ -47,7 +48,7 @@ APIは利用しません。localStorage と `state` を利用します。
 
 ## 11. 計算仕様
 
-表示倍率は 75〜150%、5%刻み。テーマは light/dark/neon を body の `data-theme` に反映します。金額単位は画面別に localStorage 保存されます。
+表示倍率は 75〜150%、5%刻み。テーマは light/dark/neon を body の `data-theme` に反映します。金額単位は画面別に localStorage 保存されます。対象期間ショートカットは組み込みプリセットをIDとして保存し、当月・前月・直近期間・当期通期・前期通期を利用時点の `new Date()` で再計算します。固定年月範囲と固定対象期範囲はユーザー定義として保存します。
 
 ## 12. エラー・空データ時の表示
 
@@ -57,7 +58,7 @@ localStorage 読み込み失敗時は既定値にフォールバックします�
 
 | ソース | 関数 |
 |---|---|
-| `public/static/app.js` | `renderSettings`, `toggleTheme`, `applyTheme`, `normalizeZoomPercent`, `setDisplayZoom`, `updateZoomControls` |
+| `public/static/app.js` | `renderSettings`, `periodQuickSettingsHtml`, `bindPeriodQuickSettings`, `loadPeriodQuickFilters`, `savePeriodQuickFilters`, `toggleTheme`, `applyTheme`, `normalizeZoomPercent`, `setDisplayZoom`, `updateZoomControls` |
 | `public/static/style.css` | `body[data-theme]`, 表示倍率関連CSS |
 
 ## 14. 未確認事項

@@ -447,3 +447,19 @@
     body.export-mode a { color: #0017C1; }
   }
 }
+
+.period-quick-settings { display: grid; gap: var(--space-3); }
+.period-quick-list { display: grid; gap: 8px; }
+.period-quick-item { display: grid; grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.5fr) auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
+.period-quick-check { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+.period-quick-meta, .period-quick-help { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.period-quick-actions { display: inline-flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.period-quick-actions button { padding: 6px 10px; min-width: 36px; }
+.period-quick-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.period-quick-default { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.period-scope-menu__foot { flex-wrap: wrap; }
+
+@media (max-width: 700px) {
+  .period-quick-item { grid-template-columns: 1fr; align-items: stretch; }
+  .period-quick-actions { justify-content: flex-start; }
+}

@@ -10,6 +10,7 @@ function createRenderHarness() {
   const codeWithoutBoot = appJs.slice(0, bootIndex);
 
   const elements = new Map();
+  const storage = new Map();
   const getElement = (id) => {
     if (!elements.has(id)) {
       elements.set(id, {
@@ -36,7 +37,12 @@ function createRenderHarness() {
   const context = {
     console,
     setTimeout,
-    localStorage: { getItem: () => null, setItem: () => {} },
+    localStorage: {
+      getItem: (key) => storage.has(key) ? storage.get(key) : null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: (key) => storage.delete(key),
+      clear: () => storage.clear(),
+    },
     document: {
       body: { dataset: {}, insertAdjacentHTML: () => {} },
       getElementById: getElement,
@@ -59,7 +65,13 @@ this.formatScopeSummary = formatScopeSummary;
 this.initFilterBar = initFilterBar;
 this.resolveDefaultTargetYearMonth = resolveDefaultTargetYearMonth;
 this.presetMonthRange = presetMonthRange;
-this.buildTimeSeries = buildTimeSeries;`, context);
+this.buildTimeSeries = buildTimeSeries;
+this.loadPeriodQuickFilters = loadPeriodQuickFilters;
+this.savePeriodQuickFilters = savePeriodQuickFilters;
+this.getEnabledPeriodQuickFilters = getEnabledPeriodQuickFilters;
+this.resolvePeriodQuickFilter = resolvePeriodQuickFilter;
+this.addCurrentScopeToQuickFilters = addCurrentScopeToQuickFilters;
+this.renderSettings = renderSettings;`, context);
 
   return context;
 }
@@ -126,9 +138,47 @@ test('default target month and presets use browser date rather than future data 
   assert.equal(context.resolveDefaultTargetYearMonth(yms, date), '202606');
   assert.equal(JSON.stringify(context.presetMonthRange('last3Months', yms, date)), JSON.stringify({ from: '202604', to: '202606' }));
   assert.equal(JSON.stringify(context.presetMonthRange('last12Months', yms, date)), JSON.stringify({ from: '202507', to: '202606' }));
-  assert.equal(JSON.stringify(context.presetMonthRange('currentFiscalPeriodToDate', yms, date)), JSON.stringify({ period: '67', from: '202604', to: '202606' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('currentFiscalPeriodFull', yms, date)), JSON.stringify({ period: '67', from: '202604', to: '202703' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('currentFiscalPeriodFull', yms, new Date('2027-02-02T00:00:00'))), JSON.stringify({ period: '67', from: '202604', to: '202703' }));
+  assert.equal(JSON.stringify(context.presetMonthRange('currentFiscalPeriodFull', yms, new Date('2026-03-02T00:00:00'))), JSON.stringify({ period: '66', from: '202504', to: '202603' }));
   assert.equal(JSON.stringify(context.presetMonthRange('previousFiscalPeriodFull', yms, date)), JSON.stringify({ period: '66', from: '202504', to: '202603' }));
   assert.equal(JSON.stringify(context.presetMonthRange('dataLatestMonth', yms, date)), JSON.stringify({ from: '202803', to: '202803' }));
+});
+
+
+test('period quick filters are persisted and drive the frequently used tab', () => {
+  const context = createRenderHarness();
+  context.state.hasData = true;
+  context.state.page = 'summary';
+  context.state.data.status = { periods: ['66', '67'], sortedYMs: ['202604', '202605', '202606', '202803'], departments: [], vendors: [] };
+  context.state.data.items = [];
+  context.savePeriodQuickFilters([
+    { id: 'currentMonth', type: 'builtInPreset', label: '当月', enabled: false },
+    { id: 'currentFiscalPeriodFull', type: 'builtInPreset', label: '当期通期', enabled: true },
+    { id: 'custom_202604_202609', type: 'fixedMonthRange', label: '2026年度 上期', enabled: true, fromYM: '202604', toYM: '202609' },
+  ], 'currentFiscalPeriodFull');
+
+  context.state.ui.periodScopePopoverOpen = true;
+  context.initFilterBar();
+  const filterHtml = context.document.getElementById('globalFilters').innerHTML;
+
+  assert.doesNotMatch(filterHtml, /<strong>当月<\/strong>/);
+  assert.match(filterHtml, /当期通期/);
+  assert.match(filterHtml, /2026年度 上期/);
+  assert.match(filterHtml, /現在の対象期間を「よく使う」に追加/);
+  assert.equal(context.getEnabledPeriodQuickFilters().length, 2);
+});
+
+test('settings page exposes period quick filter customization', () => {
+  const context = createRenderHarness();
+  context.renderSettings();
+  const html = context.document.getElementById('content').innerHTML;
+
+  assert.match(html, /対象期間ショートカット/);
+  assert.match(html, /よく使う/);
+  assert.match(html, /初期表示/);
+  assert.match(html, /初期設定に戻す/);
+  assert.match(html, /データ最新月は取込データ内の最大年月/);
 });
 
 test('trend time series aggregation unit is independent from selected period scope', () => {

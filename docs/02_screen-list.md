@@ -14,7 +14,7 @@
 | 追加CSV | `project` | 新規案件コスト | 新規案件コスト分析、進捗・コスト消化ギャップ、差額理由 | `renderProject` | `GET /api/analysis/new-project-costs` | [08_new-project-cost.md](./07_screen-specs/08_new-project-cost.md) | 新規案件マスタ/月次金額を優先利用 |
 | 追加CSV | `depreciation` | 減価償却シミュレーション | 減価償却シミュレーションCSVの集計・ランキング | `renderDepreciation` | `GET /api/additional-data/depreciation_simulation` | [09_depreciation.md](./07_screen-specs/09_depreciation.md) | データ未取込でも追加CSV単独表示条件あり |
 | 追加CSV | `oacis` | OACIS実績 | OACIS実績のKPI、経費事象/サプライヤ/予実番号ランキング | `renderOacisActual` | `GET /api/analysis/oacis-actual` | [10_oacis.md](./07_screen-specs/10_oacis.md) | `oasis_actual` という内部キーを使用 |
-| 共通・ユーティリティ | `settings` | 表示設定 | テーマ、表示倍率、しきい値、KPI順序 | `renderSettings` | なし（localStorage/state中心） | [11_settings.md](./07_screen-specs/11_settings.md) | クイック設定から遷移 |
+| 共通・ユーティリティ | `settings` | 表示設定 | テーマ、表示倍率、しきい値、KPI順序、対象期間ショートカット | `renderSettings` | なし（localStorage/state中心） | [11_settings.md](./07_screen-specs/11_settings.md) | クイック設定から遷移 |
 | 共通・ユーティリティ | `manual` | 使い方 | アプリ内ヘルプ、操作説明 | `renderManual` | なし | [12_manual.md](./07_screen-specs/12_manual.md) | 実装上のヘルプ内容を仕様化 |
 
 ## 未確認事項

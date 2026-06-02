@@ -8,7 +8,8 @@
 | 金額正規化 | `normalizeAmount` | 通貨記号・カンマ・空白除去、全角マイナス統一、括弧/△/▲負数対応、数値化不能は invalid |
 | 年月正規化 | `normalizeDateString`, `normalizeYearMonthString` | `YYYYMM` または `YYYY/MM` 等を `YYYYMM` 化。年1900〜2200、月1〜12 |
 | 会計期導出 | `deriveFiscalPeriodFromYearMonth`, `yearMonthForFiscalPeriodMonth`, `fiscalPeriodFromYearMonth`, `fiscalPeriodToMonthRange` | 67期を2026年4月〜2027年3月（FY2026）とする。年月から期を導出する場合は月が1〜3月なら前年、それ以外は当年を会計年度とし、`fiscalYear - 1959` を期とする。期＋月から対象年月を導出する場合は `period + 1959` を年度開始年とし、4〜12月は当年、1〜3月は翌年に配置する。 |
-| グローバル対象期間 | `normalizeGlobalScopeFilters`, `ymInSelectedScope`, `inSelectedFiscalPeriodRange`, `scopedItemTotals`, `resolveDefaultTargetYearMonth` | `periodMode` に依存せず、`scopeMode`/`scopePreset`/`customRangeUnit` で対象期間を管理する。初期対象月は当月→前月→現在年月以前の最大月→最も近い未来月の順で解決し、データ最大年月は `データ最新月` プリセットだけで使う。単月は1か月、対象月範囲は開始月〜終了月、対象期範囲は開始期4月〜終了期翌3月の月次データだけを合計する。 |
+| グローバル対象期間 | `normalizeGlobalScopeFilters`, `ymInSelectedScope`, `inSelectedFiscalPeriodRange`, `scopedItemTotals`, `resolveDefaultTargetYearMonth` | `periodMode` に依存せず、`scopeMode`/`scopePreset`/`customRangeUnit` で対象期間を管理する。初期対象月は設定された対象期間ショートカットを優先し、無効・削除済みの場合は当月→前月→現在年月以前の最大月→最も近い未来月の順で解決する。データ最大年月は `データ最新月` プリセットだけで使う。単月は1か月、対象月範囲は開始月〜終了月、対象期範囲は開始期4月〜終了期翌3月の月次データだけを合計する。`当期通期`（旧`当期累計`互換）は現在日時が属する対象期の4月〜翌3月の12か月であり、YTDや四半期ではない。 |
+| 対象期間ショートカット | `loadPeriodQuickFilters`, `savePeriodQuickFilters`, `resolvePeriodQuickFilter`, `applyPeriodQuickFilter` | `periodQuickFilters` localStorageに、表示有無・表示順・初期表示IDを保存する。組み込みプリセットはIDで保存し、年月範囲へは表示/適用時に `new Date()` と取込データから再評価する。固定年月範囲・固定対象期範囲はユーザー定義ショートカットとして保存できる。 |
 | 推移表示単位 | `buildTimeSeries`, `state.ui.trendAggregationUnit` | 推移分析では対象期間で絞り込んだ月次データを、月別/四半期別/期別/累計推移にバケット化する。 |
 
 ## 2. plan / forecast / actual の扱い
