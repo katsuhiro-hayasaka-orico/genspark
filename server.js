@@ -579,9 +579,7 @@ function parseUnifiedBudgetLayout(rows) {
         continue;
       }
 
-      const fiscalYear = 1960 + period;
-      const calendarYear = month <= 3 ? fiscalYear + 1 : fiscalYear;
-      const date = normalizeDateString(`${calendarYear}${String(month).padStart(2, '0')}`);
+      const date = normalizeDateString(yearMonthForFiscalPeriodMonth(period, month));
       if (!date.valid) {
         issues.push(makeImportIssue('warning', rowNumber, key, '年月が不正なため、この金額セルは取り込みません', rawAmount));
         continue;
@@ -710,8 +708,24 @@ function deriveFiscalPeriodFromYearMonth(ym) {
   const parsed = parseYM(ym);
   if (!parsed) return '';
   const fiscalYear = parsed.month <= 3 ? parsed.year - 1 : parsed.year;
-  const period = fiscalYear - 1960;
+  const period = fiscalYear - 1959;
   return period > 0 ? String(period) : '';
+}
+
+function yearMonthForFiscalPeriodMonth(fiscalPeriod, month) {
+  const period = Number(fiscalPeriod);
+  const monthNumber = Number(month);
+  if (!Number.isFinite(period) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return '';
+  const fiscalYear = periodFY(period);
+  if (!Number.isFinite(fiscalYear)) return '';
+  const calendarYear = monthNumber <= 3 ? fiscalYear + 1 : fiscalYear;
+  return `${calendarYear}${String(monthNumber).padStart(2, '0')}`;
+}
+
+function alignYearMonthToFiscalPeriod(ym, fiscalPeriod) {
+  const parsed = parseYM(ym);
+  if (!parsed) return ym;
+  return yearMonthForFiscalPeriodMonth(fiscalPeriod, parsed.month) || ym;
 }
 
 function normalizeNewProjectRecord(row = {}) {
@@ -1202,21 +1216,20 @@ function fmtYM(ym) {
   return ym;
 }
 
-// Derive fiscal_period label from period number
-function periodLabel(p) {
-  const n = toNum(p);
-  // period 65 = FY2025, period 66 = FY2026, ... period 70 = FY2030
-  if (n >= 60 && n <= 99) {
-    const baseYear = 1960 + n;
-    return `第${n}期 (FY${baseYear})`;
-  }
-  return `第${n}期`;
-}
-
+// Derive fiscal_period label from period number.
+// 67期 is FY2026 (April 2026 - March 2027); adjacent periods are offset from that base.
 function periodFY(p) {
   const n = toNum(p);
-  if (n >= 60 && n <= 99) return 1960 + n;
+  if (n >= 60 && n <= 99) return n + 1959;
   return n;
+}
+
+function periodLabel(p) {
+  const n = toNum(p);
+  if (n >= 60 && n <= 99) {
+    return `第${n}期 (FY${periodFY(n)})`;
+  }
+  return `第${n}期`;
 }
 
 function normalizeVarianceReasonCategory(value) {
@@ -1310,7 +1323,7 @@ function buildUnifiedData() {
       const mno = row.management_no || '';
       const ino = row.item_no || '';
       const fp = row.fiscal_period || '';
-      const ym = row.target_year_month || '';
+      const ym = fp ? alignYearMonthToFiscalPeriod(row.target_year_month || '', fp) : (row.target_year_month || '');
       const vtype = (row.value_type || '').toLowerCase();
       const amount = toNum(row.amount);
 
@@ -2852,6 +2865,8 @@ module.exports = {
   parseUnifiedBudgetLayout,
   canonicalizeBudgetRows,
   canonicalBudgetMonthHeader,
+  deriveFiscalPeriodFromYearMonth,
+  yearMonthForFiscalPeriodMonth,
   normalizeAmount,
   normalizeDateString,
   safeString,
