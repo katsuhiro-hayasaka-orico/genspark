@@ -451,10 +451,35 @@ function getPeriodOptions() {
   return [...new Set(state.data.items.map(r => r.fiscal_period).filter(Boolean))].sort((a, b) => String(periodSortValue(a)).localeCompare(String(periodSortValue(b)), 'ja', { numeric: true }));
 }
 
+function fiscalYearFromFiscalPeriod(fiscalPeriod) {
+  const numeric = Number(String(fiscalPeriod ?? '').trim().replace(/^FY/i, ''));
+  if (Number.isFinite(numeric) && numeric >= 60 && numeric <= 99) return numeric + 1959;
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function fiscalPeriodMonths(fiscalPeriod) {
+  const fiscalYear = fiscalYearFromFiscalPeriod(fiscalPeriod);
+  if (!fiscalYear) return [];
+  return Array.from({ length: 12 }, (_, idx) => {
+    const month = idx < 9 ? idx + 4 : idx - 8;
+    const year = month >= 4 ? fiscalYear : fiscalYear + 1;
+    return `${year}${String(month).padStart(2, '0')}`;
+  });
+}
+
+function getSelectedPeriodOptions() {
+  return getPeriodOptions().filter(period => inSelectedFiscalPeriodRange(String(period || '')));
+}
+
 function getYearMonthOptions() {
+  const selectedPeriods = getSelectedPeriodOptions();
+  const expectedYMs = selectedPeriods.flatMap(fiscalPeriodMonths);
+  const expectedSet = new Set(expectedYMs);
   const scopedItems = state.data.items.filter(r => inSelectedFiscalPeriodRange(String(r.fiscal_period || '')));
   const scopedYMs = [...new Set(scopedItems.flatMap(r => Object.keys(r.monthly || {})).filter(Boolean))].sort();
-  if (scopedYMs.length) return scopedYMs;
+  const alignedYMs = scopedYMs.filter(ym => !expectedSet.size || expectedSet.has(ym));
+  if (alignedYMs.length) return alignedYMs;
+  if (expectedYMs.length) return [...new Set(expectedYMs)].sort();
   const st = state.data.status || {};
   const yms = Array.isArray(st.sortedYMs) ? st.sortedYMs : [];
   return [...yms].filter(Boolean).sort();
@@ -605,11 +630,8 @@ function deriveFiscalYearFromFiscalPeriod(fiscalPeriod, items = []) {
   const matched = items.find(item => raw && String(item.fiscal_period || '') === raw && item.fiscal_year);
   if (matched) return Number(matched.fiscal_year);
 
-  const numeric = Number(raw.replace(/^FY/i, ''));
-  if (Number.isFinite(numeric) && numeric > 0) {
-    if (numeric >= 60 && numeric <= 99) return 1960 + numeric;
-    return numeric;
-  }
+  const numeric = fiscalYearFromFiscalPeriod(raw);
+  if (numeric) return numeric;
 
   const yearFromMonthly = items
     .flatMap(item => Object.keys(item.monthly || {}))

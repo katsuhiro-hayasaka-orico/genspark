@@ -54,8 +54,8 @@ test('upload and mutable records persist to the local store file', async () => {
   try {
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const csv = [
-      '管理番号,項番,期,予算区分,案件名,部署名,担当者,支払先,契約番号,契約金額,月額,支払区分,固定変動,経費事象コード,システム名,経費事象名,システム分類名,経費区分,65期4月計画,65期4月見込',
-      'XSS-1,1,65,運用,"<img src=x onerror=alert(1)>",IT,Alice,Vendor A,C-1,1000,100,運用,固定,SYS1,System One,Hosting,Core,クラウド,1000,900',
+      '管理番号,項番,期,予算区分,案件名,部署名,担当者,支払先,契約番号,契約金額,月額,支払区分,固定変動,経費事象コード,システム名,経費事象名,システム分類名,経費区分,67期4月計画,67期4月見込',
+      'XSS-1,1,67,運用,"<img src=x onerror=alert(1)>",IT,Alice,Vendor A,C-1,1000,100,運用,固定,SYS1,System One,Hosting,Core,クラウド,1000,900',
     ].join('\n');
 
     const dryRunForm = new FormData();
@@ -105,8 +105,8 @@ test('upload and mutable records persist to the local store file', async () => {
       body: JSON.stringify({
         management_no: 'XSS-1',
         item_no: '1',
-        fiscal_period: '65',
-        target_year_month: '202504',
+        fiscal_period: '67',
+        target_year_month: '202604',
         reason_category: '価格改定',
         factor_type: 'ライセンス単価上昇',
         comment: '更新見積もりを確認済み',
@@ -120,18 +120,18 @@ test('upload and mutable records persist to the local store file', async () => {
     assert.equal(items.items[0].variance_reason_category, '価格改定');
     assert.equal(items.items[0].variance_reason, 'ライセンス単価上昇');
     assert.equal(items.items[0].comment, '更新見積もりを確認済み');
-    assert.equal(items.items[0].comment_updated_month, '202504');
+    assert.equal(items.items[0].comment_updated_month, '202604');
     assert.equal(items.items[0].comment_updated_by, 'Alice');
-    assert.deepEqual(items.items[0].monthlyComments['202504'], {
+    assert.deepEqual(items.items[0].monthlyComments['202604'], {
       variance_reason: 'ライセンス単価上昇',
       variance_reason_category: '価格改定',
       comment: '更新見積もりを確認済み',
-      comment_updated_month: '202504',
+      comment_updated_month: '202604',
       comment_updated_by: 'Alice',
     });
-    assert.equal(items.items[0].monthly['202504'].variance_reason_category, '価格改定');
-    assert.equal(items.items[0].monthly['202504'].variance_reason, 'ライセンス単価上昇');
-    assert.equal(items.items[0].monthly['202504'].comment, '更新見積もりを確認済み');
+    assert.equal(items.items[0].monthly['202604'].variance_reason_category, '価格改定');
+    assert.equal(items.items[0].monthly['202604'].variance_reason, 'ライセンス単価上昇');
+    assert.equal(items.items[0].monthly['202604'].comment, '更新見積もりを確認済み');
 
     const saved = JSON.parse(fs.readFileSync(process.env.BUDGET_CSV_VIEWER_STORE_FILE, 'utf8'));
     assert.equal(saved.csvFileName, 'upload.csv');
@@ -158,7 +158,7 @@ test('new project import normalizes 新規案件個票.csv layout', () => {
   assert.equal(result.rows[0].project_category, '投資系');
   assert.equal(result.rows[0].it_strategy_category, '顧客接点');
   assert.equal(result.rows[0].target_year_month, '202604');
-  assert.equal(result.rows[0].fiscal_period, '66');
+  assert.equal(result.rows[0].fiscal_period, '67');
   assert.equal(result.rows[0].budget_amount, 1000);
   assert.equal(result.rows[0].forecast_amount, 1200);
   assert.equal(result.rows[0].progress_rate, 50);
@@ -181,12 +181,12 @@ test('oacis actual import parses japanese columns and falls back amount from 借
 
 test('budget import accepts tab-separated text with flexible header aliases and preamble rows', async () => {
   const { parseBudgetCsv, canonicalBudgetMonthHeader } = require('../server');
-  assert.equal(canonicalBudgetMonthHeader('2025/04 予算'), '65期4月計画');
+  assert.equal(canonicalBudgetMonthHeader('2025/04 予算'), '66期4月計画');
 
   const pasted = [
     '予実績管理 エクスポート',
     '管理No\tNo\t対象期\t予算カテゴリ\t件名\t部門名\t担当者名\tベンダー名\t契約No\t年額\t月次金額\t投資・運用区分\t固定費・変動費\tシステムコード\tサービス名\t費目名\t分類名\t2025/04 予算\t2025/04 見込み\t2025/04 実績',
-    'PASTE-1\t1\t65\t運用\tTSV取込案件\tIT\tAlice\tVendor X\tCX-1\t1200\t100\t運用\t固定\tSYS-X\tSystem X\tHosting\tCore\t1000\t950\t900',
+    'PASTE-1\t1\t66\t運用\tTSV取込案件\tIT\tAlice\tVendor X\tCX-1\t1200\t100\t運用\t固定\tSYS-X\tSystem X\tHosting\tCore\t1000\t950\t900',
   ].join('\n');
 
   const parsed = parseBudgetCsv(pasted);
@@ -195,7 +195,26 @@ test('budget import accepts tab-separated text with flexible header aliases and 
   assert.equal(parsed.master[0].management_no, 'PASTE-1');
   assert.equal(parsed.master[0].project_name, 'TSV取込案件');
   assert.equal(parsed.detail.length, 3);
+  assert.equal(parsed.detail[0].fiscal_period, '66');
+  assert.equal(parsed.detail[0].target_year_month, '202504');
   assert.equal(parsed.detail.find(row => row.value_type === 'actual').amount, '900');
+});
+
+
+test('fiscal period calendar mapping uses 67期 as April 2026 to March 2027', () => {
+  const { parseCSV, parseUnifiedBudgetLayout, deriveFiscalPeriodFromYearMonth, yearMonthForFiscalPeriodMonth } = require('../server');
+  assert.equal(deriveFiscalPeriodFromYearMonth('202604'), '67');
+  assert.equal(deriveFiscalPeriodFromYearMonth('202703'), '67');
+  assert.equal(deriveFiscalPeriodFromYearMonth('202504'), '66');
+  assert.equal(yearMonthForFiscalPeriodMonth('67', 4), '202604');
+  assert.equal(yearMonthForFiscalPeriodMonth('67', 3), '202703');
+
+  const parsed = parseUnifiedBudgetLayout(parseCSV([
+    '管理番号,項番,期,案件名,67期4月計画,67期3月見込',
+    'PERIOD-1,1,67,期年月確認,100,200',
+  ].join('\n')));
+  assert.equal(parsed.detail.find(row => row.value_type === 'plan').target_year_month, '202604');
+  assert.equal(parsed.detail.find(row => row.value_type === 'forecast').target_year_month, '202703');
 });
 
 test('depreciation simulation import keeps long-form rows without management number', () => {
