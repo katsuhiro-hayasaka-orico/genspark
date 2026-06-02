@@ -27,18 +27,17 @@
 | ページタイトル | `#pageTitle` に現在ページ名を表示 |
 | ステータス | `#statusBadge` にデータ状態を表示 |
 | クイック設定 | テーマ切替、表示倍率±、リセット |
-| グローバルフィルター | `#globalFilters` に期、年月、部署等を表示。取込/設定/使い方では非表示 |
+| グローバルフィルター | `#globalFilters` に集計軸、対象期間、部署、分析軸、対象を表示。取込/設定/使い方では非表示 |
 
 ## 4. グローバルフィルター
 
 | フィルター | 内部キー | 備考 |
 |---|---|---|
-| 期間モード | `state.filters.periodMode` | 月次/期等 |
+| 集計軸 | `state.filters.periodMode` | 月次/四半期/通期。対象期間の選択方式とは分離する |
+| 対象期間 | `scopeMode`, `scopePreset`, `customRangeUnit`, `targetYearMonth`, `targetYearMonthFrom`, `targetYearMonthTo`, `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | 単月、直近3/12か月、対象期累計、カスタム範囲を1つのコントロールで指定する。カスタム時のみ対象月/対象期の範囲指定UIを表示する |
 | 部署 | `state.filters.department` | `department_name` |
 | 分析視点 | `state.filters.perspective` | カテゴリ分析等に影響 |
 | 対象 | `state.filters.target` | 値の正式定義は未確認 |
-| 期 | `fiscalPeriod`, `fiscalPeriodFrom`, `fiscalPeriodTo` | 範囲指定あり。対象年月候補は選択期範囲にカスケードし、67期=2026/04〜2027/03を基準にする |
-| 対象年月 | `targetYearMonth` | `YYYYMM` |
 
 ## 5. カード・KPI
 
