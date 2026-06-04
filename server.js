@@ -1043,6 +1043,26 @@ function firstAdditionalRow(additionalStores, fileType, managementNo) {
   return additionalStores?.[fileType]?.byManagementNo?.[managementNo]?.[0] || null;
 }
 
+
+const CATEGORY_DIMENSION_FIELDS = [
+  'budget_category',
+  'expense_classification',
+  'department_name',
+  'payment_category',
+  'fixed_variable_type',
+  'system_name',
+  'system_classification',
+  'expense_item_name',
+];
+
+function attachItemDimensions(item = {}) {
+  // TODO: 将来的には「分類_XXX」または「dim_XXX」形式のCSV列を分類軸候補として自動検出する。
+  // TODO: 分類軸マスタCSVまたは設定画面で分類軸を管理できるようにする。
+  // 現時点では既存CSV列と既存フィールドを前提に分類軸レジストリ化する。
+  const dimensions = Object.fromEntries(CATEGORY_DIMENSION_FIELDS.map(field => [field, item[field] || '']));
+  return { ...item, dimensions };
+}
+
 function mergeAdditionalDataByManagementNo(items, additionalStores) {
   const normalized = normalizeAdditionalDataStore(additionalStores);
   return (items || []).map((item) => {
@@ -1052,7 +1072,7 @@ function mergeAdditionalDataByManagementNo(items, additionalStores) {
     const oasisActual = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.OASIS_ACTUAL, managementNo);
     const depreciationSimulation = firstAdditionalRow(normalized, IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION, managementNo);
 
-    return {
+    return attachItemDimensions({
       ...item,
       variance_reason: item.variance_reason || varianceReason?.comment || varianceReason?.reason || '',
       new_project_status: newProject?.status || item.new_project_status || '',
@@ -1065,7 +1085,7 @@ function mergeAdditionalDataByManagementNo(items, additionalStores) {
         oasis_actual: oasisActual,
         depreciation_simulation: depreciationSimulation,
       },
-    };
+    });
   });
 }
 

@@ -28,6 +28,10 @@ APIは利用しません。localStorage と `state` を利用します。
 
 ## 6. 表示項目
 
+- カテゴリ別分析セクションでは、初期表示する分類軸とTop N初期値を選択・保存できます。保存値は `localStorage` の `categoryAnalysisSettings` に保持します。
+
+## 6. 表示項目
+
 ライト/ダーク/ネオン、表示倍率、差額率しきい値、金額差しきい値、前月比しきい値、前年比しきい値、KPI順序、対象期間ショートカット（有効/無効、表示順、初期表示、ユーザー定義の削除）を表示します。
 
 ## 7. 操作仕様
@@ -58,7 +62,7 @@ localStorage 読み込み失敗時は既定値にフォールバックします�
 
 | ソース | 関数 |
 |---|---|
-| `public/static/app.js` | `renderSettings`, `periodQuickSettingsHtml`, `bindPeriodQuickSettings`, `loadPeriodQuickFilters`, `savePeriodQuickFilters`, `toggleTheme`, `applyTheme`, `normalizeZoomPercent`, `setDisplayZoom`, `updateZoomControls` |
+| `public/static/app.js` | `renderSettings`, `periodQuickSettingsHtml`, `bindPeriodQuickSettings`, `categoryAnalysisSettingsHtml`, `bindCategoryAnalysisSettings`, `loadCategoryAnalysisSettings`, `persistCategoryAnalysisSettings`, `toggleTheme`, `applyTheme`, `normalizeZoomPercent`, `setDisplayZoom`, `updateZoomControls` |
 | `public/static/style.css` | `body[data-theme]`, 表示倍率関連CSS |
 
 ## 14. 未確認事項
