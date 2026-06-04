@@ -68,6 +68,7 @@ function emptyStore() {
     rawRows: [],      // parsed unified CSV rows (as-is view for items screen)
     uploadedAt: null,
     csvFileName: null,
+    categoryDimensions: [],
     additionalData: createAdditionalDataStore(),
     varianceReasons: {},   // key: management_no|item_no|fiscal_period|target_year_month
     initiatives: {},       // key: initiative_id
@@ -108,6 +109,7 @@ function normalizeStore(candidate) {
     master: Array.isArray(source.master) ? source.master : [],
     detail: Array.isArray(source.detail) ? source.detail : [],
     rawRows: Array.isArray(source.rawRows) ? source.rawRows : [],
+    categoryDimensions: Array.isArray(source.categoryDimensions) ? source.categoryDimensions : [],
     additionalData: normalizeAdditionalDataStore(source.additionalData),
     varianceReasons: source.varianceReasons && typeof source.varianceReasons === 'object' ? source.varianceReasons : {},
     initiatives: source.initiatives && typeof source.initiatives === 'object' ? source.initiatives : {},
@@ -430,6 +432,45 @@ function canonicalBudgetColumnHeader(header) {
   return BUDGET_HEADER_LOOKUP[normalized] || '';
 }
 
+function stableDimensionHash(value) {
+  let hash = 2166136261;
+  const text = safeString(value);
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function categoryDimensionSlug(label, sourceHeader) {
+  const base = safeString(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return base || `h${stableDimensionHash(sourceHeader)}`;
+}
+
+function detectCategoryDimensionColumns(headers = []) {
+  const seen = new Set();
+  return (headers || []).map((header, index) => {
+    const sourceHeader = safeString(header);
+    const match = sourceHeader.match(/^(?:分類[_＿]|dim_|dimension_)(.+)$/i);
+    if (!match) return null;
+    const label = safeString(match[1]);
+    if (!label) return null;
+    let id = `custom_${categoryDimensionSlug(label, sourceHeader)}`;
+    if (seen.has(id)) id = `${id}_${stableDimensionHash(sourceHeader)}`;
+    seen.add(id);
+    return {
+      id,
+      label,
+      field: id,
+      sourceHeader,
+      source: 'detected_csv',
+      favorite: false,
+      enabled: true,
+      order: 1000 + index * 10,
+    };
+  }).filter(Boolean);
+}
+
 function canonicalBudgetValueType(value) {
   const text = safeString(value);
   if (/^(計画|予算|budget|plan)$/i.test(text)) return '計画';
@@ -483,13 +524,14 @@ function parseUnifiedBudgetLayout(rows) {
   const master = [];
   const detail = [];
   const issues = [];
+  const categoryDimensions = detectCategoryDimensionColumns(Object.keys((Array.isArray(rows) ? rows[0] : null) || {}));
   const sourceRows = canonicalizeBudgetRows(rows);
   const totalRows = sourceRows.length;
   let successRows = 0;
   let skippedRows = 0;
 
   if (totalRows === 0) {
-    return { master, detail, issues, totalRows, successRows, warningCount: 0, errorCount: 0, skippedRows };
+    return { master, detail, issues, categoryDimensions, totalRows, successRows, warningCount: 0, errorCount: 0, skippedRows };
   }
 
   const headers = Object.keys(sourceRows[0] || {});
@@ -534,11 +576,14 @@ function parseUnifiedBudgetLayout(rows) {
       issues.push(makeImportIssue('warning', rowNumber, '月額', '月額が不正なため 0 として取り込みます', row['月額']));
     }
 
+    const customDimensions = Object.fromEntries(categoryDimensions.map(d => [d.id, safeString(row[d.sourceHeader] || '')]));
+
     const contractStartDate = normalizeDateString(row['契約開始日'] || '');
     const contractEndDate = normalizeDateString(row['契約終了日'] || '');
     const nextRenewalMonth = normalizeYearMonthString(row['次回更新予定月'] || '');
 
     master.push({
+      custom_dimensions: customDimensions,
       period: safeString(row['期'] || ''),
       management_no: managementNo,
       item_no: itemNo,
@@ -606,7 +651,7 @@ function parseUnifiedBudgetLayout(rows) {
 
   const warningCount = issues.filter(issue => issue.level === 'warning').length;
   const errorCount = issues.filter(issue => issue.level === 'error').length;
-  return { master, detail, issues, totalRows, successRows, warningCount, errorCount, skippedRows };
+  return { master, detail, issues, categoryDimensions, totalRows, successRows, warningCount, errorCount, skippedRows };
 }
 
 
@@ -669,6 +714,7 @@ function parseBudgetCsv(text) {
     rows,
     master: converted.master,
     detail: converted.detail,
+    categoryDimensions: converted.categoryDimensions || [],
   };
 }
 
@@ -1056,10 +1102,12 @@ const CATEGORY_DIMENSION_FIELDS = [
 ];
 
 function attachItemDimensions(item = {}) {
-  // TODO: 将来的には「分類_XXX」または「dim_XXX」形式のCSV列を分類軸候補として自動検出する。
+  // 固定分類軸とCSV自動検出の追加分類軸を同じ dimensions マップへ統合する。
   // TODO: 分類軸マスタCSVまたは設定画面で分類軸を管理できるようにする。
-  // 現時点では既存CSV列と既存フィールドを前提に分類軸レジストリ化する。
-  const dimensions = Object.fromEntries(CATEGORY_DIMENSION_FIELDS.map(field => [field, item[field] || '']));
+  const dimensions = {
+    ...Object.fromEntries(CATEGORY_DIMENSION_FIELDS.map(field => [field, item[field] || ''])),
+    ...(item.custom_dimensions && typeof item.custom_dimensions === 'object' ? item.custom_dimensions : {}),
+  };
   return { ...item, dimensions };
 }
 
@@ -1394,6 +1442,7 @@ function buildUnifiedData() {
           next_renewal_month_warning: masterRow.next_renewal_month_warning || '',
           note: masterRow.note || '',
           fixed_variable_type: masterRow.fixed_variable_type || '',
+          custom_dimensions: masterRow.custom_dimensions || {},
 
           // System info
           system_code: syscode,
@@ -1472,6 +1521,7 @@ function buildUnifiedData() {
         next_renewal_month_warning: row.next_renewal_month_warning || '',
         note: row.note || '',
         fixed_variable_type: row.fixed_variable_type || '',
+        custom_dimensions: row.custom_dimensions || {},
         system_code: syscode,
         // NOTE:
         // 同一 system_code 内で分類が混在するケースに備え、
@@ -1872,6 +1922,7 @@ function budgetImportDryRunResponse({ parsed, fileType, fileName }) {
     issues: parsed.issues || [],
     targetPeriods: [...new Set((parsed.detail || []).map(row => row.fiscal_period).filter(Boolean))].sort(),
     targetYearMonthRange: summarizeTargetYearMonthRange(parsed.detail || []),
+    categoryDimensions: parsed.categoryDimensions || [],
     message: parsed.message || '取込前チェックが完了しました',
   };
 }
@@ -1883,6 +1934,7 @@ function applyParsedImport({ fileType, parsed, fileName, uploadedAt }) {
     store.detail = parsed.detail;
     store.csvFileName = fileName;
     store.uploadedAt = uploadedAt;
+    store.categoryDimensions = parsed.categoryDimensions || [];
 
     const data = buildUnifiedData();
     const agg = data ? getAggregations(data) : null;
@@ -1917,6 +1969,7 @@ function applyParsedImport({ fileType, parsed, fileName, uploadedAt }) {
       systemCount: agg ? agg.systemNames.length : 0,
       periodCount: agg ? agg.periods.length : 0,
       classificationCount: agg ? agg.classifications.length : 0,
+      categoryDimensions: store.categoryDimensions || [],
       additionalData: summarizeAdditionalData(store.additionalData),
     };
   }
@@ -2017,6 +2070,7 @@ app.get('/api/status', (_, res) => {
     periods: data ? data.periods : [],
     expenseItems: agg ? agg.expenseItemNames : [],
     sortedYMs: data ? data.sortedYMs : [],
+    categoryDimensions: store.categoryDimensions || [],
     importFileTypes: IMPORT_FILE_TYPES,
     additionalData: summarizeAdditionalData(store.additionalData),
   });
@@ -2787,6 +2841,7 @@ function autoLoadSampleData() {
       store.rawRows = parsedRows;
       store.master = converted.master;
       store.detail = converted.detail;
+      store.categoryDimensions = converted.categoryDimensions || [];
       store.csvFileName = 'sample_budget_unified.csv';
       console.log(`  [Auto-load] unified: ${parsedRows.length} rows`);
     }

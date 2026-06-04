@@ -288,6 +288,8 @@
   .category-analysis-panel { display: grid; gap: var(--space-3); }
   .category-controls label { display: grid; gap: 4px; font-size: 12px; }
   .category-favorites { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: calc(-1 * var(--space-2)) 0 var(--space-2); }
+  .category-quality { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: calc(-1 * var(--space-2)); }
+  .category-quality .warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
   .detail-controls { align-items: end; }
   .search-field { display: grid; gap: 4px; min-width: min(360px, 100%); }
   .oacis-ranking-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-3); }

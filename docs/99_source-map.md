@@ -9,10 +9,10 @@
 | `docs/04_api-spec.md` | `server.js` | Express `app.get/post` ルート | 全API | API仕様 |
 | `docs/05_data-dictionary.md` | `server.js`, `public/static/app.js` | `buildUnifiedData`, `buildNewProjectAnalysis`, `parse*Csv`, `render*` | `/api/items`, `/api/analysis/*` | 内部キー辞書 |
 | `docs/06_calculation-logic.md` | `server.js`, `public/static/app.js` | `normalizeAmount`, `deriveFiscalPeriodFromYearMonth`, `calculateVariance`, `calculateBurnRate`, `buildNewProjectAnalysis` | `/api/analysis/new-project-costs`, `/api/dashboard/summary` | 計算仕様 |
-| `docs/07_screen-specs/01_import.md` | `public/static/app.js`, `server.js` | `renderImport`, `csvClientChecks`, `handleParsedImport` | `/api/upload`, `/api/status`, `/api/clear` | データ取込 |
+| `docs/07_screen-specs/01_import.md` | `public/static/app.js`, `server.js` | `renderImport`, `csvClientChecks`, `detectPreviewCategoryDimensions`, `handleParsedImport`, `detectCategoryDimensionColumns` | `/api/upload`, `/api/status`, `/api/clear` | データ取込 |
 | `docs/07_screen-specs/02_summary.md` | `public/static/app.js`, `server.js` | `renderSummary`, `recomputeSummary`, `buildUnifiedData` | `/api/items`, `/api/dashboard/summary` | 全体サマリー |
 | `docs/07_screen-specs/03_trend.md` | `public/static/app.js`, `server.js` | `renderTrend`, `buildTimeSeries` | `/api/items`, `/api/analysis/monthly`, `/api/analysis/yoy` | 推移分析 |
-| `docs/07_screen-specs/04_category.md` | `public/static/app.js`, `server.js` | `renderCategory`, `CATEGORY_DIMENSIONS`, `aggregateByDimension`, `getCategoryDimensionValue`, `attachItemDimensions` | `/api/items`, `/api/analysis/by-*` | カテゴリ別分析 |
+| `docs/07_screen-specs/04_category.md` | `public/static/app.js`, `server.js` | `renderCategory`, `CATEGORY_DIMENSIONS`, `getAllCategoryDimensions`, `aggregateByDimension`, `getCategoryDimensionValue`, `detectCategoryDimensionColumns`, `attachItemDimensions` | `/api/items`, `/api/analysis/by-*` | カテゴリ別分析 |
 | `docs/07_screen-specs/05_alert.md` | `public/static/app.js`, `server.js` | `renderAlert`, `calculateVariance`, `calculateBurnRate` | `/api/items` | アラート |
 | `docs/07_screen-specs/06_vendor.md` | `public/static/app.js`, `server.js` | `renderVendor`, `detectContractAlerts`, `buildContractRecord` | `/api/contracts`, `/api/contracts/renewals`, `/api/analysis/vendor-detail` | ベンダー/契約 |
 | `docs/07_screen-specs/07_detail.md` | `public/static/app.js`, `server.js` | `renderDetail`, `setDetailFilter`, `itemMatchesDetailFilter` | `/api/items`, `/api/raw-rows` | 明細ドリルダウン |

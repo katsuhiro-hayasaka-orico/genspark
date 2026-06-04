@@ -181,9 +181,10 @@ const LEGACY_CATEGORY_TAB_MAP = {
 };
 
 // カテゴリ別分析の分類軸レジストリ。
-// TODO: 将来的には「分類_XXX」または「dim_XXX」形式のCSV列を分類軸候補として自動検出する。
+// 固定分類軸に加え、サーバーがCSVから検出した追加分類軸をマージして利用する。
 // TODO: 分類軸マスタCSVまたは設定画面で分類軸を管理できるようにする。
-// 現時点では既存CSV列と既存フィールドを前提に分類軸レジストリ化する。
+let detectedCategoryDimensionsCache = [];
+
 const CATEGORY_DIMENSIONS = [
   { id: 'system_classification', label: 'システム分類名', field: 'system_classification', favorite: true, enabled: true, order: 10 },
   { id: 'expense_classification', label: '経費区分', field: 'expense_classification', favorite: true, enabled: true, order: 20 },
@@ -195,8 +196,35 @@ const CATEGORY_DIMENSIONS = [
   { id: 'system_name', label: 'システム名', field: 'system_name', favorite: false, enabled: true, order: 80 },
 ];
 
+function normalizeDetectedCategoryDimension(dimension, index = 0) {
+  if (!dimension || typeof dimension !== 'object') return null;
+  const id = String(dimension.id || '').trim();
+  if (!/^custom_[a-z0-9_]+$/i.test(id)) return null;
+  return {
+    id,
+    label: String(dimension.label || id.replace(/^custom_/, '')).trim() || id,
+    field: String(dimension.field || id).trim() || id,
+    sourceHeader: String(dimension.sourceHeader || '').trim(),
+    source: dimension.source || 'detected_csv',
+    favorite: false,
+    enabled: dimension.enabled !== false,
+    order: Number.isFinite(Number(dimension.order)) ? Number(dimension.order) : 1000 + index * 10,
+  };
+}
+
+function getAllCategoryDimensions() {
+  const map = new Map();
+  CATEGORY_DIMENSIONS.forEach((dimension) => {
+    if (dimension?.id && dimension.enabled !== false) map.set(dimension.id, dimension);
+  });
+  (detectedCategoryDimensionsCache || []).map(normalizeDetectedCategoryDimension).filter(Boolean).forEach((dimension) => {
+    if (!map.has(dimension.id) && dimension.enabled !== false) map.set(dimension.id, dimension);
+  });
+  return [...map.values()].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
 function getEnabledCategoryDimensions() {
-  return CATEGORY_DIMENSIONS.filter(d => d && d.enabled !== false).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  return getAllCategoryDimensions().filter(d => d && d.enabled !== false);
 }
 
 function getCategoryDimensionById(id) {
@@ -206,7 +234,7 @@ function getCategoryDimensionById(id) {
 
 function normalizeCategoryDimensionId(id) {
   const candidate = LEGACY_CATEGORY_TAB_MAP[String(id || '')] || String(id || '').trim();
-  return getCategoryDimensionById(candidate)?.id || getEnabledCategoryDimensions()[0]?.id || 'system_classification';
+  return getCategoryDimensionById(candidate)?.id || getCategoryDimensionById('system_classification')?.id || getEnabledCategoryDimensions()[0]?.id || 'system_classification';
 }
 
 function normalizeCategoryTopN(value) {
@@ -220,11 +248,11 @@ function loadCategoryAnalysisSettings() {
     const raw = localStorage.getItem(CATEGORY_SETTINGS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return {
-      selectedCategoryDimension: normalizeCategoryDimensionId(parsed.selectedCategoryDimension || parsed.categoryTab),
+      selectedCategoryDimension: String(parsed.selectedCategoryDimension || parsed.categoryTab || 'system_classification'),
       categoryTopN: normalizeCategoryTopN(parsed.categoryTopN),
     };
   } catch (_) {
-    return { selectedCategoryDimension: normalizeCategoryDimensionId('system_classification'), categoryTopN: 25 };
+    return { selectedCategoryDimension: 'system_classification', categoryTopN: 25 };
   }
 }
 
@@ -1631,6 +1659,7 @@ async function refreshAllData() {
     api('/additional-data/depreciation_simulation').catch(() => ({ data: [] })),
     api('/analysis/oacis-actual').catch(() => ({ summary: null, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] })),
   ]);
+  detectedCategoryDimensionsCache = Array.isArray(status.categoryDimensions) ? status.categoryDimensions : [];
   state.hasData = !!status.hasData;
   state.data.status = status;
   state.data.items = itemsRes.items || [];
@@ -1744,6 +1773,39 @@ function additionalStatusListHtml() {
   }).join('')}</div>`;
 }
 
+
+function previewCategoryDimensionSlug(label, sourceHeader) {
+  const slug = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (slug) return slug;
+  let hash = 2166136261;
+  const text = String(sourceHeader || '');
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `h${(hash >>> 0).toString(36)}`;
+}
+
+function detectPreviewCategoryDimensions(headers = []) {
+  const seen = new Set();
+  return (headers || []).map((header, index) => {
+    const sourceHeader = String(header || '').trim();
+    const match = sourceHeader.match(/^(?:分類[_＿]|dim_|dimension_)(.+)$/i);
+    if (!match) return null;
+    const label = String(match[1] || '').trim();
+    if (!label) return null;
+    let id = `custom_${previewCategoryDimensionSlug(label, sourceHeader)}`;
+    if (seen.has(id)) id = `${id}_${index}`;
+    seen.add(id);
+    return { id, label, sourceHeader };
+  }).filter(Boolean);
+}
+
+function categoryDimensionsNoticeHtml(dimensions = []) {
+  if (!dimensions.length) return '';
+  return `<div class="notice"><h4>追加分類列を検出しました</h4><p class="muted">これらはカテゴリ別分析の分類軸として利用できます。</p><ul>${dimensions.map(d => `<li>${escapeHtml(d.label)}（CSV列: ${escapeHtml(d.sourceHeader)}）</li>`).join('')}</ul></div>`;
+}
+
 function csvClientChecks(text) {
   const records = parseCsvPreviewRecords(text, detectPreviewDelimiter(text));
   if (!records.length) return { errors: ['空ファイルです'], summary: null };
@@ -1753,6 +1815,7 @@ function csvClientChecks(text) {
   const monthCols = headers.filter(h => /期\d{1,2}月(計画|見込)$/.test(h));
   const rows = records.slice(1).filter(r => r.some(v => String(v || '').trim()));
   const errors = [];
+  const categoryDimensions = detectPreviewCategoryDimensions(headers);
   if (!hasId) errors.push('必須列不足: 管理番号/管理番号（統合）');
   if (!hasItem) errors.push('必須列不足: 項番');
   if (!monthCols.length) errors.push('期間列が見つかりません');
@@ -1762,6 +1825,7 @@ function csvClientChecks(text) {
   })).length;
   return {
     errors,
+    categoryDimensions,
     summary: {
       count: rows.length,
       periodRange: monthCols.length ? `${monthCols[0]} 〜 ${monthCols[monthCols.length - 1]}` : '-',
@@ -2238,7 +2302,7 @@ function renderImport() {
 
     uploadBtn.disabled = false;
     const c = csvClientChecks(await f.text());
-    summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
+    summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>${categoryDimensionsNoticeHtml(c.categoryDimensions)}` : '';
     errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
   };
 
@@ -2613,6 +2677,11 @@ function renderCategory() {
   const topN = normalizeCategoryTopN(state.ui.categoryTopN);
   const tableRows = topN === 'all' ? agg : agg.slice(0, topN);
   const favorites = dimensions.filter(d => d.favorite);
+  const unsetCount = agg.find(r => r.key === '未設定')?.count || 0;
+  const maxComp = agg[0]?.comp || 0;
+  const qualityWarning = agg.length > 100
+    ? '分類値数が100を超えています。分析軸としては粒度が細かすぎる可能性があります。'
+    : (agg.length > 30 ? '分類値数が多いため、Top Nまたは明細検索での確認を推奨します。' : '');
 
   document.getElementById('content').innerHTML = `
     <div class="panel category-analysis-panel">
@@ -2630,6 +2699,7 @@ function renderCategory() {
         </label>
         <span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}
       </div>
+      <div class="category-quality"><span class="badge">分類値数: ${fmt(agg.length)}</span><span class="badge">未設定: ${fmt(unsetCount)}件</span><span class="badge">最大分類の構成比: ${pct(maxComp)}</span>${qualityWarning ? `<span class="badge warn">${escapeHtml(qualityWarning)}</span>` : ''}</div>
       <div class="category-favorites"><span class="muted">よく使う:</span>${favorites.map(d => `<button type="button" class="col-chip ${d.id === selectedDimension?.id ? 'active' : ''}" data-category-dimension="${dataAttr(d.id)}">${escapeHtml(d.label)}</button>`).join('')}</div>
       <div class="grid-2">
         <div><h4>構成比グラフ（${escapeHtml(selectedDimension?.label || '分類軸未設定')} / Top 10）</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
@@ -3111,6 +3181,7 @@ function renderManual() {
       <ul>
         <li><strong>操作：</strong>よく使う分類軸チップで素早く切り替え、分類値をクリックすると、その分類軸・分類値だけで明細へドリルダウンします。</li>
         <li><strong>補足：</strong>分類軸が増えた場合は、分類軸定義に追加することでカテゴリ別分析へ拡張しやすい構造にしています。</li>
+        <li><strong>CSV分類列：</strong><code>分類_XXX</code>、<code>分類＿XXX</code>、<code>dim_XXX</code>、<code>dimension_XXX</code> 形式の列は自動的に分類軸へ追加されます。未入力の分類値は「未設定」として集計され、分類値の種類が多い場合はTop N表示や明細ドリルダウンで確認してください。</li>
       </ul>
       <h4>5. アラート（乖離・変動）</h4>
       <p><strong>見方：</strong>閾値超過の項目を一覧表示します。乖離率・乖離額・変動率の3観点で優先順位をつけます。</p>

@@ -2,7 +2,7 @@
 
 ## 1. 画面概要
 
-分類軸レジストリで定義された分析軸ごとに、構成比・予算・見込み・実績・差額・乖離率・件数を確認する画面です。分類軸の増減時は `CATEGORY_DIMENSIONS` に定義を追加・変更することで、画面タブの個別改修を最小化します。
+固定分類軸レジストリとCSVから自動検出した追加分類軸ごとに、構成比・予算・見込み・実績・差額・乖離率・件数を確認する画面です。`CATEGORY_DIMENSIONS` と `state.data.status.categoryDimensions` をマージするため、`分類_XXX` や `dim_XXX` 形式の列はアプリ改修なしで分析軸に追加できます。
 
 ## 2. 表示条件
 
@@ -13,7 +13,8 @@
 | データ | 用途 |
 |---|---|
 | `state.data.items` | 分析軸別集計 |
-| `CATEGORY_DIMENSIONS` | 分類軸ID、表示名、参照フィールド、お気に入り、表示順の定義 |
+| `CATEGORY_DIMENSIONS` | 固定分類軸ID、表示名、参照フィールド、お気に入り、表示順の定義 |
+| `state.data.status.categoryDimensions` | CSVから検出した追加分類軸メタデータ |
 | `state.ui.selectedCategoryDimension` | 選択中の分類軸ID |
 | `state.ui.categoryTopN` | 分類別テーブルの表示件数（10/25/50/全件） |
 | `state.ui.units.category` | 金額単位 |
@@ -25,15 +26,15 @@
 
 ## 5. 画面レイアウト
 
-分類軸セレクトボックス、Top Nセレクタ、金額単位切替、よく使う分類軸チップ、構成比グラフ、分類別テーブルで構成します。固定タブは使用しません。
+分類軸セレクトボックス、Top Nセレクタ、金額単位切替、選択中分類軸のデータ品質情報、よく使う分類軸チップ、構成比グラフ、分類別テーブルで構成します。固定タブは使用しません。
 
 ## 6. 表示項目
 
-分類値、構成比、予算、見込み、実績、差額、乖離率、件数を表示します。分類値が空の場合は `未設定` と表示します。
+分類値、構成比、予算、見込み、実績、差額、乖離率、件数を表示します。分類値が空の場合は `未設定` と表示します。分類軸セレクタ付近に分類値数、未設定件数、最大分類の構成比を表示し、分類値数が多い場合は確認推奨メッセージを表示します。
 
 ## 7. 操作仕様
 
-分類軸セレクト、よく使う分類軸チップ、Top N切替、金額単位切替、分類値クリックによる明細遷移を行います。Top Nは 10 / 25 / 50 / 全件から選択します。
+分類軸セレクト、よく使う分類軸チップ、Top N切替、金額単位切替、分類値クリックによる明細遷移を行います。Top Nは 10 / 25 / 50 / 全件から選択します。保存済み分類軸IDが現在のCSVに存在しない場合は既定分類軸へフォールバックします。
 
 ## 8. フィルター・ソート仕様
 
@@ -59,8 +60,8 @@
 
 | ソース | 関数 |
 |---|---|
-| `public/static/app.js` | `CATEGORY_DIMENSIONS`, `getEnabledCategoryDimensions`, `getCategoryDimensionById`, `normalizeCategoryDimensionId`, `getCategoryDimensionValue`, `aggregateByDimension`, `renderCategory`, `bindDetailFilterLinks` |
-| `server.js` | `app.get(/api/items)`, `attachItemDimensions`, `getAggregations`, 各 `/api/analysis/by-*` |
+| `public/static/app.js` | `CATEGORY_DIMENSIONS`, `getAllCategoryDimensions`, `getEnabledCategoryDimensions`, `getCategoryDimensionById`, `normalizeCategoryDimensionId`, `getCategoryDimensionValue`, `aggregateByDimension`, `renderCategory`, `bindDetailFilterLinks` |
+| `server.js` | `app.get(/api/items)`, `app.get(/api/status)`, `detectCategoryDimensionColumns`, `attachItemDimensions`, `getAggregations`, 各 `/api/analysis/by-*` |
 
 ## 14. 未確認事項
 

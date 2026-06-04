@@ -35,7 +35,7 @@ CSVファイル種別を選択し、メインCSVまたは追加CSVをアップ�
 |---|---|
 | ファイル種別 | `budget`, `variance_reason`, `new_project_master`, `new_project_monthly_cost`, `depreciation_simulation`, `oasis_actual` の順に表示 |
 | 追加データ説明 | 追加データ未取込時もメインCSVで表示する旨 |
-| 読み込み結果サマリー | メインCSV選択時の件数、対象期間、欠損候補、数値混入候補 |
+| 読み込み結果サマリー | メインCSV選択時の件数、対象期間、欠損候補、数値混入候補、検出された追加分類列 |
 | エラーパネル | クライアント側チェック結果または追加CSVの想定レイアウト説明 |
 | 取込状況 | ファイル種別ごとの imported/not_imported |
 
@@ -64,7 +64,7 @@ CSVファイル種別を選択し、メインCSVまたは追加CSVをアップ�
 
 ## 11. 計算仕様
 
-クライアント側プレビューでは `csvClientChecks` による表示のみのチェックを行います。正式な正規化・必須チェックはサーバ側 `parseUploadedFile` 配下が担当します。
+クライアント側プレビューでは `csvClientChecks` による表示のみのチェックを行います。`分類_XXX`、`分類＿XXX`、`dim_XXX`、`dimension_XXX` 形式の列を追加分類列として検出した場合は、取込前プレビューに一覧表示します。正式な正規化・必須チェックと分類軸メタデータ生成はサーバ側 `parseUploadedFile` 配下が担当します。
 
 ## 12. エラー・空データ時の表示
 
@@ -76,8 +76,8 @@ CSVファイル種別を選択し、メインCSVまたは追加CSVをアップ�
 
 | ソース | 関数/定数 |
 |---|---|
-| `public/static/app.js` | `IMPORT_FILE_TYPE_OPTIONS`, `renderImport`, `csvClientChecks`, `refreshAllData` |
-| `server.js` | `app.post(/api/upload)`, `handleParsedImport`, `parseUploadedFile`, `applyParsedImport`, `app.post(/api/clear)` |
+| `public/static/app.js` | `IMPORT_FILE_TYPE_OPTIONS`, `renderImport`, `csvClientChecks`, `detectPreviewCategoryDimensions`, `categoryDimensionsNoticeHtml`, `refreshAllData` |
+| `server.js` | `app.post(/api/upload)`, `handleParsedImport`, `parseUploadedFile`, `detectCategoryDimensionColumns`, `applyParsedImport`, `app.post(/api/clear)` |
 
 ## 14. 未確認事項
 
