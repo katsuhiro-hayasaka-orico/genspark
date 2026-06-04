@@ -47,6 +47,51 @@ test('normalizers and unified layout report row-level import issues without thro
   assert.equal(result.issues.some(issue => issue.level === 'skipped' && issue.field === '管理番号'), true);
 });
 
+
+
+test('budget import detects custom category dimension columns and attaches item dimensions', async () => {
+  const server = startServer({ host: '127.0.0.1', port: 0 });
+  if (!server.listening) await once(server, 'listening');
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const csv = [
+      '管理番号,項番,期,案件名,部署名,システム名,システム分類名,経費区分,分類_事業優先度,分類_クラウド分類,dim_project_type,67期4月計画,67期4月見込,67期4月実績',
+      'A001,1,67,顧客DB更改,情報システム部,顧客DB,基幹系,運用費,高,SaaS,更改,1000,1200,1100',
+      'A002,1,67,営業支援改善,営業企画部,SFA,情報系,開発費,中,SaaS,改善,2000,1800,1700',
+      'A003,1,67,会計IF対応,経理部,会計システム,基幹系,保守費,高,オンプレ,制度対応,1500,1500,1600',
+    ].join('\n');
+
+    const dryRunForm = new FormData();
+    dryRunForm.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'custom-dimensions.csv');
+    dryRunForm.append('dryRun', 'true');
+    const dryRun = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: dryRunForm }).then(res => res.json());
+    assert.deepEqual(dryRun.categoryDimensions.map(d => d.label), ['事業優先度', 'クラウド分類', 'project_type']);
+    assert.ok(dryRun.categoryDimensions.every(d => /^custom_[a-z0-9_]+$/.test(d.id)));
+
+    const form = new FormData();
+    form.append('budget_csv', new Blob([csv], { type: 'text/csv' }), 'custom-dimensions.csv');
+    const upload = await fetch(`${baseUrl}/api/upload`, { method: 'POST', body: form }).then(res => res.json());
+    assert.equal(upload.categoryDimensions.length, 3);
+
+    const status = await fetch(`${baseUrl}/api/status`).then(res => res.json());
+    const businessPriority = status.categoryDimensions.find(d => d.label === '事業優先度');
+    const projectType = status.categoryDimensions.find(d => d.label === 'project_type');
+    assert.ok(businessPriority);
+    assert.equal(businessPriority.sourceHeader, '分類_事業優先度');
+    assert.ok(projectType);
+    assert.equal(projectType.sourceHeader, 'dim_project_type');
+
+    const items = await fetch(`${baseUrl}/api/items`).then(res => res.json());
+    assert.equal(items.items.length, 3);
+    assert.equal(items.items[0].dimensions[businessPriority.id], '高');
+    assert.equal(items.items[1].dimensions[businessPriority.id], '中');
+    assert.equal(items.items[2].dimensions[projectType.id], '制度対応');
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test('upload and mutable records persist to the local store file', async () => {
   const server = startServer({ host: '127.0.0.1', port: 0 });
   if (!server.listening) await once(server, 'listening');

@@ -7,7 +7,7 @@
 | メインCSV | `import` | データ取込 | CSV種別選択、CSVアップロード、取込状況表示、保存データクリア | `renderImport` | `POST /api/upload`, `GET /api/status`, `POST /api/clear` | [01_import.md](./07_screen-specs/01_import.md) | データ未取込時の初期遷移先 |
 | メインCSV | `summary` | 全体サマリー | KPI、予算vs見込み/実績、報告用サマリー、差額ランキング | `renderSummary` | `GET /api/status`, `GET /api/items` | [02_summary.md](./07_screen-specs/02_summary.md) | `state.data.items` からフロント側再集計 |
 | メインCSV | `trend` | 推移分析 | 期間・指標選択、推移グラフ、変動ランキング | `renderTrend` | `GET /api/items` | [03_trend.md](./07_screen-specs/03_trend.md) | `buildTimeSeries` を利用 |
-| メインCSV | `category` | カテゴリ別分析 | 分析タブ、構成比、差額・乖離率、明細遷移 | `renderCategory` | `GET /api/items` | [04_category.md](./07_screen-specs/04_category.md) | 分析軸は `state.ui.categoryTab` |
+| メインCSV | `category` | カテゴリ別分析 | 分類軸セレクタ、追加分類軸、構成比、差額・乖離率、明細遷移 | `renderCategory` | `GET /api/items` | [04_category.md](./07_screen-specs/04_category.md) | 分析軸は `state.ui.selectedCategoryDimension` と `categoryDimensions` |
 | メインCSV | `alert` | アラート | しきい値、アラートカード、アラート一覧 | `renderAlert` | `GET /api/items` | [05_alert.md](./07_screen-specs/05_alert.md) | しきい値は `state.settings.thresholds` |
 | メインCSV | `vendor` | ベンダー／契約更新 | ベンダー別金額、契約更新アラート、レビュー候補 | `renderVendor` | `GET /api/items`, `GET /api/contracts` | [06_vendor.md](./07_screen-specs/06_vendor.md) | サーバ側に契約APIあり |
 | メインCSV | `detail` | 明細ドリルダウン | 検索、フィルター、表示列、追加列、明細一覧 | `renderDetail` | `GET /api/items`, `GET /api/raw-rows` | [07_detail.md](./07_screen-specs/07_detail.md) | ドリルダウンリンクから遷移 |
