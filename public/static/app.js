@@ -170,6 +170,73 @@ function getEnabledPeriodQuickFilters() {
   return loadPeriodQuickFilters().filter(item => item.enabled !== false);
 }
 
+
+const CATEGORY_SETTINGS_STORAGE_KEY = 'categoryAnalysisSettings';
+const LEGACY_CATEGORY_TAB_MAP = {
+  'システム分類名別': 'system_classification',
+  '経費区分別': 'expense_classification',
+  '経費事象名別': 'expense_item_name',
+  '部門別': 'department_name',
+  '固定費・変動費': 'fixed_variable_type',
+};
+
+// カテゴリ別分析の分類軸レジストリ。
+// TODO: 将来的には「分類_XXX」または「dim_XXX」形式のCSV列を分類軸候補として自動検出する。
+// TODO: 分類軸マスタCSVまたは設定画面で分類軸を管理できるようにする。
+// 現時点では既存CSV列と既存フィールドを前提に分類軸レジストリ化する。
+const CATEGORY_DIMENSIONS = [
+  { id: 'system_classification', label: 'システム分類名', field: 'system_classification', favorite: true, enabled: true, order: 10 },
+  { id: 'expense_classification', label: '経費区分', field: 'expense_classification', favorite: true, enabled: true, order: 20 },
+  { id: 'expense_item_name', label: '経費事象名', field: 'expense_item_name', favorite: true, enabled: true, order: 30 },
+  { id: 'department_name', label: '部門', field: 'department_name', favorite: true, enabled: true, order: 40 },
+  { id: 'fixed_variable_type', label: '固定費・変動費', field: 'fixed_variable_type', favorite: true, enabled: true, order: 50 },
+  { id: 'payment_category', label: '投資・運用区分', field: 'payment_category', favorite: false, enabled: true, order: 60 },
+  { id: 'budget_category', label: '予算カテゴリ', field: 'budget_category', favorite: false, enabled: true, order: 70 },
+  { id: 'system_name', label: 'システム名', field: 'system_name', favorite: false, enabled: true, order: 80 },
+];
+
+function getEnabledCategoryDimensions() {
+  return CATEGORY_DIMENSIONS.filter(d => d && d.enabled !== false).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
+function getCategoryDimensionById(id) {
+  const normalizedId = String(id || '').trim();
+  return getEnabledCategoryDimensions().find(d => d.id === normalizedId) || null;
+}
+
+function normalizeCategoryDimensionId(id) {
+  const candidate = LEGACY_CATEGORY_TAB_MAP[String(id || '')] || String(id || '').trim();
+  return getCategoryDimensionById(candidate)?.id || getEnabledCategoryDimensions()[0]?.id || 'system_classification';
+}
+
+function normalizeCategoryTopN(value) {
+  if (value === 'all') return 'all';
+  const n = Number(value);
+  return [10, 25, 50].includes(n) ? n : 25;
+}
+
+function loadCategoryAnalysisSettings() {
+  try {
+    const raw = localStorage.getItem(CATEGORY_SETTINGS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      selectedCategoryDimension: normalizeCategoryDimensionId(parsed.selectedCategoryDimension || parsed.categoryTab),
+      categoryTopN: normalizeCategoryTopN(parsed.categoryTopN),
+    };
+  } catch (_) {
+    return { selectedCategoryDimension: normalizeCategoryDimensionId('system_classification'), categoryTopN: 25 };
+  }
+}
+
+function persistCategoryAnalysisSettings() {
+  localStorage.setItem(CATEGORY_SETTINGS_STORAGE_KEY, JSON.stringify({
+    selectedCategoryDimension: normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab),
+    categoryTopN: normalizeCategoryTopN(state.ui.categoryTopN),
+  }));
+}
+
+const categoryAnalysisSettings = loadCategoryAnalysisSettings();
+
 const state = {
   page: 'import',
   hasData: false,
@@ -196,6 +263,8 @@ const state = {
     theme: localStorage.getItem('theme') || 'light',
     displayZoom: normalizeZoomPercent(localStorage.getItem('displayZoom')),
     categoryTab: 'システム分類名別',
+    selectedCategoryDimension: categoryAnalysisSettings.selectedCategoryDimension,
+    categoryTopN: categoryAnalysisSettings.categoryTopN,
     trendMonths: 12,
     trendMetric: '総額',
     trendAggregationUnit: 'month',
@@ -320,13 +389,25 @@ const DETAIL_FILTER_LABELS = {
   contract_no: '契約番号',
 };
 
-function setDetailFilter(type, value) {
-  state.ui.detailFilter = value ? { type, value } : null;
+function getCategoryDimensionValue(item, dimensionId) {
+  const dimension = getCategoryDimensionById(dimensionId);
+  if (!dimension) return '未設定';
+  const raw = item?.dimensions?.[dimension.id] ?? item?.[dimension.field];
+  const value = String(raw ?? '').trim();
+  return value || '未設定';
+}
+
+function setDetailFilter(type, value, dimensionId = '') {
+  state.ui.detailFilter = value ? { type, value, ...(dimensionId ? { dimensionId: normalizeCategoryDimensionId(dimensionId) } : {}) } : null;
   state.ui.detailSearch = '';
 }
 
 function detailFilterLabel(filter = state.ui.detailFilter) {
   if (!filter) return '';
+  if (filter.type === 'dimension') {
+    const dimension = getCategoryDimensionById(filter.dimensionId);
+    return `${dimension?.label || filter.dimensionId || '分類軸'}: ${filter.value}`;
+  }
   return `${DETAIL_FILTER_LABELS[filter.type] || filter.type}: ${filter.value}`;
 }
 
@@ -337,6 +418,7 @@ function itemMatchesDetailFilter(item, filter = state.ui.detailFilter) {
   if (filter.type === 'department') return String(item.department_name || '') === value;
   if (filter.type === 'vendor') return String(item.vendor_name || item.payee_name || '') === value;
   if (filter.type === 'contract_no') return String(item.contract_no || '') === value;
+  if (filter.type === 'dimension') return getCategoryDimensionValue(item, filter.dimensionId) === value;
   if (filter.type === 'category') {
     return [
       item.budget_category,
@@ -354,7 +436,7 @@ function itemMatchesDetailFilter(item, filter = state.ui.detailFilter) {
 function bindDetailFilterLinks(scope = document) {
   scope.querySelectorAll('[data-filter-type][data-filter-value]').forEach(el => {
     el.onclick = () => {
-      setDetailFilter(el.dataset.filterType, el.dataset.filterValue);
+      setDetailFilter(el.dataset.filterType, el.dataset.filterValue, el.dataset.dimensionId || '');
       goPage('detail');
     };
   });
@@ -1881,7 +1963,8 @@ function buildFilterSummaryEntries() {
   }
   if (state.page === 'category') {
     add('表示単位', unitLabel(state.ui.units.category));
-    add('分類タブ', state.ui.categoryTab);
+    add('分類軸', getCategoryDimensionById(normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab))?.label || '未設定');
+    add('Top N', state.ui.categoryTopN === 'all' ? '全件' : `${state.ui.categoryTopN}件`);
   }
   if (state.page === 'alert') add('表示単位', unitLabel(state.ui.units.alert));
   if (state.page === 'vendor') add('表示単位', unitLabel(state.ui.units.vendor));
@@ -2475,18 +2558,46 @@ function renderTrend() {
 function aggregateBy(rows, key) {
   const map = {};
   rows.forEach(r => {
-    const k = r[key] || '未設定';
-    if (!map[k]) map[k] = { key: k, plan: 0, actual: 0 };
+    const k = String(r[key] || '').trim() || '未設定';
+    if (!map[k]) map[k] = { key: k, plan: 0, forecast: 0, actual: 0, count: 0 };
     map[k].plan += Number(r.totalPlan || 0);
+    map[k].forecast += Number(r.totalForecast || 0);
     map[k].actual += Number(r.totalActual || 0);
+    map[k].count += 1;
   });
   const all = Object.values(map);
   const totalActual = all.reduce((s, v) => s + v.actual, 0);
+  const totalForecast = all.reduce((s, v) => s + v.forecast, 0);
   const totalPlan = all.reduce((s, v) => s + v.plan, 0);
-  const base = totalActual > 0 ? totalActual : totalPlan;
+  const base = totalActual > 0 ? totalActual : (totalForecast > 0 ? totalForecast : totalPlan);
   return all.map(r => ({
     ...r,
-    comp: base ? (r.actual > 0 ? r.actual : r.plan) / base * 100 : 0,
+    comp: base ? (r.actual > 0 ? r.actual : (r.forecast > 0 ? r.forecast : r.plan)) / base * 100 : 0,
+    gap: r.plan - r.actual,
+    gapRate: r.plan ? (r.plan - r.actual) / r.plan * 100 : 0,
+  })).sort((a, b) => b.comp - a.comp);
+}
+
+function aggregateByDimension(rows, dimensionId) {
+  const dimension = getCategoryDimensionById(dimensionId);
+  if (!dimension) return aggregateBy(rows, '');
+  const map = {};
+  rows.forEach(r => {
+    const k = getCategoryDimensionValue(r, dimension.id);
+    if (!map[k]) map[k] = { key: k, plan: 0, forecast: 0, actual: 0, count: 0 };
+    map[k].plan += Number(r.totalPlan || 0);
+    map[k].forecast += Number(r.totalForecast || 0);
+    map[k].actual += Number(r.totalActual || 0);
+    map[k].count += 1;
+  });
+  const all = Object.values(map);
+  const totalActual = all.reduce((s, v) => s + v.actual, 0);
+  const totalForecast = all.reduce((s, v) => s + v.forecast, 0);
+  const totalPlan = all.reduce((s, v) => s + v.plan, 0);
+  const base = totalActual > 0 ? totalActual : (totalForecast > 0 ? totalForecast : totalPlan);
+  return all.map(r => ({
+    ...r,
+    comp: base ? (r.actual > 0 ? r.actual : (r.forecast > 0 ? r.forecast : r.plan)) / base * 100 : 0,
     gap: r.plan - r.actual,
     gapRate: r.plan ? (r.plan - r.actual) / r.plan * 100 : 0,
   })).sort((a, b) => b.comp - a.comp);
@@ -2494,23 +2605,43 @@ function aggregateBy(rows, key) {
 
 function renderCategory() {
   const money = (value) => formatMoneyByUnit(value, state.ui.units.category);
-  const tabs = ['システム分類名別', '経費区分別', '経費事象名別', '部門別', '固定費・変動費'];
-  const keyMap = { 'システム分類名別': 'system_classification', '経費区分別': 'expense_classification', '経費事象名別': 'expense_item_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
-  const categoryKey = keyMap[state.ui.categoryTab];
-  const agg = aggregateBy(filteredItems(), categoryKey);
+  state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab);
+  state.ui.categoryTopN = normalizeCategoryTopN(state.ui.categoryTopN);
+  const dimensions = getEnabledCategoryDimensions();
+  const selectedDimension = getCategoryDimensionById(state.ui.selectedCategoryDimension) || dimensions[0];
+  const agg = selectedDimension ? aggregateByDimension(filteredItems(), selectedDimension.id) : [];
+  const topN = normalizeCategoryTopN(state.ui.categoryTopN);
+  const tableRows = topN === 'all' ? agg : agg.slice(0, topN);
+  const favorites = dimensions.filter(d => d.favorite);
 
   document.getElementById('content').innerHTML = `
-    <div class="panel">
-      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div><div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}</div>
+    <div class="panel category-analysis-panel">
+      <div class="controls category-controls">
+        <label>分類軸
+          <select id="categoryDimensionSelect">
+            ${dimensions.map(d => `<option value="${dataAttr(d.id)}" ${d.id === selectedDimension?.id ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label>Top
+          <select id="categoryTopNSelect">
+            ${[10, 25, 50].map(n => `<option value="${n}" ${topN === n ? 'selected' : ''}>${n}</option>`).join('')}
+            <option value="all" ${topN === 'all' ? 'selected' : ''}>全件</option>
+          </select>
+        </label>
+        <span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}
+      </div>
+      <div class="category-favorites"><span class="muted">よく使う:</span>${favorites.map(d => `<button type="button" class="col-chip ${d.id === selectedDimension?.id ? 'active' : ''}" data-category-dimension="${dataAttr(d.id)}">${escapeHtml(d.label)}</button>`).join('')}</div>
       <div class="grid-2">
-        <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
-        <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${agg.slice(0, 25).map(r => `<tr class="clickable-row" data-filter-type="${categoryKey === 'department_name' ? 'department' : 'category'}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${money(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
+        <div><h4>構成比グラフ（${escapeHtml(selectedDimension?.label || '分類軸未設定')} / Top 10）</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
+        <div><h4>分類別テーブル（${topN === 'all' ? '全件' : `Top ${topN}`}）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">予算</th><th class="right">見込み</th><th class="right">実績</th><th class="right">差額</th><th class="right">乖離率</th><th class="right">件数</th></tr></thead><tbody>
+          ${tableRows.map(r => `<tr class="clickable-row" data-filter-type="dimension" data-dimension-id="${dataAttr(selectedDimension?.id || '')}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${money(r.plan)}</td><td class="right">${money(r.forecast)}</td><td class="right">${money(r.actual)}</td><td class="right">${money(r.gap)}</td><td class="right">${pct(r.gapRate)}</td><td class="right">${fmt(r.count)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">表示できるデータがありません。</td></tr>'}
         </tbody></table></div></div>
       </div>
     </div>`;
 
-  document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderPage(); });
+  document.getElementById('categoryDimensionSelect').onchange = e => { state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(e.target.value); persistCategoryAnalysisSettings(); renderPage(); };
+  document.getElementById('categoryTopNSelect').onchange = e => { state.ui.categoryTopN = normalizeCategoryTopN(e.target.value); persistCategoryAnalysisSettings(); renderPage(); };
+  document.querySelectorAll('[data-category-dimension]').forEach(btn => btn.onclick = () => { state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(btn.dataset.categoryDimension); persistCategoryAnalysisSettings(); renderPage(); });
   bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => updateMoneyUnit('category', next, renderCategory));
   bindDetailFilterLinks();
   const palette = chartColors().pie;
@@ -2854,6 +2985,42 @@ function bindPeriodQuickSettings() {
   if (add) add.onclick = () => { addCurrentScopeToQuickFilters(); renderSettings(); initFilterBar(); };
 }
 
+
+function categoryAnalysisSettingsHtml() {
+  const dimensions = getEnabledCategoryDimensions();
+  const selected = normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab);
+  const topN = normalizeCategoryTopN(state.ui.categoryTopN);
+  return `<div class="panel">
+    <h4>カテゴリ別分析</h4>
+    <p class="muted">初期表示する分類軸と分類別テーブルのTop N初期値を保存します。</p>
+    <div class="controls">
+      <label>初期表示する分類軸
+        <select id="categoryDefaultDimension">
+          ${dimensions.map(d => `<option value="${dataAttr(d.id)}" ${d.id === selected ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}
+        </select>
+      </label>
+      <label>Top N 初期値
+        <select id="categoryDefaultTopN">
+          ${[10, 25, 50].map(n => `<option value="${n}" ${topN === n ? 'selected' : ''}>${n}</option>`).join('')}
+          <option value="all" ${topN === 'all' ? 'selected' : ''}>全件</option>
+        </select>
+      </label>
+      <button type="button" class="primary" id="saveCategoryAnalysisSettings">保存</button>
+    </div>
+  </div>`;
+}
+
+function bindCategoryAnalysisSettings() {
+  const saveButton = document.getElementById('saveCategoryAnalysisSettings');
+  if (!saveButton) return;
+  saveButton.onclick = () => {
+    state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(document.getElementById('categoryDefaultDimension')?.value);
+    state.ui.categoryTopN = normalizeCategoryTopN(document.getElementById('categoryDefaultTopN')?.value);
+    persistCategoryAnalysisSettings();
+    alert('カテゴリ別分析の表示設定を保存しました');
+  };
+}
+
 function renderSettings() {
   const t = state.settings.thresholds;
   document.getElementById('content').innerHTML = `
@@ -2869,6 +3036,7 @@ function renderSettings() {
       <div class="controls"><button class="primary" id="saveSetting">反映</button></div>
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', periodQuickSettingsHtml());
+  document.getElementById('content').insertAdjacentHTML('beforeend', categoryAnalysisSettingsHtml());
   document.getElementById('content').insertAdjacentHTML('beforeend', `
     <div class="panel">
       <h4>表示倍率</h4>
@@ -2893,6 +3061,7 @@ function renderSettings() {
     </div>
   `);
   bindPeriodQuickSettings();
+  bindCategoryAnalysisSettings();
   document.getElementById('zoomRange').oninput = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomNumber').onchange = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomSettingReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
@@ -2938,10 +3107,10 @@ function renderManual() {
         <li><strong>操作：</strong>急増月をクリックして対象月を固定し、「7. 明細」で要因レコードを特定します。</li>
       </ul>
       <h4>4. カテゴリ別分析</h4>
-      <p><strong>見方：</strong>費目・部門・案件別の構成比と差異を確認します。構成比が高く差額も大きいカテゴリが優先改善対象です。</p>
+      <p><strong>見方：</strong>分類軸セレクタでシステム分類、経費区分、経費事象名、部門、固定費/変動費などの分析切り口を切り替え、構成比と差額を比較します。</p>
       <ul>
-        <li><strong>操作：</strong>並び替えを「差額順」「構成比順」で切り替え、重点カテゴリを抽出します。</li>
-        <li><strong>操作：</strong>カテゴリ選択後に下位明細（ベンダー/案件）へドリルダウンし、改善アクション候補を整理します。</li>
+        <li><strong>操作：</strong>よく使う分類軸チップで素早く切り替え、分類値をクリックすると、その分類軸・分類値だけで明細へドリルダウンします。</li>
+        <li><strong>補足：</strong>分類軸が増えた場合は、分類軸定義に追加することでカテゴリ別分析へ拡張しやすい構造にしています。</li>
       </ul>
       <h4>5. アラート（乖離・変動）</h4>
       <p><strong>見方：</strong>閾値超過の項目を一覧表示します。乖離率・乖離額・変動率の3観点で優先順位をつけます。</p>
@@ -2980,10 +3149,11 @@ function renderManual() {
         <li><strong>操作：</strong>差異が大きい場合は「7. 明細」で対象伝票を追跡し、取込元データの再確認を行います。</li>
       </ul>
       <h4>11. 表示設定</h4>
-      <p><strong>見方：</strong>アラート閾値、KPI表示順、表示倍率、テーマを管理します。運用チーム全体で基準を揃えるための画面です。</p>
+      <p><strong>見方：</strong>アラート閾値、KPI表示順、表示倍率、テーマ、カテゴリ別分析の初期分類軸とTop Nを管理します。運用チーム全体で基準を揃えるための画面です。</p>
       <ul>
         <li><strong>操作：</strong>乖離率・乖離額・MoM/YoY閾値を調整し、「5. アラート」の検出感度を最適化します。</li>
         <li><strong>操作：</strong>表示倍率（75〜150%）とテーマを変更して、会議室の投影環境に合わせます。</li>
+        <li><strong>操作：</strong>カテゴリ別分析セクションで初期表示する分類軸とTop N初期値を変更できます。</li>
         <li><strong>操作：</strong>対象期間ショートカットで「よく使う」の表示項目・順序・初期表示を変更できます。当月、前月、直近期間はブラウザの現在日時を基準に毎回再計算されます。データ最新月は取込データ内の最大年月であり、将来計画・見込みが含まれる場合は未来年月になることがあります。</li>
         <li><strong>注意：</strong>当期通期は、ブラウザの現在日時が属する対象期を4月〜翌3月の12か月レンジとして表示します。現在月までの累計や四半期ではありません。</li>
       </ul>
