@@ -8,7 +8,7 @@
 2. 画面が開いたら、左側にメニュー、上部にページ名とデータ状態が表示されていることを確認します。
 3. 初回チュートリアルが表示された場合は、内容を確認して「始める」をクリックします。
 
-> TODO: 画面キャプチャを追加してください。ID: UM-GS-001 / 対象画面：初回チュートリアル / 予定ファイル：assets/images/getting-started/UM-GS-001-initial-tutorial.webp
+![初回チュートリアル画面](assets/images/getting-started/UM-GS-001-initial-tutorial.webp)
 
 ## 2. 初期画面を確認します
 
@@ -24,7 +24,7 @@
 | ブラウザ保存データをクリア | 取り込み済みデータを消すときに使います。通常は最初に押しません。 |
 | 取込状況 | ファイル種別ごとの取込状態を確認します。 |
 
-> TODO: 画面キャプチャを追加してください。ID: UM-GS-002 / 対象画面：データ取込画面 / 予定ファイル：assets/images/getting-started/UM-GS-002-import-screen.webp
+![データ取込画面](assets/images/getting-started/UM-GS-002-import-screen.webp)
 
 ## 3. 取り込むCSVを用意します
 
@@ -60,7 +60,7 @@
 3. 予算、見込み、実績、差額などを確認します。
 4. 気になる数値がある場合は、「アラート」または「明細ドリルダウン」で詳細を確認します。
 
-> TODO: 画面キャプチャを追加してください。ID: UM-GS-003 / 対象画面：全体サマリー画面 / 予定ファイル：assets/images/getting-started/UM-GS-003-summary-screen.webp
+![全体サマリー画面](assets/images/getting-started/UM-GS-003-summary-screen.webp)
 
 ## 6. 表示を見やすく調整します
 
