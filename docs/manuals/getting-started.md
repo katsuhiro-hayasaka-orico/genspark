@@ -34,6 +34,16 @@
 4. ExcelファイルやJSONファイルは、現行画面では取込対象として確認できません。CSVを用意してください。
 5. 文字化けが心配な場合は、CSVの保存形式を確認してください。文字コードの正式指定は要確認です。
 
+デモ操作やスクリーンショット撮影では、デモ担当者から配布されたサンプルCSVを利用できます。サンプルCSVを使う場合は、次の対応表を目安に「ファイル種別」とファイル名を一致させてください。
+
+| ファイル種別 | サンプルCSVファイル名 |
+|---|---|
+| 予実績管理データ | budget-demo.csv |
+| 新規案件マスタCSV | new-project-master-demo.csv |
+| 新規案件月次金額CSV | new-project-monthly-cost-demo.csv |
+| OACIS実績 | oacis-actual-demo.csv |
+| 減価償却シミュレーション | depreciation-simulation-demo.csv |
+
 ## 4. CSVを取り込みます
 
 1. 「ファイル種別」を選択します。

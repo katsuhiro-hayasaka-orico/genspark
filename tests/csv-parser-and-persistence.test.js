@@ -236,3 +236,42 @@ test('depreciation simulation import keeps long-form rows without management num
   assert.equal(result.rows[0].month_order, 0);
   assert.equal(result.rows[0].amount, 100);
 });
+
+test('demo sample CSV files are parseable by their import file types', () => {
+  const { IMPORT_FILE_TYPES, parseUploadedFile } = require('../server');
+  const sampleDir = path.join(__dirname, '..', 'sample-data', 'demo');
+  const cases = [
+    [IMPORT_FILE_TYPES.BUDGET, 'budget-demo.csv', result => {
+      assert.equal(result.status, 'imported');
+      assert.equal(result.successRows, 4);
+      assert.equal(result.master.length, 4);
+      assert.equal(result.detail.some(row => row.fiscal_period === '67' && row.target_year_month === '202604' && row.value_type === 'plan'), true);
+      assert.equal(result.detail.some(row => row.target_year_month === '202703' && row.value_type === 'forecast'), true);
+    }],
+    [IMPORT_FILE_TYPES.NEW_PROJECT_MASTER, 'new-project-master-demo.csv', result => {
+      assert.equal(result.status, 'imported');
+      assert.equal(result.rows.some(row => row.management_no === 'NP-001'), true);
+    }],
+    [IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST, 'new-project-monthly-cost-demo.csv', result => {
+      assert.equal(result.status, 'imported');
+      assert.equal(result.rows.some(row => row.management_no === 'NP-001' && row.target_year_month === '202604'), true);
+      assert.equal(result.rows.some(row => row.management_no === 'NP-002' && row.target_year_month === '202703'), true);
+    }],
+    [IMPORT_FILE_TYPES.OASIS_ACTUAL, 'oacis-actual-demo.csv', result => {
+      assert.equal(result.status, 'imported');
+      assert.equal(result.rows.some(row => row.yojitsu_no === '予実番号未設定' && row.yojitsu_no_missing), true);
+      assert.equal(result.rows.some(row => row.yojitsu_no === 'BUD-001'), true);
+    }],
+    [IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION, 'depreciation-simulation-demo.csv', result => {
+      assert.equal(result.status, 'imported');
+      assert.equal(result.rows.some(row => row.period_type === 'month' && row.month_key === '202604'), true);
+      assert.equal(result.rows.some(row => row.period_type === 'half' && row.month === 'H1'), true);
+      assert.equal(result.rows.some(row => row.period_type === 'full' && row.month === 'FY'), true);
+    }],
+  ];
+
+  for (const [fileType, fileName, verify] of cases) {
+    const text = fs.readFileSync(path.join(sampleDir, fileName), 'utf8');
+    verify(parseUploadedFile(fileType, text));
+  }
+});
