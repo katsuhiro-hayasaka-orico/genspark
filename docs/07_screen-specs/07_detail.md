@@ -51,7 +51,7 @@
 
 ## 10. ドリルダウン仕様
 
-他画面から `setDetailFilter(type, value)` で条件が設定されます。管理番号クリックは `bindManagementNoDrilldowns` が処理します。
+他画面から `setDetailFilter(type, value)` または `setDetailFilter('dimension', value, dimensionId)` で条件が設定されます。カテゴリ別分析からの遷移では `state.ui.detailFilter = { type: 'dimension', dimensionId, value }` を保持し、対象分類軸のフィールドだけで絞り込みます。管理番号クリックは `bindManagementNoDrilldowns` が処理します。
 
 ## 11. 計算仕様
 
@@ -65,7 +65,7 @@
 
 | ソース | 関数 |
 |---|---|
-| `public/static/app.js` | `renderDetail`, `setDetailFilter`, `detailFilterLabel`, `itemMatchesDetailFilter`, `DETAIL_COLUMN_LABELS` |
+| `public/static/app.js` | `renderDetail`, `setDetailFilter`, `detailFilterLabel`, `itemMatchesDetailFilter`, `getCategoryDimensionValue`, `DETAIL_COLUMN_LABELS` |
 | `server.js` | `app.get(/api/items)`, `app.get(/api/raw-rows)` |
 
 ## 14. 未確認事項

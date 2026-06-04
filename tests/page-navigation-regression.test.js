@@ -37,6 +37,7 @@ function createRenderHarness() {
   const context = {
     console,
     setTimeout,
+    alert: () => {},
     localStorage: {
       getItem: (key) => storage.has(key) ? storage.get(key) : null,
       setItem: (key, value) => storage.set(key, String(value)),
@@ -72,6 +73,12 @@ this.getEnabledPeriodQuickFilters = getEnabledPeriodQuickFilters;
 this.resolvePeriodQuickFilter = resolvePeriodQuickFilter;
 this.addCurrentScopeToQuickFilters = addCurrentScopeToQuickFilters;
 this.renderSettings = renderSettings;
+this.getAllCategoryDimensions = getAllCategoryDimensions;
+this.getEnabledCategoryDimensions = getEnabledCategoryDimensions;
+this.updateCategoryDimensionSetting = updateCategoryDimensionSetting;
+this.saveCategoryDimensionSettings = saveCategoryDimensionSettings;
+this.setDetectedCategoryDimensions = (dimensions) => { detectedCategoryDimensionsCache = dimensions; };
+this.resetCategoryDimensionSettings = resetCategoryDimensionSettings;
 this.displayFiscalYearFromFiscalPeriod = displayFiscalYearFromFiscalPeriod;
 this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;`, context);
 
@@ -196,6 +203,47 @@ test('settings page exposes period quick filter customization', () => {
   assert.match(html, /初期表示/);
   assert.match(html, /初期設定に戻す/);
   assert.match(html, /データ最新月は取込データ内の最大年月/);
+});
+
+
+
+test('settings page exposes category dimension management for fixed and detected axes', () => {
+  const context = createRenderHarness();
+  context.state.data.status = {
+    categoryDimensions: [{ id: 'custom_business_priority', label: '事業優先度', field: 'custom_business_priority', sourceHeader: '分類_事業優先度', source: 'detected_csv', enabled: true, favorite: false, order: 1000 }],
+  };
+  context.state.data.items = [
+    { system_classification: '基幹系', dimensions: { custom_business_priority: '高' } },
+    { system_classification: '情報系', dimensions: { custom_business_priority: '' } },
+  ];
+  context.setDetectedCategoryDimensions(context.state.data.status.categoryDimensions);
+
+  context.renderSettings();
+  const html = context.document.getElementById('content').innerHTML;
+
+  assert.match(html, /分類軸管理/);
+  assert.match(html, /システム分類名/);
+  assert.match(html, /事業優先度/);
+  assert.match(html, /CSV検出: 分類_事業優先度/);
+  assert.match(html, /分類値数:/);
+});
+
+test('category dimension settings override label favorite enabled and keep one axis enabled', () => {
+  const context = createRenderHarness();
+  context.saveCategoryDimensionSettings({
+    expense_classification: { label: '費用区分', enabled: true, favorite: true, order: 5 },
+    system_classification: { enabled: false, order: 10 },
+  });
+
+  const all = context.getAllCategoryDimensions();
+  assert.equal(all.find(d => d.id === 'expense_classification').label, '費用区分');
+  assert.equal(all.find(d => d.id === 'expense_classification').favorite, true);
+  assert.equal(context.getEnabledCategoryDimensions().some(d => d.id === 'system_classification'), false);
+
+  context.getEnabledCategoryDimensions().forEach((dimension) => {
+    context.updateCategoryDimensionSetting(dimension.id, { enabled: false });
+  });
+  assert.equal(context.getEnabledCategoryDimensions().length >= 1, true);
 });
 
 test('trend time series aggregation unit is independent from selected period scope', () => {

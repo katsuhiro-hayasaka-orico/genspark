@@ -170,6 +170,186 @@ function getEnabledPeriodQuickFilters() {
   return loadPeriodQuickFilters().filter(item => item.enabled !== false);
 }
 
+
+const CATEGORY_SETTINGS_STORAGE_KEY = 'categoryAnalysisSettings';
+const CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY = 'categoryDimensionSettings';
+const LEGACY_CATEGORY_TAB_MAP = {
+  'システム分類名別': 'system_classification',
+  '経費区分別': 'expense_classification',
+  '経費事象名別': 'expense_item_name',
+  '部門別': 'department_name',
+  '固定費・変動費': 'fixed_variable_type',
+};
+
+// カテゴリ別分析の分類軸レジストリ。
+// 固定分類軸に加え、サーバーがCSVから検出した追加分類軸をマージして利用する。
+// TODO: 分類軸マスタCSVまたは設定画面で分類軸を管理できるようにする。
+let detectedCategoryDimensionsCache = [];
+
+const CATEGORY_DIMENSIONS = [
+  { id: 'system_classification', label: 'システム分類名', field: 'system_classification', favorite: true, enabled: true, order: 10 },
+  { id: 'expense_classification', label: '経費区分', field: 'expense_classification', favorite: true, enabled: true, order: 20 },
+  { id: 'expense_item_name', label: '経費事象名', field: 'expense_item_name', favorite: true, enabled: true, order: 30 },
+  { id: 'department_name', label: '部門', field: 'department_name', favorite: true, enabled: true, order: 40 },
+  { id: 'fixed_variable_type', label: '固定費・変動費', field: 'fixed_variable_type', favorite: true, enabled: true, order: 50 },
+  { id: 'payment_category', label: '投資・運用区分', field: 'payment_category', favorite: false, enabled: true, order: 60 },
+  { id: 'budget_category', label: '予算カテゴリ', field: 'budget_category', favorite: false, enabled: true, order: 70 },
+  { id: 'system_name', label: 'システム名', field: 'system_name', favorite: false, enabled: true, order: 80 },
+];
+
+function normalizeDetectedCategoryDimension(dimension, index = 0) {
+  if (!dimension || typeof dimension !== 'object') return null;
+  const id = String(dimension.id || '').trim();
+  if (!/^custom_[a-z0-9_]+$/i.test(id)) return null;
+  return {
+    id,
+    label: String(dimension.label || id.replace(/^custom_/, '')).trim() || id,
+    field: String(dimension.field || id).trim() || id,
+    sourceHeader: String(dimension.sourceHeader || '').trim(),
+    source: dimension.source || 'detected_csv',
+    favorite: false,
+    enabled: dimension.enabled !== false,
+    order: Number.isFinite(Number(dimension.order)) ? Number(dimension.order) : 1000 + index * 10,
+  };
+}
+
+function loadCategoryDimensionSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveCategoryDimensionSettings(settings) {
+  const safe = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+  localStorage.setItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY, JSON.stringify(safe));
+  return safe;
+}
+
+function resetCategoryDimensionSettings() {
+  localStorage.removeItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY);
+}
+
+function normalizeCategoryDimensionSetting(base, setting) {
+  if (!setting || typeof setting !== 'object') return {};
+  const normalized = {};
+  const label = String(setting.label ?? '').trim();
+  if (label) normalized.label = label;
+  if (typeof setting.enabled === 'boolean') normalized.enabled = setting.enabled;
+  if (typeof setting.favorite === 'boolean') normalized.favorite = setting.favorite;
+  const order = Number(setting.order);
+  if (Number.isFinite(order)) normalized.order = order;
+  return normalized;
+}
+
+function applyCategoryDimensionSettings(dimensions) {
+  const settings = loadCategoryDimensionSettings();
+  const applied = (dimensions || []).map((dimension) => {
+    const patch = normalizeCategoryDimensionSetting(dimension, settings[dimension.id]);
+    return { ...dimension, ...patch, originalLabel: dimension.originalLabel || dimension.label };
+  });
+  if (applied.length && !applied.some(d => d.enabled !== false)) {
+    const fallback = applied.find(d => d.id === 'system_classification') || applied[0];
+    fallback.enabled = true;
+  }
+  return applied;
+}
+
+function baseCategoryDimensions() {
+  const map = new Map();
+  CATEGORY_DIMENSIONS.forEach((dimension) => {
+    if (dimension?.id) map.set(dimension.id, { ...dimension, source: dimension.source || 'built_in', originalLabel: dimension.label });
+  });
+  (detectedCategoryDimensionsCache || []).map(normalizeDetectedCategoryDimension).filter(Boolean).forEach((dimension) => {
+    if (!map.has(dimension.id)) map.set(dimension.id, { ...dimension, originalLabel: dimension.label });
+  });
+  return [...map.values()];
+}
+
+function getAllCategoryDimensions() {
+  return applyCategoryDimensionSettings(baseCategoryDimensions()).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
+function updateCategoryDimensionSetting(dimensionId, patch) {
+  const dimensions = getAllCategoryDimensions();
+  const target = dimensions.find(d => d.id === dimensionId);
+  if (!target) return false;
+  if (patch && patch.enabled === false && dimensions.filter(d => d.enabled !== false && d.id !== dimensionId).length === 0) {
+    alert('分類軸は最低1つ表示してください');
+    return false;
+  }
+  const settings = loadCategoryDimensionSettings();
+  const current = settings[dimensionId] || {};
+  const next = { ...current };
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'label')) {
+    const label = String(patch.label || '').trim();
+    next.label = label || (target.originalLabel || target.label);
+  }
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'enabled')) next.enabled = Boolean(patch.enabled);
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'favorite')) next.favorite = Boolean(patch.favorite);
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'order')) {
+    const order = Number(patch.order);
+    if (Number.isFinite(order)) next.order = order;
+  }
+  settings[dimensionId] = next;
+  saveCategoryDimensionSettings(settings);
+  if (state?.ui?.selectedCategoryDimension === dimensionId && next.enabled === false) {
+    state.ui.selectedCategoryDimension = normalizeCategoryDimensionId('system_classification');
+    persistCategoryAnalysisSettings();
+  }
+  return true;
+}
+
+function resetSingleCategoryDimensionSetting(dimensionId) {
+  const settings = loadCategoryDimensionSettings();
+  delete settings[dimensionId];
+  saveCategoryDimensionSettings(settings);
+}
+
+function getEnabledCategoryDimensions() {
+  return getAllCategoryDimensions().filter(d => d && d.enabled !== false);
+}
+
+function getCategoryDimensionById(id) {
+  const normalizedId = String(id || '').trim();
+  return getEnabledCategoryDimensions().find(d => d.id === normalizedId) || null;
+}
+
+function normalizeCategoryDimensionId(id) {
+  const candidate = LEGACY_CATEGORY_TAB_MAP[String(id || '')] || String(id || '').trim();
+  return getCategoryDimensionById(candidate)?.id || getCategoryDimensionById('system_classification')?.id || getEnabledCategoryDimensions()[0]?.id || 'system_classification';
+}
+
+function normalizeCategoryTopN(value) {
+  if (value === 'all') return 'all';
+  const n = Number(value);
+  return [10, 25, 50].includes(n) ? n : 25;
+}
+
+function loadCategoryAnalysisSettings() {
+  try {
+    const raw = localStorage.getItem(CATEGORY_SETTINGS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      selectedCategoryDimension: String(parsed.selectedCategoryDimension || parsed.categoryTab || 'system_classification'),
+      categoryTopN: normalizeCategoryTopN(parsed.categoryTopN),
+    };
+  } catch (_) {
+    return { selectedCategoryDimension: 'system_classification', categoryTopN: 25 };
+  }
+}
+
+function persistCategoryAnalysisSettings() {
+  localStorage.setItem(CATEGORY_SETTINGS_STORAGE_KEY, JSON.stringify({
+    selectedCategoryDimension: normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab),
+    categoryTopN: normalizeCategoryTopN(state.ui.categoryTopN),
+  }));
+}
+
+const categoryAnalysisSettings = loadCategoryAnalysisSettings();
+
 const state = {
   page: 'import',
   hasData: false,
@@ -196,6 +376,8 @@ const state = {
     theme: localStorage.getItem('theme') || 'light',
     displayZoom: normalizeZoomPercent(localStorage.getItem('displayZoom')),
     categoryTab: 'システム分類名別',
+    selectedCategoryDimension: categoryAnalysisSettings.selectedCategoryDimension,
+    categoryTopN: categoryAnalysisSettings.categoryTopN,
     trendMonths: 12,
     trendMetric: '総額',
     trendAggregationUnit: 'month',
@@ -320,13 +502,25 @@ const DETAIL_FILTER_LABELS = {
   contract_no: '契約番号',
 };
 
-function setDetailFilter(type, value) {
-  state.ui.detailFilter = value ? { type, value } : null;
+function getCategoryDimensionValue(item, dimensionId) {
+  const dimension = getCategoryDimensionById(dimensionId);
+  if (!dimension) return '未設定';
+  const raw = item?.dimensions?.[dimension.id] ?? item?.[dimension.field];
+  const value = String(raw ?? '').trim();
+  return value || '未設定';
+}
+
+function setDetailFilter(type, value, dimensionId = '') {
+  state.ui.detailFilter = value ? { type, value, ...(dimensionId ? { dimensionId: normalizeCategoryDimensionId(dimensionId) } : {}) } : null;
   state.ui.detailSearch = '';
 }
 
 function detailFilterLabel(filter = state.ui.detailFilter) {
   if (!filter) return '';
+  if (filter.type === 'dimension') {
+    const dimension = getCategoryDimensionById(filter.dimensionId);
+    return `${dimension?.label || filter.dimensionId || '分類軸'}: ${filter.value}`;
+  }
   return `${DETAIL_FILTER_LABELS[filter.type] || filter.type}: ${filter.value}`;
 }
 
@@ -337,6 +531,7 @@ function itemMatchesDetailFilter(item, filter = state.ui.detailFilter) {
   if (filter.type === 'department') return String(item.department_name || '') === value;
   if (filter.type === 'vendor') return String(item.vendor_name || item.payee_name || '') === value;
   if (filter.type === 'contract_no') return String(item.contract_no || '') === value;
+  if (filter.type === 'dimension') return getCategoryDimensionValue(item, filter.dimensionId) === value;
   if (filter.type === 'category') {
     return [
       item.budget_category,
@@ -354,7 +549,7 @@ function itemMatchesDetailFilter(item, filter = state.ui.detailFilter) {
 function bindDetailFilterLinks(scope = document) {
   scope.querySelectorAll('[data-filter-type][data-filter-value]').forEach(el => {
     el.onclick = () => {
-      setDetailFilter(el.dataset.filterType, el.dataset.filterValue);
+      setDetailFilter(el.dataset.filterType, el.dataset.filterValue, el.dataset.dimensionId || '');
       goPage('detail');
     };
   });
@@ -1549,6 +1744,7 @@ async function refreshAllData() {
     api('/additional-data/depreciation_simulation').catch(() => ({ data: [] })),
     api('/analysis/oacis-actual').catch(() => ({ summary: null, byExpenseEvent: [], bySupplier: [], byYojitsuNo: [], missingYojitsuNoRows: [] })),
   ]);
+  detectedCategoryDimensionsCache = Array.isArray(status.categoryDimensions) ? status.categoryDimensions : [];
   state.hasData = !!status.hasData;
   state.data.status = status;
   state.data.items = itemsRes.items || [];
@@ -1662,6 +1858,39 @@ function additionalStatusListHtml() {
   }).join('')}</div>`;
 }
 
+
+function previewCategoryDimensionSlug(label, sourceHeader) {
+  const slug = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (slug) return slug;
+  let hash = 2166136261;
+  const text = String(sourceHeader || '');
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `h${(hash >>> 0).toString(36)}`;
+}
+
+function detectPreviewCategoryDimensions(headers = []) {
+  const seen = new Set();
+  return (headers || []).map((header, index) => {
+    const sourceHeader = String(header || '').trim();
+    const match = sourceHeader.match(/^(?:分類[_＿]|dim_|dimension_)(.+)$/i);
+    if (!match) return null;
+    const label = String(match[1] || '').trim();
+    if (!label) return null;
+    let id = `custom_${previewCategoryDimensionSlug(label, sourceHeader)}`;
+    if (seen.has(id)) id = `${id}_${index}`;
+    seen.add(id);
+    return { id, label, sourceHeader };
+  }).filter(Boolean);
+}
+
+function categoryDimensionsNoticeHtml(dimensions = []) {
+  if (!dimensions.length) return '';
+  return `<div class="notice"><h4>追加分類列を検出しました</h4><p class="muted">これらはカテゴリ別分析の分類軸として利用できます。</p><ul>${dimensions.map(d => `<li>${escapeHtml(d.label)}（CSV列: ${escapeHtml(d.sourceHeader)}）</li>`).join('')}</ul></div>`;
+}
+
 function csvClientChecks(text) {
   const records = parseCsvPreviewRecords(text, detectPreviewDelimiter(text));
   if (!records.length) return { errors: ['空ファイルです'], summary: null };
@@ -1671,6 +1900,7 @@ function csvClientChecks(text) {
   const monthCols = headers.filter(h => /期\d{1,2}月(計画|見込)$/.test(h));
   const rows = records.slice(1).filter(r => r.some(v => String(v || '').trim()));
   const errors = [];
+  const categoryDimensions = detectPreviewCategoryDimensions(headers);
   if (!hasId) errors.push('必須列不足: 管理番号/管理番号（統合）');
   if (!hasItem) errors.push('必須列不足: 項番');
   if (!monthCols.length) errors.push('期間列が見つかりません');
@@ -1680,6 +1910,7 @@ function csvClientChecks(text) {
   })).length;
   return {
     errors,
+    categoryDimensions,
     summary: {
       count: rows.length,
       periodRange: monthCols.length ? `${monthCols[0]} 〜 ${monthCols[monthCols.length - 1]}` : '-',
@@ -1881,7 +2112,8 @@ function buildFilterSummaryEntries() {
   }
   if (state.page === 'category') {
     add('表示単位', unitLabel(state.ui.units.category));
-    add('分類タブ', state.ui.categoryTab);
+    add('分類軸', getCategoryDimensionById(normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab))?.label || '未設定');
+    add('Top N', state.ui.categoryTopN === 'all' ? '全件' : `${state.ui.categoryTopN}件`);
   }
   if (state.page === 'alert') add('表示単位', unitLabel(state.ui.units.alert));
   if (state.page === 'vendor') add('表示単位', unitLabel(state.ui.units.vendor));
@@ -2155,7 +2387,7 @@ function renderImport() {
 
     uploadBtn.disabled = false;
     const c = csvClientChecks(await f.text());
-    summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>` : '';
+    summaryEl.innerHTML = c.summary ? `<div class="panel"><h4>読み込み結果サマリー（表示のみ）</h4><ul><li>取込ファイル名: ${escapeHtml(f.name)}</li><li>読み込み件数: ${fmt(c.summary.count)}</li><li>対象期間: ${escapeHtml(c.summary.periodRange)}</li><li>欠損の多い列: ${escapeHtml(c.summary.missingHeavy)}</li><li>数値列への文字混入候補: ${fmt(c.summary.invalidNumeric)}</li></ul></div>${categoryDimensionsNoticeHtml(c.categoryDimensions)}` : '';
     errorsEl.innerHTML = `<div class="panel"><h4>エラーパネル（表示のみ）</h4>${c.errors.length ? `<ul>${c.errors.map(e => `<li class="warn">${escapeHtml(e)}</li>`).join('')}</ul>` : '問題は検知されませんでした。'}</div>`;
   };
 
@@ -2475,18 +2707,46 @@ function renderTrend() {
 function aggregateBy(rows, key) {
   const map = {};
   rows.forEach(r => {
-    const k = r[key] || '未設定';
-    if (!map[k]) map[k] = { key: k, plan: 0, actual: 0 };
+    const k = String(r[key] || '').trim() || '未設定';
+    if (!map[k]) map[k] = { key: k, plan: 0, forecast: 0, actual: 0, count: 0 };
     map[k].plan += Number(r.totalPlan || 0);
+    map[k].forecast += Number(r.totalForecast || 0);
     map[k].actual += Number(r.totalActual || 0);
+    map[k].count += 1;
   });
   const all = Object.values(map);
   const totalActual = all.reduce((s, v) => s + v.actual, 0);
+  const totalForecast = all.reduce((s, v) => s + v.forecast, 0);
   const totalPlan = all.reduce((s, v) => s + v.plan, 0);
-  const base = totalActual > 0 ? totalActual : totalPlan;
+  const base = totalActual > 0 ? totalActual : (totalForecast > 0 ? totalForecast : totalPlan);
   return all.map(r => ({
     ...r,
-    comp: base ? (r.actual > 0 ? r.actual : r.plan) / base * 100 : 0,
+    comp: base ? (r.actual > 0 ? r.actual : (r.forecast > 0 ? r.forecast : r.plan)) / base * 100 : 0,
+    gap: r.plan - r.actual,
+    gapRate: r.plan ? (r.plan - r.actual) / r.plan * 100 : 0,
+  })).sort((a, b) => b.comp - a.comp);
+}
+
+function aggregateByDimension(rows, dimensionId) {
+  const dimension = getCategoryDimensionById(dimensionId);
+  if (!dimension) return aggregateBy(rows, '');
+  const map = {};
+  rows.forEach(r => {
+    const k = getCategoryDimensionValue(r, dimension.id);
+    if (!map[k]) map[k] = { key: k, plan: 0, forecast: 0, actual: 0, count: 0 };
+    map[k].plan += Number(r.totalPlan || 0);
+    map[k].forecast += Number(r.totalForecast || 0);
+    map[k].actual += Number(r.totalActual || 0);
+    map[k].count += 1;
+  });
+  const all = Object.values(map);
+  const totalActual = all.reduce((s, v) => s + v.actual, 0);
+  const totalForecast = all.reduce((s, v) => s + v.forecast, 0);
+  const totalPlan = all.reduce((s, v) => s + v.plan, 0);
+  const base = totalActual > 0 ? totalActual : (totalForecast > 0 ? totalForecast : totalPlan);
+  return all.map(r => ({
+    ...r,
+    comp: base ? (r.actual > 0 ? r.actual : (r.forecast > 0 ? r.forecast : r.plan)) / base * 100 : 0,
     gap: r.plan - r.actual,
     gapRate: r.plan ? (r.plan - r.actual) / r.plan * 100 : 0,
   })).sort((a, b) => b.comp - a.comp);
@@ -2494,23 +2754,49 @@ function aggregateBy(rows, key) {
 
 function renderCategory() {
   const money = (value) => formatMoneyByUnit(value, state.ui.units.category);
-  const tabs = ['システム分類名別', '経費区分別', '経費事象名別', '部門別', '固定費・変動費'];
-  const keyMap = { 'システム分類名別': 'system_classification', '経費区分別': 'expense_classification', '経費事象名別': 'expense_item_name', '部門別': 'department_name', '固定費・変動費': 'fixed_variable_type' };
-  const categoryKey = keyMap[state.ui.categoryTab];
-  const agg = aggregateBy(filteredItems(), categoryKey);
+  state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab);
+  state.ui.categoryTopN = normalizeCategoryTopN(state.ui.categoryTopN);
+  const dimensions = getEnabledCategoryDimensions();
+  const selectedDimension = getCategoryDimensionById(state.ui.selectedCategoryDimension) || dimensions[0];
+  const agg = selectedDimension ? aggregateByDimension(filteredItems(), selectedDimension.id) : [];
+  const topN = normalizeCategoryTopN(state.ui.categoryTopN);
+  const tableRows = topN === 'all' ? agg : agg.slice(0, topN);
+  const favorites = dimensions.filter(d => d.favorite);
+  const unsetCount = agg.find(r => r.key === '未設定')?.count || 0;
+  const maxComp = agg[0]?.comp || 0;
+  const qualityWarning = agg.length > 100
+    ? '分類値数が100を超えています。分析軸としては粒度が細かすぎる可能性があります。'
+    : (agg.length > 30 ? '分類値数が多いため、Top Nまたは明細検索での確認を推奨します。' : '');
 
   document.getElementById('content').innerHTML = `
-    <div class="panel">
-      <div class="tabs">${tabs.map(t => `<button data-tab="${dataAttr(t)}" class="${t === state.ui.categoryTab ? 'active' : ''}">${escapeHtml(t)}</button>`).join('')}</div><div class="controls"><span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}</div>
+    <div class="panel category-analysis-panel">
+      <div class="controls category-controls">
+        <label>分類軸
+          <select id="categoryDimensionSelect">
+            ${dimensions.map(d => `<option value="${dataAttr(d.id)}" ${d.id === selectedDimension?.id ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label>Top
+          <select id="categoryTopNSelect">
+            ${[10, 25, 50].map(n => `<option value="${n}" ${topN === n ? 'selected' : ''}>${n}</option>`).join('')}
+            <option value="all" ${topN === 'all' ? 'selected' : ''}>全件</option>
+          </select>
+        </label>
+        <span>金額単位</span>${moneyUnitSegmentedControlHtml('category_unit', state.ui.units.category)}
+      </div>
+      <div class="category-quality"><span class="badge">分類値数: ${fmt(agg.length)}</span><span class="badge">未設定: ${fmt(unsetCount)}件</span><span class="badge">最大分類の構成比: ${pct(maxComp)}</span>${qualityWarning ? `<span class="badge warn">${escapeHtml(qualityWarning)}</span>` : ''}</div>
+      <div class="category-favorites"><span class="muted">よく使う:</span>${favorites.map(d => `<button type="button" class="col-chip ${d.id === selectedDimension?.id ? 'active' : ''}" data-category-dimension="${dataAttr(d.id)}">${escapeHtml(d.label)}</button>`).join('')}</div>
       <div class="grid-2">
-        <div><h4>構成比</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
-        <div><h4>予実差（差額順／乖離率順）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">差額</th><th class="right">乖離率</th></tr></thead><tbody>
-          ${agg.slice(0, 25).map(r => `<tr class="clickable-row" data-filter-type="${categoryKey === 'department_name' ? 'department' : 'category'}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${money(r.gap)}</td><td class="right">${pct(r.gapRate)}</td></tr>`).join('')}
+        <div><h4>構成比グラフ（${escapeHtml(selectedDimension?.label || '分類軸未設定')} / Top 10）</h4><div style="height:300px"><canvas id="catPie"></canvas></div></div>
+        <div><h4>分類別テーブル（${topN === 'all' ? '全件' : `Top ${topN}`}）</h4><div class="table-wrap"><table><thead><tr><th>分類</th><th class="right">構成比</th><th class="right">予算</th><th class="right">見込み</th><th class="right">実績</th><th class="right">差額</th><th class="right">乖離率</th><th class="right">件数</th></tr></thead><tbody>
+          ${tableRows.map(r => `<tr class="clickable-row" data-filter-type="dimension" data-dimension-id="${dataAttr(selectedDimension?.id || '')}" data-filter-value="${dataAttr(r.key)}"><td>${escapeHtml(r.key)}</td><td class="right">${pct(r.comp)}</td><td class="right">${money(r.plan)}</td><td class="right">${money(r.forecast)}</td><td class="right">${money(r.actual)}</td><td class="right">${money(r.gap)}</td><td class="right">${pct(r.gapRate)}</td><td class="right">${fmt(r.count)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">表示できるデータがありません。</td></tr>'}
         </tbody></table></div></div>
       </div>
     </div>`;
 
-  document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = () => { state.ui.categoryTab = btn.dataset.tab; renderPage(); });
+  document.getElementById('categoryDimensionSelect').onchange = e => { state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(e.target.value); persistCategoryAnalysisSettings(); renderPage(); };
+  document.getElementById('categoryTopNSelect').onchange = e => { state.ui.categoryTopN = normalizeCategoryTopN(e.target.value); persistCategoryAnalysisSettings(); renderPage(); };
+  document.querySelectorAll('[data-category-dimension]').forEach(btn => btn.onclick = () => { state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(btn.dataset.categoryDimension); persistCategoryAnalysisSettings(); renderPage(); });
   bindMoneyUnitControl('category_unit', state.ui.units.category, (next) => updateMoneyUnit('category', next, renderCategory));
   bindDetailFilterLinks();
   const palette = chartColors().pie;
@@ -2854,6 +3140,138 @@ function bindPeriodQuickSettings() {
   if (add) add.onclick = () => { addCurrentScopeToQuickFilters(); renderSettings(); initFilterBar(); };
 }
 
+
+
+function getCategoryDimensionValueByDefinition(item, dimension) {
+  if (!dimension) return '未設定';
+  const raw = item?.dimensions?.[dimension.id] ?? item?.[dimension.field];
+  const value = String(raw ?? '').trim();
+  return value || '未設定';
+}
+
+function categoryDimensionQuality(dimension) {
+  const rows = state.data.items || [];
+  const counts = {};
+  rows.forEach((item) => {
+    const key = getCategoryDimensionValueByDefinition(item, dimension);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const values = Object.keys(counts);
+  const unsetCount = counts['未設定'] || 0;
+  const maxCount = values.reduce((max, key) => Math.max(max, counts[key] || 0), 0);
+  const maxComp = rows.length ? (maxCount / rows.length) * 100 : 0;
+  const level = values.length > 100 ? '非推奨' : (values.length > 30 ? '多い' : '');
+  return { valueCount: values.length, unsetCount, maxComp, level };
+}
+
+function categoryDimensionSourceLabel(dimension) {
+  return dimension?.source === 'detected_csv'
+    ? `CSV検出: ${dimension.sourceHeader || '-'}`
+    : '固定';
+}
+
+function categoryDimensionManagementHtml() {
+  const dimensions = getAllCategoryDimensions();
+  const rows = dimensions.map((dimension, index) => {
+    const q = categoryDimensionQuality(dimension);
+    const sourceText = categoryDimensionSourceLabel(dimension);
+    const warning = q.level ? `<span class="badge warn">${escapeHtml(q.level)}</span>` : '';
+    return `<tr data-category-dimension-row="${dataAttr(dimension.id)}">
+      <td><input class="category-dimension-order" data-category-dimension-order="${dataAttr(dimension.id)}" type="number" value="${dataAttr(dimension.order)}" style="width:72px"></td>
+      <td><input class="category-dimension-label" data-category-dimension-label="${dataAttr(dimension.id)}" type="text" value="${dataAttr(dimension.label)}" data-original-label="${dataAttr(dimension.originalLabel || dimension.label)}"></td>
+      <td><code>${escapeHtml(dimension.id)}</code></td>
+      <td>${escapeHtml(dimension.sourceHeader || '-')}</td>
+      <td>${escapeHtml(sourceText)}</td>
+      <td class="center"><input data-category-dimension-enabled="${dataAttr(dimension.id)}" type="checkbox" ${dimension.enabled !== false ? 'checked' : ''}></td>
+      <td class="center"><input data-category-dimension-favorite="${dataAttr(dimension.id)}" type="checkbox" ${dimension.favorite ? 'checked' : ''}></td>
+      <td><span class="muted">分類値数: ${fmt(q.valueCount)} / 未設定: ${fmt(q.unsetCount)}件 / 最大: ${pct(q.maxComp)}</span> ${warning}</td>
+      <td><button type="button" data-category-dimension-move="up" data-dimension-id="${dataAttr(dimension.id)}" ${index === 0 ? 'disabled' : ''}>上へ</button><button type="button" data-category-dimension-move="down" data-dimension-id="${dataAttr(dimension.id)}" ${index === dimensions.length - 1 ? 'disabled' : ''}>下へ</button><button type="button" data-category-dimension-reset="${dataAttr(dimension.id)}">初期化</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="panel category-dimension-management">
+    <h4>分類軸管理</h4>
+    <p class="muted">カテゴリ別分析に表示する分類軸の表示名、表示/非表示、よく使うチップ、表示順を管理します。CSV検出分類軸は元CSV列名も確認できます。</p>
+    <div class="table-wrap"><table><thead><tr><th>表示順</th><th>表示名</th><th>分類軸ID</th><th>CSV列</th><th>種別</th><th>表示</th><th>よく使う</th><th>データ品質</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="muted">分類軸がありません。</td></tr>'}</tbody></table></div>
+    <div class="controls"><button type="button" id="resetCategoryDimensionSettings">分類軸設定を初期化</button></div>
+  </div>`;
+}
+
+function moveCategoryDimension(dimensionId, direction) {
+  const dimensions = getAllCategoryDimensions();
+  const index = dimensions.findIndex(d => d.id === dimensionId);
+  const delta = direction === 'up' ? -1 : 1;
+  const other = dimensions[index + delta];
+  const current = dimensions[index];
+  if (!current || !other) return;
+  updateCategoryDimensionSetting(current.id, { order: other.order });
+  updateCategoryDimensionSetting(other.id, { order: current.order });
+}
+
+function bindCategoryDimensionManagement() {
+  document.querySelectorAll('[data-category-dimension-label]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionLabel, { label: input.value || input.dataset.originalLabel }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-order]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionOrder, { order: input.value }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-enabled]').forEach(input => {
+    input.onchange = () => { if (updateCategoryDimensionSetting(input.dataset.categoryDimensionEnabled, { enabled: input.checked })) renderSettings(); else input.checked = true; };
+  });
+  document.querySelectorAll('[data-category-dimension-favorite]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionFavorite, { favorite: input.checked }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-move]').forEach(btn => {
+    btn.onclick = () => { moveCategoryDimension(btn.dataset.dimensionId, btn.dataset.categoryDimensionMove); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-reset]').forEach(btn => {
+    btn.onclick = () => { resetSingleCategoryDimensionSetting(btn.dataset.categoryDimensionReset); renderSettings(); };
+  });
+  const resetAll = document.getElementById('resetCategoryDimensionSettings');
+  if (resetAll) resetAll.onclick = () => {
+    if (!window.confirm('分類軸設定を初期化します。よろしいですか？')) return;
+    resetCategoryDimensionSettings();
+    state.ui.selectedCategoryDimension = 'system_classification';
+    state.ui.categoryTopN = 25;
+    persistCategoryAnalysisSettings();
+    renderSettings();
+  };
+}
+
+function categoryAnalysisSettingsHtml() {
+  const dimensions = getEnabledCategoryDimensions();
+  const selected = normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab);
+  const topN = normalizeCategoryTopN(state.ui.categoryTopN);
+  return `<div class="panel">
+    <h4>カテゴリ別分析</h4>
+    <p class="muted">初期表示する分類軸と分類別テーブルのTop N初期値を保存します。</p>
+    <div class="controls">
+      <label>初期表示する分類軸
+        <select id="categoryDefaultDimension">
+          ${dimensions.map(d => `<option value="${dataAttr(d.id)}" ${d.id === selected ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}
+        </select>
+      </label>
+      <label>Top N 初期値
+        <select id="categoryDefaultTopN">
+          ${[10, 25, 50].map(n => `<option value="${n}" ${topN === n ? 'selected' : ''}>${n}</option>`).join('')}
+          <option value="all" ${topN === 'all' ? 'selected' : ''}>全件</option>
+        </select>
+      </label>
+      <button type="button" class="primary" id="saveCategoryAnalysisSettings">保存</button>
+    </div>
+  </div>`;
+}
+
+function bindCategoryAnalysisSettings() {
+  const saveButton = document.getElementById('saveCategoryAnalysisSettings');
+  if (!saveButton) return;
+  saveButton.onclick = () => {
+    state.ui.selectedCategoryDimension = normalizeCategoryDimensionId(document.getElementById('categoryDefaultDimension')?.value);
+    state.ui.categoryTopN = normalizeCategoryTopN(document.getElementById('categoryDefaultTopN')?.value);
+    persistCategoryAnalysisSettings();
+    alert('カテゴリ別分析の表示設定を保存しました');
+  };
+}
+
 function renderSettings() {
   const t = state.settings.thresholds;
   document.getElementById('content').innerHTML = `
@@ -2869,6 +3287,8 @@ function renderSettings() {
       <div class="controls"><button class="primary" id="saveSetting">反映</button></div>
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', periodQuickSettingsHtml());
+  document.getElementById('content').insertAdjacentHTML('beforeend', categoryAnalysisSettingsHtml());
+  document.getElementById('content').insertAdjacentHTML('beforeend', categoryDimensionManagementHtml());
   document.getElementById('content').insertAdjacentHTML('beforeend', `
     <div class="panel">
       <h4>表示倍率</h4>
@@ -2893,6 +3313,8 @@ function renderSettings() {
     </div>
   `);
   bindPeriodQuickSettings();
+  bindCategoryAnalysisSettings();
+  bindCategoryDimensionManagement();
   document.getElementById('zoomRange').oninput = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomNumber').onchange = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomSettingReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
@@ -2938,10 +3360,12 @@ function renderManual() {
         <li><strong>操作：</strong>急増月をクリックして対象月を固定し、「7. 明細」で要因レコードを特定します。</li>
       </ul>
       <h4>4. カテゴリ別分析</h4>
-      <p><strong>見方：</strong>費目・部門・案件別の構成比と差異を確認します。構成比が高く差額も大きいカテゴリが優先改善対象です。</p>
+      <p><strong>見方：</strong>分類軸セレクタでシステム分類、経費区分、経費事象名、部門、固定費/変動費などの分析切り口を切り替え、構成比と差額を比較します。</p>
       <ul>
-        <li><strong>操作：</strong>並び替えを「差額順」「構成比順」で切り替え、重点カテゴリを抽出します。</li>
-        <li><strong>操作：</strong>カテゴリ選択後に下位明細（ベンダー/案件）へドリルダウンし、改善アクション候補を整理します。</li>
+        <li><strong>操作：</strong>よく使う分類軸チップで素早く切り替え、分類値をクリックすると、その分類軸・分類値だけで明細へドリルダウンします。</li>
+        <li><strong>補足：</strong>分類軸が増えた場合は、分類軸定義に追加することでカテゴリ別分析へ拡張しやすい構造にしています。</li>
+        <li><strong>CSV分類列：</strong><code>分類_XXX</code>、<code>分類＿XXX</code>、<code>dim_XXX</code>、<code>dimension_XXX</code> 形式の列は自動的に分類軸へ追加されます。未入力の分類値は「未設定」として集計され、分類値の種類が多い場合はTop N表示や明細ドリルダウンで確認してください。</li>
+        <li><strong>分類軸管理：</strong>「11. 表示設定」の分類軸管理で、固定分類軸とCSV検出分類軸の表示名、表示順、表示/非表示、よく使う分類軸を変更できます。分類値数が多すぎる軸は分析軸として適さない場合があります。</li>
       </ul>
       <h4>5. アラート（乖離・変動）</h4>
       <p><strong>見方：</strong>閾値超過の項目を一覧表示します。乖離率・乖離額・変動率の3観点で優先順位をつけます。</p>
@@ -2980,10 +3404,11 @@ function renderManual() {
         <li><strong>操作：</strong>差異が大きい場合は「7. 明細」で対象伝票を追跡し、取込元データの再確認を行います。</li>
       </ul>
       <h4>11. 表示設定</h4>
-      <p><strong>見方：</strong>アラート閾値、KPI表示順、表示倍率、テーマを管理します。運用チーム全体で基準を揃えるための画面です。</p>
+      <p><strong>見方：</strong>アラート閾値、KPI表示順、表示倍率、テーマ、カテゴリ別分析の初期分類軸とTop Nを管理します。運用チーム全体で基準を揃えるための画面です。</p>
       <ul>
         <li><strong>操作：</strong>乖離率・乖離額・MoM/YoY閾値を調整し、「5. アラート」の検出感度を最適化します。</li>
         <li><strong>操作：</strong>表示倍率（75〜150%）とテーマを変更して、会議室の投影環境に合わせます。</li>
+        <li><strong>操作：</strong>カテゴリ別分析セクションで初期表示する分類軸とTop N初期値を変更できます。</li>
         <li><strong>操作：</strong>対象期間ショートカットで「よく使う」の表示項目・順序・初期表示を変更できます。当月、前月、直近期間はブラウザの現在日時を基準に毎回再計算されます。データ最新月は取込データ内の最大年月であり、将来計画・見込みが含まれる場合は未来年月になることがあります。</li>
         <li><strong>注意：</strong>当期通期は、ブラウザの現在日時が属する対象期を4月〜翌3月の12か月レンジとして表示します。現在月までの累計や四半期ではありません。</li>
       </ul>

@@ -13,6 +13,10 @@
 | `state.ui.trendAggregationUnit` | 推移表示単位 | 推移分析の月別/四半期別/期別/累計推移切替 | 推移 | フロント状態 | いいえ | 上部共通フィルターではなく推移分析内で操作する |
 | `periodQuickFilters` | 対象期間ショートカット | 対象期間ポップオーバー「よく使う」の項目、表示有無、順序 | 全体、推移、カテゴリ、アラート、ベンダー、明細、設定 | localStorage | いいえ | 組み込みプリセットはID保存。固定年月範囲/固定対象期範囲はユーザー定義として保存 |
 | `periodQuickDefault` | 対象期間初期表示 | 初期表示ショートカットID | 全体、推移、カテゴリ、アラート、ベンダー、明細、設定 | localStorage | いいえ | 無効・削除済みの場合は当月基準の既定解決へフォールバック |
+| `categoryAnalysisSettings` | カテゴリ別分析表示設定 | 初期分類軸IDとTop N初期値 | カテゴリ、設定 | localStorage | いいえ | `selectedCategoryDimension` と `categoryTopN` を保存。旧 `categoryTab` は後方互換変換 |
+| `categoryDimensionSettings` | 分類軸管理設定 | 分類軸ごとの表示名、表示/非表示、よく使う、表示順 | カテゴリ、設定 | localStorage | いいえ | 固定分類軸とCSV検出分類軸のベース定義に上書き適用。存在しない検出分類軸の設定は無視 |
+| `dimensions` | 分類軸値マップ | カテゴリ別分析の分類値参照 | カテゴリ、明細 | `attachItemDimensions` | はい | 既存フィールド（`budget_category` 等）とCSV自動検出の追加分類値（`custom_*`）を統合。フロントは既存フィールド参照と併用 |
+| `custom_dimensions` | 追加分類値マップ | CSV自動検出分類列の一時保持 | カテゴリ、明細 | `parseUnifiedBudgetLayout` | はい | `分類_XXX` / `分類＿XXX` / `dim_XXX` / `dimension_XXX` の値を分類軸IDで保持し、`dimensions` に統合 |
 | `project_name` | 案件名 | 明細名、ランキング名 | 全体、明細、新規案件 | CSV `案件名` 等 | いいえ | 未設定補完あり |
 | `department_name` | 部署名/部門名 | グローバルフィルター、部署別集計 | 全体、カテゴリ、明細 | CSV `部署名`/`部門名` 等 | いいえ | 正式な部門階層は未確認 |
 | `owner_name` | 担当者/案件担当者 | 明細追加列、新規案件担当 | 明細、新規案件 | CSV `担当者`, `案件担当者` | いいえ |  |
