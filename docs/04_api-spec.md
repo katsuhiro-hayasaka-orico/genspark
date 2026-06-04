@@ -13,10 +13,10 @@
 
 | API名 | HTTPメソッド | 用途 | 主な利用画面 | リクエストパラメータ | レスポンス概要 | 主なレスポンス項目 | エラー時の扱い | 関連する処理関数 | 備考 |
 |---|---|---|---|---|---|---|---|---|---|
-| CSVアップロード | POST `/api/upload` | CSVを取込・永続化 | データ取込 | multipart `budget_csv`, form `fileType` | 取込結果 | `ok`, `fileType`, `fileName`, `uploadedAt`, `status`, `message`, `summary`, `issues` | CSV未選択/形式不正/未対応fileTypeでエラー | `handleParsedImport`, `parseUploadedFile`, `applyParsedImport` | multer memoryStorage、50MB制限 |
-| ステータス | GET `/api/status` | 取込状態を返す | 全画面共通 | なし | 取込済み有無と追加CSV状態 | `hasData`, `uploadedAt`, `csvFileName`, `masterCount`, `detailCount`, `additionalData` | 原則なし | `summarizeAdditionalData` | フロントの `state.hasData` 判定に使用 |
+| CSVアップロード | POST `/api/upload` | CSVを取込・永続化 | データ取込 | multipart `budget_csv`, form `fileType` | 取込結果 | `ok`, `fileType`, `fileName`, `uploadedAt`, `status`, `message`, `summary`, `issues`, `categoryDimensions` | CSV未選択/形式不正/未対応fileTypeでエラー | `handleParsedImport`, `parseUploadedFile`, `applyParsedImport` | multer memoryStorage、50MB制限 |
+| ステータス | GET `/api/status` | 取込状態を返す | 全画面共通 | なし | 取込済み有無と追加CSV状態 | `hasData`, `uploadedAt`, `csvFileName`, `masterCount`, `detailCount`, `categoryDimensions`, `additionalData` | 原則なし | `summarizeAdditionalData` | フロントの `state.hasData` 判定に使用 |
 | ダッシュボード要約 | GET `/api/dashboard/summary` | KPI・月別・分類別要約 | 主に旧/互換、全体サマリー参考 | なし | 集計済みサマリー | `totalPlan`, `totalForecast`, `totalActual`, `burnRate`, `monthly`, `bySystem`, `byClassification`, `alerts` | 原則なし | `buildUnifiedData`, `getAggregations` | 現行画面は `items` から再集計も行う |
-| 明細一覧 | GET `/api/items` | 画面表示用明細一覧 | サマリー、推移、カテゴリ、アラート、ベンダー、明細 | `system`, `category`, `classification`, `department`, `vendor`, `period`, `search` 等 | フィルタ済み明細配列 | `data`, `items` 相当。項目はデータ辞書参照 | 原則なし | `buildUnifiedData` | 実装上の戻り形は `data` 配列 |
+| 明細一覧 | GET `/api/items` | 画面表示用明細一覧 | サマリー、推移、カテゴリ、アラート、ベンダー、明細 | `system`, `category`, `classification`, `department`, `vendor`, `period`, `search` 等 | フィルタ済み明細配列 | `data`, `items` 相当。各itemには将来拡張用の `dimensions` を含む。項目はデータ辞書参照 | 原則なし | `buildUnifiedData` | 実装上の戻り形は `data` 配列 |
 | 新規案件一覧 | GET `/api/analysis/new-projects` | 新規案件抽出 | 新規案件関連 | なし | 新規案件と思われる明細 | `data` | 原則なし | `isNewProject` 相当の抽出 | 旧/補助API |
 | 新規案件コスト分析 | GET `/api/analysis/new-project-costs` | 新規案件コストKPI・ランキング・ギャップ分析 | 新規案件コスト | なし | 分析一式 | `summary`, `projectRanking`, `progressCostMatrix`, `byProjectCategory`, `byItInvestmentNo`, `byCostGroup`, `byVarianceReason`, `monthlyTrend`, `detailRows`, `debug` | 原則なし | `buildNewProjectAnalysis`, ルート内集計 | 重要API |
 | OACIS実績分析 | GET `/api/analysis/oacis-actual` | OACIS実績のランキング/KPI | OACIS実績 | なし | 分析一式 | `summary`, `byExpenseEvent`, `bySupplier`, `byYojitsuNo`, `missingYojitsuNoRows` | 原則なし | `parseOasisActualCsv` 後の集計 | `oasis_actual` の追加CSVから生成 |

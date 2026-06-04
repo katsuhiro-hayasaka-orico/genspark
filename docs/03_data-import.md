@@ -4,7 +4,7 @@
 
 | 内部キー | 画面表示名 | 用途 | 主なパーサー | 保存先 | 備考 |
 |---|---|---|---|---|---|
-| `budget` | 予実績管理データ | メインCSV。予算・見込み・実績の可視化元 | `parseBudgetCsv` | `store.master`, `store.detail`, `store.rawRows` | `app.js` の選択肢に表示 |
+| `budget` | 予実績管理データ | メインCSV。予算・見込み・実績の可視化元 | `parseBudgetCsv` | `store.master`, `store.detail`, `store.rawRows`, `store.categoryDimensions` | `app.js` の選択肢に表示。`分類_XXX` / `分類＿XXX` / `dim_XXX` / `dimension_XXX` は追加分類列として自動検出 |
 | `variance_reason` | 差額理由 | 差額理由コメント・カテゴリの追加データ | `parseVarianceReasonCsv` | `store.additionalData.variance_reason`, `store.varianceReasons` | `management_no` 等で紐付け |
 | `new_project_master` | 新規案件マスタCSV | 新規案件の案件名、担当者、進捗等 | `parseNewProjectMasterCsv` | `store.additionalData.new_project_master` | 月次金額CSVと結合 |
 | `new_project_monthly_cost` | 新規案件月次金額CSV | 新規案件の年月別予算・見込 | `parseNewProjectMonthlyCostCsv` | `store.additionalData.new_project_monthly_cost` | マスタCSVと `management_no` で結合 |
@@ -126,3 +126,8 @@
 - 各CSV列の業務上の正式定義。
 - OACIS実績の元システム仕様。
 - 金額が円単位か千円単位かはCSVごとに実装上の表示変換から推定できる箇所がありますが、正式定義は未確認です。
+
+
+## 追加分類列の自動検出
+
+予実績管理CSVでは、ヘッダーが `分類_XXX`、`分類＿XXX`、`dim_XXX`、`dimension_XXX` に一致する列を追加分類列として検出します。検出した列は `categoryDimensions` メタデータとして保存し、各明細の `custom_dimensions` および `item.dimensions` に同じ分類軸IDで格納します。日本語ラベルは表示名として保持し、分類軸IDは英数字・アンダースコアのみの安定IDに変換します。空欄は画面集計時に `未設定` として扱います。
