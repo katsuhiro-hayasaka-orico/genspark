@@ -19,7 +19,7 @@
 | `docs/07_screen-specs/08_new-project-cost.md` | `public/static/app.js`, `server.js` | `renderProject`, `buildNewProjectAnalysis`, `deriveProgressRateFromStatus` | `/api/analysis/new-project-costs` | 新規案件コスト分析 |
 | `docs/07_screen-specs/09_depreciation.md` | `public/static/app.js`, `server.js` | `renderDepreciation`, `parseDepreciationSimulationCsv` | `/api/additional-data/depreciation_simulation` | 減価償却 |
 | `docs/07_screen-specs/10_oacis.md` | `public/static/app.js`, `server.js` | `renderOacisActual`, `parseOasisActualCsv` | `/api/analysis/oacis-actual` | OACIS実績 |
-| `docs/07_screen-specs/11_settings.md` | `public/static/app.js`, `public/static/style.css` | `renderSettings`, `categoryAnalysisSettingsHtml`, `bindCategoryAnalysisSettings`, `toggleTheme`, `setDisplayZoom` | なし | 表示設定 |
+| `docs/07_screen-specs/11_settings.md` | `public/static/app.js`, `public/static/style.css` | `renderSettings`, `categoryAnalysisSettingsHtml`, `bindCategoryAnalysisSettings`, `categoryDimensionManagementHtml`, `bindCategoryDimensionManagement`, `toggleTheme`, `setDisplayZoom` | なし | 表示設定 |
 | `docs/07_screen-specs/12_manual.md` | `public/static/app.js` | `renderManual` | なし | 使い方 |
 | `docs/08_ui-ux.md` | `public/index.html`, `public/static/style.css`, `public/static/app.js` | `applyTheme`, `setDisplayZoom`, `baseChartOptions` | なし | 共通UI/UX |
 | `docs/09_error-handling.md` | `server.js`, `public/static/app.js` | `api`, `renderPage`, `normalizeAmount`, `normalizeYearMonthString` | `/api/upload`, `/api/*` | エラー仕様 |

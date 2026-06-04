@@ -172,6 +172,7 @@ function getEnabledPeriodQuickFilters() {
 
 
 const CATEGORY_SETTINGS_STORAGE_KEY = 'categoryAnalysisSettings';
+const CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY = 'categoryDimensionSettings';
 const LEGACY_CATEGORY_TAB_MAP = {
   'システム分類名別': 'system_classification',
   '経費区分別': 'expense_classification',
@@ -212,15 +213,99 @@ function normalizeDetectedCategoryDimension(dimension, index = 0) {
   };
 }
 
-function getAllCategoryDimensions() {
+function loadCategoryDimensionSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveCategoryDimensionSettings(settings) {
+  const safe = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+  localStorage.setItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY, JSON.stringify(safe));
+  return safe;
+}
+
+function resetCategoryDimensionSettings() {
+  localStorage.removeItem(CATEGORY_DIMENSION_SETTINGS_STORAGE_KEY);
+}
+
+function normalizeCategoryDimensionSetting(base, setting) {
+  if (!setting || typeof setting !== 'object') return {};
+  const normalized = {};
+  const label = String(setting.label ?? '').trim();
+  if (label) normalized.label = label;
+  if (typeof setting.enabled === 'boolean') normalized.enabled = setting.enabled;
+  if (typeof setting.favorite === 'boolean') normalized.favorite = setting.favorite;
+  const order = Number(setting.order);
+  if (Number.isFinite(order)) normalized.order = order;
+  return normalized;
+}
+
+function applyCategoryDimensionSettings(dimensions) {
+  const settings = loadCategoryDimensionSettings();
+  const applied = (dimensions || []).map((dimension) => {
+    const patch = normalizeCategoryDimensionSetting(dimension, settings[dimension.id]);
+    return { ...dimension, ...patch, originalLabel: dimension.originalLabel || dimension.label };
+  });
+  if (applied.length && !applied.some(d => d.enabled !== false)) {
+    const fallback = applied.find(d => d.id === 'system_classification') || applied[0];
+    fallback.enabled = true;
+  }
+  return applied;
+}
+
+function baseCategoryDimensions() {
   const map = new Map();
   CATEGORY_DIMENSIONS.forEach((dimension) => {
-    if (dimension?.id && dimension.enabled !== false) map.set(dimension.id, dimension);
+    if (dimension?.id) map.set(dimension.id, { ...dimension, source: dimension.source || 'built_in', originalLabel: dimension.label });
   });
   (detectedCategoryDimensionsCache || []).map(normalizeDetectedCategoryDimension).filter(Boolean).forEach((dimension) => {
-    if (!map.has(dimension.id) && dimension.enabled !== false) map.set(dimension.id, dimension);
+    if (!map.has(dimension.id)) map.set(dimension.id, { ...dimension, originalLabel: dimension.label });
   });
-  return [...map.values()].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  return [...map.values()];
+}
+
+function getAllCategoryDimensions() {
+  return applyCategoryDimensionSettings(baseCategoryDimensions()).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
+function updateCategoryDimensionSetting(dimensionId, patch) {
+  const dimensions = getAllCategoryDimensions();
+  const target = dimensions.find(d => d.id === dimensionId);
+  if (!target) return false;
+  if (patch && patch.enabled === false && dimensions.filter(d => d.enabled !== false && d.id !== dimensionId).length === 0) {
+    alert('分類軸は最低1つ表示してください');
+    return false;
+  }
+  const settings = loadCategoryDimensionSettings();
+  const current = settings[dimensionId] || {};
+  const next = { ...current };
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'label')) {
+    const label = String(patch.label || '').trim();
+    next.label = label || (target.originalLabel || target.label);
+  }
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'enabled')) next.enabled = Boolean(patch.enabled);
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'favorite')) next.favorite = Boolean(patch.favorite);
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'order')) {
+    const order = Number(patch.order);
+    if (Number.isFinite(order)) next.order = order;
+  }
+  settings[dimensionId] = next;
+  saveCategoryDimensionSettings(settings);
+  if (state?.ui?.selectedCategoryDimension === dimensionId && next.enabled === false) {
+    state.ui.selectedCategoryDimension = normalizeCategoryDimensionId('system_classification');
+    persistCategoryAnalysisSettings();
+  }
+  return true;
+}
+
+function resetSingleCategoryDimensionSetting(dimensionId) {
+  const settings = loadCategoryDimensionSettings();
+  delete settings[dimensionId];
+  saveCategoryDimensionSettings(settings);
 }
 
 function getEnabledCategoryDimensions() {
@@ -3056,6 +3141,102 @@ function bindPeriodQuickSettings() {
 }
 
 
+
+function getCategoryDimensionValueByDefinition(item, dimension) {
+  if (!dimension) return '未設定';
+  const raw = item?.dimensions?.[dimension.id] ?? item?.[dimension.field];
+  const value = String(raw ?? '').trim();
+  return value || '未設定';
+}
+
+function categoryDimensionQuality(dimension) {
+  const rows = state.data.items || [];
+  const counts = {};
+  rows.forEach((item) => {
+    const key = getCategoryDimensionValueByDefinition(item, dimension);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const values = Object.keys(counts);
+  const unsetCount = counts['未設定'] || 0;
+  const maxCount = values.reduce((max, key) => Math.max(max, counts[key] || 0), 0);
+  const maxComp = rows.length ? (maxCount / rows.length) * 100 : 0;
+  const level = values.length > 100 ? '非推奨' : (values.length > 30 ? '多い' : '');
+  return { valueCount: values.length, unsetCount, maxComp, level };
+}
+
+function categoryDimensionSourceLabel(dimension) {
+  return dimension?.source === 'detected_csv'
+    ? `CSV検出: ${dimension.sourceHeader || '-'}`
+    : '固定';
+}
+
+function categoryDimensionManagementHtml() {
+  const dimensions = getAllCategoryDimensions();
+  const rows = dimensions.map((dimension, index) => {
+    const q = categoryDimensionQuality(dimension);
+    const sourceText = categoryDimensionSourceLabel(dimension);
+    const warning = q.level ? `<span class="badge warn">${escapeHtml(q.level)}</span>` : '';
+    return `<tr data-category-dimension-row="${dataAttr(dimension.id)}">
+      <td><input class="category-dimension-order" data-category-dimension-order="${dataAttr(dimension.id)}" type="number" value="${dataAttr(dimension.order)}" style="width:72px"></td>
+      <td><input class="category-dimension-label" data-category-dimension-label="${dataAttr(dimension.id)}" type="text" value="${dataAttr(dimension.label)}" data-original-label="${dataAttr(dimension.originalLabel || dimension.label)}"></td>
+      <td><code>${escapeHtml(dimension.id)}</code></td>
+      <td>${escapeHtml(dimension.sourceHeader || '-')}</td>
+      <td>${escapeHtml(sourceText)}</td>
+      <td class="center"><input data-category-dimension-enabled="${dataAttr(dimension.id)}" type="checkbox" ${dimension.enabled !== false ? 'checked' : ''}></td>
+      <td class="center"><input data-category-dimension-favorite="${dataAttr(dimension.id)}" type="checkbox" ${dimension.favorite ? 'checked' : ''}></td>
+      <td><span class="muted">分類値数: ${fmt(q.valueCount)} / 未設定: ${fmt(q.unsetCount)}件 / 最大: ${pct(q.maxComp)}</span> ${warning}</td>
+      <td><button type="button" data-category-dimension-move="up" data-dimension-id="${dataAttr(dimension.id)}" ${index === 0 ? 'disabled' : ''}>上へ</button><button type="button" data-category-dimension-move="down" data-dimension-id="${dataAttr(dimension.id)}" ${index === dimensions.length - 1 ? 'disabled' : ''}>下へ</button><button type="button" data-category-dimension-reset="${dataAttr(dimension.id)}">初期化</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="panel category-dimension-management">
+    <h4>分類軸管理</h4>
+    <p class="muted">カテゴリ別分析に表示する分類軸の表示名、表示/非表示、よく使うチップ、表示順を管理します。CSV検出分類軸は元CSV列名も確認できます。</p>
+    <div class="table-wrap"><table><thead><tr><th>表示順</th><th>表示名</th><th>分類軸ID</th><th>CSV列</th><th>種別</th><th>表示</th><th>よく使う</th><th>データ品質</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="muted">分類軸がありません。</td></tr>'}</tbody></table></div>
+    <div class="controls"><button type="button" id="resetCategoryDimensionSettings">分類軸設定を初期化</button></div>
+  </div>`;
+}
+
+function moveCategoryDimension(dimensionId, direction) {
+  const dimensions = getAllCategoryDimensions();
+  const index = dimensions.findIndex(d => d.id === dimensionId);
+  const delta = direction === 'up' ? -1 : 1;
+  const other = dimensions[index + delta];
+  const current = dimensions[index];
+  if (!current || !other) return;
+  updateCategoryDimensionSetting(current.id, { order: other.order });
+  updateCategoryDimensionSetting(other.id, { order: current.order });
+}
+
+function bindCategoryDimensionManagement() {
+  document.querySelectorAll('[data-category-dimension-label]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionLabel, { label: input.value || input.dataset.originalLabel }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-order]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionOrder, { order: input.value }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-enabled]').forEach(input => {
+    input.onchange = () => { if (updateCategoryDimensionSetting(input.dataset.categoryDimensionEnabled, { enabled: input.checked })) renderSettings(); else input.checked = true; };
+  });
+  document.querySelectorAll('[data-category-dimension-favorite]').forEach(input => {
+    input.onchange = () => { updateCategoryDimensionSetting(input.dataset.categoryDimensionFavorite, { favorite: input.checked }); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-move]').forEach(btn => {
+    btn.onclick = () => { moveCategoryDimension(btn.dataset.dimensionId, btn.dataset.categoryDimensionMove); renderSettings(); };
+  });
+  document.querySelectorAll('[data-category-dimension-reset]').forEach(btn => {
+    btn.onclick = () => { resetSingleCategoryDimensionSetting(btn.dataset.categoryDimensionReset); renderSettings(); };
+  });
+  const resetAll = document.getElementById('resetCategoryDimensionSettings');
+  if (resetAll) resetAll.onclick = () => {
+    if (!window.confirm('分類軸設定を初期化します。よろしいですか？')) return;
+    resetCategoryDimensionSettings();
+    state.ui.selectedCategoryDimension = 'system_classification';
+    state.ui.categoryTopN = 25;
+    persistCategoryAnalysisSettings();
+    renderSettings();
+  };
+}
+
 function categoryAnalysisSettingsHtml() {
   const dimensions = getEnabledCategoryDimensions();
   const selected = normalizeCategoryDimensionId(state.ui.selectedCategoryDimension || state.ui.categoryTab);
@@ -3107,6 +3288,7 @@ function renderSettings() {
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', periodQuickSettingsHtml());
   document.getElementById('content').insertAdjacentHTML('beforeend', categoryAnalysisSettingsHtml());
+  document.getElementById('content').insertAdjacentHTML('beforeend', categoryDimensionManagementHtml());
   document.getElementById('content').insertAdjacentHTML('beforeend', `
     <div class="panel">
       <h4>表示倍率</h4>
@@ -3132,6 +3314,7 @@ function renderSettings() {
   `);
   bindPeriodQuickSettings();
   bindCategoryAnalysisSettings();
+  bindCategoryDimensionManagement();
   document.getElementById('zoomRange').oninput = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomNumber').onchange = (e) => setDisplayZoom(e.target.value);
   document.getElementById('zoomSettingReset').onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
@@ -3182,6 +3365,7 @@ function renderManual() {
         <li><strong>操作：</strong>よく使う分類軸チップで素早く切り替え、分類値をクリックすると、その分類軸・分類値だけで明細へドリルダウンします。</li>
         <li><strong>補足：</strong>分類軸が増えた場合は、分類軸定義に追加することでカテゴリ別分析へ拡張しやすい構造にしています。</li>
         <li><strong>CSV分類列：</strong><code>分類_XXX</code>、<code>分類＿XXX</code>、<code>dim_XXX</code>、<code>dimension_XXX</code> 形式の列は自動的に分類軸へ追加されます。未入力の分類値は「未設定」として集計され、分類値の種類が多い場合はTop N表示や明細ドリルダウンで確認してください。</li>
+        <li><strong>分類軸管理：</strong>「11. 表示設定」の分類軸管理で、固定分類軸とCSV検出分類軸の表示名、表示順、表示/非表示、よく使う分類軸を変更できます。分類値数が多すぎる軸は分析軸として適さない場合があります。</li>
       </ul>
       <h4>5. アラート（乖離・変動）</h4>
       <p><strong>見方：</strong>閾値超過の項目を一覧表示します。乖離率・乖離額・変動率の3観点で優先順位をつけます。</p>
