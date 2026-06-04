@@ -66,7 +66,24 @@ python scripts/build_user_manual_zip.py
 - 一般利用者向けマニュアルのスクリーンショットは、必ず実アプリを起動し、ダミーデータを使って撮影してください。
 - 画像を想像で作成したり、実データ・個人情報・社内機密を含む画面を追加したりしないでください。
 - 撮影環境でブラウザまたはElectronを起動できない場合は、Markdown上の `TODO: 画面キャプチャを追加してください。` を残し、PR説明に未撮影箇所と理由を記載してください。
+- スクリーンショットTODOには `UM-<PAGE>-<連番3桁>` 形式のIDを付与してください。
+- 同じIDを複数箇所で使わないでください。
+- 画像ファイル名は `<ID>-<内容を表す英小文字slug>.webp` としてください。
 - 画像を追加する場合は `docs/manuals/assets/images/<page>/` に保存し、一般利用者向けZIPへ含めるため、必要に応じて `scripts/build_user_manual_zip.py` のコピー対象も確認してください。
+- Markdown上の相対パスは `assets/images/<page>/<ID>-<slug>.webp` としてください。
+- TODOを画像に置き換える場合は、画像にも `{#screenshot-<id小文字>}` を付けてください。
+
+記載例:
+
+```md
+> TODO: 画面キャプチャを追加してください。ID: UM-UG-002 / 対象画面：明細ドリルダウン画面 / 予定ファイル：assets/images/user-guide/UM-UG-002-detail-drilldown.webp
+```
+
+置換後:
+
+```md
+![明細ドリルダウン画面](assets/images/user-guide/UM-UG-002-detail-drilldown.webp){#screenshot-um-ug-002}
+```
 
 ## ユーザーマニュアル更新ルール
 
