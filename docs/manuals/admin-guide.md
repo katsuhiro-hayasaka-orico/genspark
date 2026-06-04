@@ -56,6 +56,20 @@ python -m mkdocs build --strict
 python scripts/build_docs_offline_zip.py
 ```
 
+利用者向けマニュアルだけを公開用サイトまたはオフラインZIPとして生成する場合は、次のコマンドを使用します。
+
+```bash
+python scripts/build_user_manual_zip.py --web-only
+python scripts/build_user_manual_zip.py
+```
+
+マニュアル内のスクリーンショットTODOは、`ID: UM-...` と `予定ファイル：assets/images/...`（半角コロンも可）を同じTODOブロックに記載すると、ビルド時にID重複や予定ファイル名との対応を検証します。通常ビルドでは未配置の画像を許容し、リリース前に画像配置まで確認する場合は次のチェックを使用します。
+
+```bash
+python scripts/build_user_manual_zip.py --check-screenshots-only
+python scripts/build_user_manual_zip.py --check-screenshots-only --require-manual-images
+```
+
 ## 設定ファイル
 
 | ファイル | 内容 |
@@ -66,6 +80,8 @@ python scripts/build_docs_offline_zip.py
 | `electron/preload.js` | `desktop.platform`、`exportPdf`、`exportHtml` の公開 |
 | `mkdocs.yml` | 通常のMkDocs Materialサイト設定 |
 | `mkdocs.offline.yml` | オフラインZIP配布向けのMkDocs設定 |
+| `mkdocs.user.yml` | 利用者向けマニュアル公開サイト用のMkDocs設定 |
+| `mkdocs.user.offline.yml` | 利用者向けマニュアルオフラインZIP用のMkDocs設定 |
 
 ## データ保存先・永続化方式
 
