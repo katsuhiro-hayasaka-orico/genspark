@@ -573,6 +573,8 @@ const displayContractDate = (value, status) => {
 const displayContractValue = (value) => value === null || value === undefined || value === '' ? '-' : value;
 const escapedContractValueForHtml = (value) => escapeHtml(value || '-');
 const monthlyCommentHtml = (m = {}, item = {}) => displayOrUnentered(firstPresent(m.comment, item.comment));
+const monthlyVarianceReasonCategoryHtml = (m = {}, item = {}) => displayOrUnentered(firstPresent(m.variance_reason_category, item.variance_reason_category));
+const monthlyVarianceReasonHtml = (m = {}, item = {}) => displayOrUnentered(firstPresent(m.variance_reason, item.variance_reason));
 
 const DETAIL_COLUMN_LABELS = {
   management_no: '管理番号',
@@ -3058,8 +3060,8 @@ function renderDetail() {
 
     document.querySelectorAll('#dBody tr').forEach(tr => tr.onclick = () => {
       const row = view[Number(tr.dataset.idx)];
-      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
-      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">月次データなし</td></tr>'}</tbody></table></div>`;
+      const monthlyRows = Object.entries(row.monthly || {}).sort(([a], [b]) => a.localeCompare(b)).map(([ym, m]) => `<tr><td>${escapeHtml(formatYearMonth(ym))}</td><td class="right">${yen(m.plan)}</td><td class="right">${yen(m.forecast)}</td><td class="right">${yen(m.actual)}</td><td>${monthlyVarianceReasonCategoryHtml(m, row)}</td><td>${monthlyVarianceReasonHtml(m, row)}</td><td>${monthlyCommentHtml(m, row)}</td></tr>`).join('');
+      document.getElementById('detailPane').innerHTML = `<h4>詳細ペイン</h4><div class="table-wrap"><table><thead><tr><th>年月</th><th class="right">計画</th><th class="right">見込</th><th class="right">実績</th><th>差額理由分類</th><th>差額理由</th><th>コメント</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="7">月次データなし</td></tr>'}</tbody></table></div>`;
     });
 
     document.getElementById('dExport').onclick = () => {
@@ -3384,6 +3386,7 @@ function renderManual() {
       <ul>
         <li><strong>操作：</strong>自由検索（案件名、ベンダー名、摘要）と複合フィルタ（年月、部門、費目）で対象を絞り込みます。</li>
         <li><strong>操作：</strong>列ヘッダでソートし、金額上位・変動上位を特定してコメント欄や報告資料に転記します。</li>
+        <li><strong>操作：</strong>行クリック後の詳細ペインでは、月次の計画・見込・実績に加えて、差額理由分類・差額理由・コメントを確認できます。</li>
       </ul>
       <h4>8. 新規案件コスト</h4>
       <p><strong>見方：</strong>新規案件の初期費用・運用費・回収見込みを集計し、予算インパクトを確認します。</p>
