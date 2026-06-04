@@ -10,8 +10,8 @@
 | `new_project_monthly_cost` | 新規案件月次金額CSV | 新規案件の年月別予算・見込 | `parseNewProjectMonthlyCostCsv` | `store.additionalData.new_project_monthly_cost` | マスタCSVと `management_no` で結合 |
 | `new_project` | 画面選択肢なし | 旧/互換的な新規案件データ | `parseNewProjectCsv` | `store.additionalData.new_project` | サーバ側には存在。画面の選択肢にはない |
 | `new_project_actual_forecast` | 画面選択肢なし | 新規案件予算見込CSV | `parseNewProjectCostCsv` | `store.additionalData.new_project_actual_forecast` | サーバ側には存在。画面の選択肢にはない |
+| `depreciation_simulation` | 減価償却シミュレーション | 償却シミュレーションの期間別集計 | `parseDepreciationSimulationCsv` | `store.additionalData.depreciation_simulation` | ロング形式を想定。画面のファイル種別ではOACIS実績より前に表示 |
 | `oasis_actual` | OACIS実績 | OACIS実績金額、サプライヤ、予実番号の分析 | `parseOasisActualCsv` | `store.additionalData.oasis_actual` | 表示名はOACISだが内部キーは `oasis_actual` |
-| `depreciation_simulation` | 減価償却シミュレーション | 償却シミュレーションの期間別集計 | `parseDepreciationSimulationCsv` | `store.additionalData.depreciation_simulation` | ロング形式を想定 |
 
 ## 2. CSV解析の基本仕様
 
