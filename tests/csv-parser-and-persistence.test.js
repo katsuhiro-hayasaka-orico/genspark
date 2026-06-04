@@ -243,24 +243,24 @@ test('demo sample CSV files are parseable by their import file types', () => {
   const cases = [
     [IMPORT_FILE_TYPES.BUDGET, 'budget-demo.csv', result => {
       assert.equal(result.status, 'imported');
-      assert.equal(result.successRows, 4);
-      assert.equal(result.master.length, 4);
+      assert.equal(result.successRows, 5);
+      assert.equal(result.master.length, 5);
       assert.equal(result.detail.some(row => row.fiscal_period === '67' && row.target_year_month === '202604' && row.value_type === 'plan'), true);
       assert.equal(result.detail.some(row => row.target_year_month === '202703' && row.value_type === 'forecast'), true);
     }],
     [IMPORT_FILE_TYPES.NEW_PROJECT_MASTER, 'new-project-master-demo.csv', result => {
       assert.equal(result.status, 'imported');
-      assert.equal(result.rows.some(row => row.management_no === 'NP-001'), true);
+      assert.equal(result.rows.some(row => row.management_no === 'DEMO-001'), true);
     }],
     [IMPORT_FILE_TYPES.NEW_PROJECT_MONTHLY_COST, 'new-project-monthly-cost-demo.csv', result => {
       assert.equal(result.status, 'imported');
-      assert.equal(result.rows.some(row => row.management_no === 'NP-001' && row.target_year_month === '202604'), true);
-      assert.equal(result.rows.some(row => row.management_no === 'NP-002' && row.target_year_month === '202703'), true);
+      assert.equal(result.rows.some(row => row.management_no === 'DEMO-001' && row.target_year_month === '202604'), true);
+      assert.equal(result.rows.some(row => row.management_no === 'DEMO-005' && row.target_year_month === '202608'), true);
     }],
     [IMPORT_FILE_TYPES.OASIS_ACTUAL, 'oacis-actual-demo.csv', result => {
       assert.equal(result.status, 'imported');
       assert.equal(result.rows.some(row => row.yojitsu_no === '予実番号未設定' && row.yojitsu_no_missing), true);
-      assert.equal(result.rows.some(row => row.yojitsu_no === 'BUD-001'), true);
+      assert.equal(result.rows.some(row => row.yojitsu_no === 'DEMO-001'), true);
     }],
     [IMPORT_FILE_TYPES.DEPRECIATION_SIMULATION, 'depreciation-simulation-demo.csv', result => {
       assert.equal(result.status, 'imported');

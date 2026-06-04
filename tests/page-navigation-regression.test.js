@@ -71,7 +71,9 @@ this.savePeriodQuickFilters = savePeriodQuickFilters;
 this.getEnabledPeriodQuickFilters = getEnabledPeriodQuickFilters;
 this.resolvePeriodQuickFilter = resolvePeriodQuickFilter;
 this.addCurrentScopeToQuickFilters = addCurrentScopeToQuickFilters;
-this.renderSettings = renderSettings;`, context);
+this.renderSettings = renderSettings;
+this.displayFiscalYearFromFiscalPeriod = displayFiscalYearFromFiscalPeriod;
+this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;`, context);
 
   return context;
 }
@@ -107,6 +109,21 @@ test('global period scope uses compact trigger without topbar aggregation axis',
   assert.doesNotMatch(filterHtml, /通期/);
   assert.doesNotMatch(filterHtml, /対象期\(自\)/);
   assert.doesNotMatch(filterHtml, /対象期\(至\)/);
+});
+
+
+test('summary report fiscal period displays FY as fiscal-period end year', () => {
+  const context = createRenderHarness();
+
+  assert.equal(context.displayFiscalYearFromFiscalPeriod('67'), 2027);
+  assert.equal(context.displayFiscalYearFromFiscalPeriod('66'), 2026);
+});
+
+test('import file type options align additional CSV order with side menu', () => {
+  const context = createRenderHarness();
+  const values = context.importFileTypeOptions.map(option => option.value);
+
+  assert.ok(values.indexOf('depreciation_simulation') < values.indexOf('oasis_actual'));
 });
 
 test('period scope popover renders required tabs', () => {

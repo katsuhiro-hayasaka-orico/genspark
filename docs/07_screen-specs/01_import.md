@@ -33,7 +33,7 @@ CSVファイル種別を選択し、メインCSVまたは追加CSVをアップ�
 
 | 表示項目 | 内容 |
 |---|---|
-| ファイル種別 | `budget`, `variance_reason`, `new_project_master`, `new_project_monthly_cost`, `oasis_actual`, `depreciation_simulation` |
+| ファイル種別 | `budget`, `variance_reason`, `new_project_master`, `new_project_monthly_cost`, `depreciation_simulation`, `oasis_actual` の順に表示 |
 | 追加データ説明 | 追加データ未取込時もメインCSVで表示する旨 |
 | 読み込み結果サマリー | メインCSV選択時の件数、対象期間、欠損候補、数値混入候補 |
 | エラーパネル | クライアント側チェック結果または追加CSVの想定レイアウト説明 |

@@ -33,8 +33,8 @@ const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'variance_reason', label: '差額理由' },
   { value: 'new_project_master', label: '新規案件マスタCSV' },
   { value: 'new_project_monthly_cost', label: '新規案件月次金額CSV' },
-  { value: 'oasis_actual', label: 'OACIS実績' },
   { value: 'depreciation_simulation', label: '減価償却シミュレーション' },
+  { value: 'oasis_actual', label: 'OACIS実績' },
 ];
 
 const IMPORT_STATUS_FILE_TYPES = IMPORT_FILE_TYPE_OPTIONS.map(t => t.value);
@@ -1040,6 +1040,11 @@ function deriveFiscalYearFromFiscalPeriod(fiscalPeriod, items = []) {
     .filter(Number.isFinite)
     .sort((a, b) => a - b)[0];
   return yearFromMonthly || new Date().getFullYear();
+}
+
+function displayFiscalYearFromFiscalPeriod(fiscalPeriod, items = []) {
+  const fiscalYearStart = deriveFiscalYearFromFiscalPeriod(fiscalPeriod, items);
+  return fiscalYearStart ? fiscalYearStart + 1 : '';
 }
 
 function buildFiscalYearMonths(fiscalYear) {
@@ -2284,9 +2289,6 @@ function renderSummary() {
   const s = scopedPeriodSummary(items);
   const periodVariance = calculateVariance(s.totalPlan, s.comparable);
   const periodBurnRate = calculateBurnRate(s.totalPlan, s.comparable);
-  const fullComparable = items.reduce((sum, item) => sum + getComparableActual(item), 0);
-  const fullPlan = items.reduce((sum, item) => sum + Number(item.totalPlan || 0), 0);
-  const fullBurnRate = calculateBurnRate(fullPlan, fullComparable);
   const reduction = Math.max(periodVariance.amount, 0);
   const reductionRate = s.totalPlan ? reduction / s.totalPlan * 100 : 0;
   const top = items.map(r => ({
@@ -2318,7 +2320,7 @@ function renderSummary() {
   }
   const reportSeries = buildReportSeries(items, state.ui.reportFiscalPeriod || defaultReportPeriod);
   const reportPeriodOptions = reportPeriods.map(period => {
-    const fy = deriveFiscalYearFromFiscalPeriod(period, items);
+    const fy = displayFiscalYearFromFiscalPeriod(period, items);
     return `<option value="${dataAttr(period)}" ${period === state.ui.reportFiscalPeriod ? 'selected' : ''}>第${escapeHtml(period)}期（FY${fy}）</option>`;
   }).join('');
 
@@ -2358,21 +2360,13 @@ function renderSummary() {
       </div>
       <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
       <div class="bento-card bento-card--small insight-card">
-        <h4>当月カード</h4>
+        <h4>選択期間カード</h4>
         <p class="muted">選択スコープ: ${escapeHtml(s.label || '通期')}</p>
         <dl>
           <dt>予算</dt><dd>${money(s.totalPlan)}</dd>
           <dt>見込み／実績</dt><dd>${money(s.comparable)}</dd>
           <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${money(periodVariance.amount)}</dd>
           <dt>差額率</dt><dd>${animatedValueHtml(periodVariance.rate, 'pct')}</dd>
-        </dl>
-      </div>
-      <div class="bento-card bento-card--small insight-card">
-        <h4>期全体カード</h4>
-        <dl>
-          <dt>期全体の予算</dt><dd>${money(fullPlan)}</dd>
-          <dt>期全体の見込み／実績</dt><dd>${money(fullComparable)}</dd>
-          <dt>予算消化率</dt><dd>${animatedValueHtml(fullBurnRate, 'pct')}</dd>
         </dl>
       </div>
       <div class="bento-card bento-card--wide chart-card">
@@ -2385,7 +2379,7 @@ function renderSummary() {
             <h4>報告用サマリー（単月・累計）</h4>
             <p class="card-help">4月から翌年3月までの月次計画／見込み・実績と累計を同時に確認します。</p>
           </div>
-          <label class="controls">期 ${reportPeriodOptions ? `<select id="reportFiscalPeriod">${reportPeriodOptions}</select>` : `<span class="badge">FY${reportSeries.fiscalYear}</span>`}</label>
+          <label class="controls">期 ${reportPeriodOptions ? `<select id="reportFiscalPeriod">${reportPeriodOptions}</select>` : `<span class="badge">FY${displayFiscalYearFromFiscalPeriod(reportSeries.fiscalYear)}</span>`}</label>
         </div>
         <div class="chart-frame chart-frame--large"><canvas id="reportComboChart"></canvas></div>
       </div>
