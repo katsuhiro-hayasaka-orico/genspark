@@ -107,7 +107,21 @@
 | OACIS実績 | 経費事象コード/名、会計日、実績部店、借方/貸方/残高、実績額、サプライヤ、予実番号 | 経費事象、サプライヤ、予実番号、予実番号未設定明細 |
 | 減価償却シミュレーション | 区分、償却展開区分、償却展開区分名、期間種別、期、月、金額 | 期、月、半期、通期、償却展開区分名 |
 
-## 12. 未確認事項
+## 12. デモ用サンプルCSV
+
+スクリーンショット撮影・デモ用途の架空データとして、`sample-data/demo/` に以下のCSVを配置します。実データ・個人情報・社内機密は混ぜないでください。
+
+| データ取込画面のファイル種別 | 対応CSVファイル | 主な内容 |
+|---|---|---|
+| 予実績管理データ | `sample-data/demo/budget-demo.csv` | 67期（2026年4月〜2027年3月）の計画・見込・実績、部署、ベンダー、固定/変動、投資/運用の差異確認用 |
+| 新規案件マスタCSV | `sample-data/demo/new-project-master-demo.csv` | `NP-001` などの管理番号、案件名、担当者、進捗、案件区分 |
+| 新規案件月次金額CSV | `sample-data/demo/new-project-monthly-cost-demo.csv` | 新規案件マスタCSVと同じ管理番号を使う67期相当の月次予算・見込 |
+| OACIS実績 | `sample-data/demo/oacis-actual-demo.csv` | `予実番号` 入り行と空欄行を含むOACIS実績明細 |
+| 減価償却シミュレーション | `sample-data/demo/depreciation-simulation-demo.csv` | `month`、`half`、`full` および `H1`、`H2`、`FY`、月次日付の表示確認用 |
+
+サンプルCSVの利用方法と注意事項は `sample-data/demo/README.md` も参照してください。CSVを変更した場合は、この仕様書とサンプルCSV取込テストの整合性を確認します。
+
+## 13. 未確認事項
 
 - 各CSV列の業務上の正式定義。
 - OACIS実績の元システム仕様。
