@@ -116,6 +116,8 @@ test('global period scope uses compact trigger without topbar aggregation axis',
   assert.doesNotMatch(filterHtml, /通期/);
   assert.doesNotMatch(filterHtml, /対象期\(自\)/);
   assert.doesNotMatch(filterHtml, /対象期\(至\)/);
+  assert.doesNotMatch(filterHtml, /AI分析用プロンプト/);
+  assert.doesNotMatch(filterHtml, /ai-prompt-trigger/);
 });
 
 
