@@ -1751,12 +1751,14 @@ function initFilterBar() {
   }
 }
 
+function shouldShowAiPromptAction(page = state.page) {
+  return AI_PROMPT_VISIBLE_PAGES.includes(page);
+}
+
 function updateAiPromptTopbarButton() {
   const button = document.getElementById('aiPromptTopbarOpen');
-  if (!button) return;
-  const visible = AI_PROMPT_VISIBLE_PAGES.includes(state.page);
-  button.hidden = !visible;
-  if (!visible && state.ui.aiPrompt?.open) {
+  if (button) button.hidden = true;
+  if (!shouldShowAiPromptAction() && state.ui.aiPrompt?.open) {
     state.ui.aiPrompt.open = false;
     renderAiPromptDrawer();
   }
@@ -2084,7 +2086,7 @@ function chartColors() {
 
 
 const EXPORTABLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail', 'project', 'depreciation', 'oacis'];
-const AI_PROMPT_VISIBLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail'];
+const AI_PROMPT_VISIBLE_PAGES = ['summary'];
 const EXPORT_APP_TITLE = 'IT予実績管理ダッシュボード';
 const EXPORT_HEADER_STORAGE_PREFIX = 'exportReportHeaderOpen:';
 let isExportingReport = false;
@@ -2178,6 +2180,9 @@ function filterSummaryHtml(entries = buildFilterSummaryEntries()) {
 function renderExportControls({ screenName = currentScreenName(), targetSelector = '#export-root' } = {}) {
   const host = document.getElementById('exportControlsHost');
   if (!host) return;
+  const aiPromptActionHtml = shouldShowAiPromptAction()
+    ? '<button id="aiPromptToolbarOpen" class="ai-prompt-trigger ai-prompt-trigger--toolbar" type="button">AI分析用プロンプト</button>'
+    : '';
   host.innerHTML = `
     <div class="export-toolbar-actions">
     <div class="export-controls" data-export-controls>
@@ -2187,6 +2192,7 @@ function renderExportControls({ screenName = currentScreenName(), targetSelector
         <button type="button" role="menuitem" data-export-format="html">HTMLとして保存</button>
       </div>
     </div>
+    ${aiPromptActionHtml}
     </div>`;
   const toolbarAiPrompt = host.querySelector('#aiPromptToolbarOpen');
   if (toolbarAiPrompt) toolbarAiPrompt.onclick = openAiPromptDrawer;
