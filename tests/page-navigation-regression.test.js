@@ -80,10 +80,47 @@ this.saveCategoryDimensionSettings = saveCategoryDimensionSettings;
 this.setDetectedCategoryDimensions = (dimensions) => { detectedCategoryDimensionsCache = dimensions; };
 this.resetCategoryDimensionSettings = resetCategoryDimensionSettings;
 this.displayFiscalYearFromFiscalPeriod = displayFiscalYearFromFiscalPeriod;
-this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;`, context);
+this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;
+this.updateAiPromptTopbarButton = updateAiPromptTopbarButton;
+this.renderExportControls = renderExportControls;`, context);
 
   return context;
 }
+
+
+test('summary removes duplicate selected-period card', async () => {
+  const context = createRenderHarness();
+
+  const summaryHtml = await context.__runPage('summary');
+
+  assert.match(summaryHtml, /kpi-strip/);
+  assert.doesNotMatch(summaryHtml, /選択期間カード/);
+});
+
+test('AI prompt action appears only in the summary export toolbar', () => {
+  const context = createRenderHarness();
+  const topbarButton = context.document.getElementById('aiPromptTopbarOpen');
+  const exportHost = context.document.getElementById('exportControlsHost');
+
+  context.state.page = 'summary';
+  context.updateAiPromptTopbarButton();
+  assert.equal(topbarButton.hidden, true);
+  context.renderExportControls();
+  assert.match(exportHost.innerHTML, /PDF出力/);
+  assert.match(exportHost.innerHTML, /id="aiPromptToolbarOpen"/);
+  assert.match(exportHost.innerHTML, /AI分析用プロンプト/);
+
+  context.state.ui.aiPrompt.open = true;
+  for (const page of ['trend', 'category', 'alert', 'vendor', 'detail', 'project', 'depreciation', 'oacis']) {
+    context.state.page = page;
+    context.updateAiPromptTopbarButton();
+    context.renderExportControls();
+    assert.equal(topbarButton.hidden, true);
+    assert.doesNotMatch(exportHost.innerHTML, /id="aiPromptToolbarOpen"/);
+    assert.doesNotMatch(exportHost.innerHTML, /AI分析用プロンプト/);
+    assert.equal(context.state.ui.aiPrompt.open, false);
+  }
+});
 
 test('summary, vendor, and detail pages render without leaving prior content in place', async () => {
   const context = createRenderHarness();
