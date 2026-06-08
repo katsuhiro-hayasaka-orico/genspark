@@ -27,6 +27,7 @@ const UTILITY_NAV_PAGES = [
 ];
 
 const NAV_PAGES = [...NAV_SECTIONS.flatMap(section => section.pages), ...UTILITY_NAV_PAGES];
+const COPILOT_CHAT_URL = ['https:', '', 'm365.cloud.microsoft', 'chat'].join('/');
 
 const IMPORT_FILE_TYPE_OPTIONS = [
   { value: 'budget', label: '予実績管理データ' },
@@ -395,6 +396,27 @@ const state = {
     importFileType: 'budget',
     depreciationFilters: { fiscalPeriod: '', categoryName: '' },
     units: loadSavedMoneyUnits(),
+    aiPrompt: {
+      open: false,
+      loading: false,
+      markdown: '',
+      jsonContext: null,
+      generatedAt: '',
+      warnings: [],
+      status: '',
+      statusTone: 'info',
+      options: {
+        includeKpi: true,
+        includeMonthlyTrend: true,
+        includeTopVariance: true,
+        includeAlerts: true,
+        includeMissingReasons: true,
+        includeDetailAll: false,
+        includeOwnerName: false,
+        includeTopN: 10,
+        detailLevel: 'standard',
+      },
+    },
   },
 };
 
@@ -1766,7 +1788,9 @@ function closeMobileMenu() {
 
 function goPage(page) {
   closeMobileMenu();
+  const pageChanged = state.page !== page;
   withViewTransition(() => {
+    if (pageChanged) clearAiPromptGeneratedResult('画面が切り替わったため、前回生成したプロンプトをクリアしました。');
     state.page = page;
     initNav();
     initFilterBar();
@@ -2143,13 +2167,18 @@ function renderExportControls({ screenName = currentScreenName(), targetSelector
   const host = document.getElementById('exportControlsHost');
   if (!host) return;
   host.innerHTML = `
+    <div class="export-toolbar-actions">
     <div class="export-controls" data-export-controls>
       <button type="button" class="export-primary" data-export-format="pdf">PDF出力</button>
       <button type="button" class="export-menu-toggle" aria-label="HTML出力メニューを開く" aria-expanded="false">▼</button>
       <div class="export-menu" role="menu" hidden>
         <button type="button" role="menuitem" data-export-format="html">HTMLとして保存</button>
       </div>
+    </div>
+    <button type="button" class="ai-prompt-trigger ai-prompt-trigger--toolbar" id="aiPromptToolbarOpen">AI分析用プロンプト</button>
     </div>`;
+  const toolbarAiPrompt = host.querySelector('#aiPromptToolbarOpen');
+  if (toolbarAiPrompt) toolbarAiPrompt.onclick = openAiPromptDrawer;
   const menu = host.querySelector('.export-menu');
   const toggle = host.querySelector('.export-menu-toggle');
   toggle.onclick = () => {
@@ -2336,6 +2365,236 @@ async function exportCurrentView(format, { screenName = currentScreenName(), tar
     await waitFrames(1);
     isExportingReport = false;
   }
+}
+
+
+function aiPromptState() {
+  return state.ui.aiPrompt;
+}
+
+function aiPromptOptions() {
+  return aiPromptState().options;
+}
+
+function clearAiPromptGeneratedResult(message = '') {
+  const drawer = aiPromptState();
+  drawer.markdown = '';
+  drawer.jsonContext = null;
+  drawer.generatedAt = '';
+  drawer.warnings = [];
+  drawer.status = message;
+  drawer.statusTone = message ? 'info' : 'info';
+}
+
+function aiPromptTargetLabel() {
+  return `${currentScreenName()} / ${formatScopeSummary().replace(/^表示中：/, '')} / ${state.filters.department || '全部門'} / ${state.filters.target || 'すべて'}`;
+}
+
+function setAiPromptStatus(message = '', tone = 'info') {
+  const drawer = aiPromptState();
+  drawer.status = message;
+  drawer.statusTone = tone;
+  const el = document.getElementById('aiPromptStatus');
+  if (el) {
+    el.textContent = message;
+    el.className = `ai-prompt-status ai-prompt-status--${tone}`;
+  }
+}
+
+function openAiPromptDrawer() {
+  const drawer = aiPromptState();
+  drawer.open = true;
+  if (!drawer.markdown) setAiPromptStatus('プロンプト生成後にコピー・保存できます。', 'info');
+  renderAiPromptDrawer();
+}
+
+function closeAiPromptDrawer() {
+  aiPromptState().open = false;
+  renderAiPromptDrawer();
+}
+
+function aiPromptRequestBody() {
+  const opts = aiPromptOptions();
+  return {
+    page: state.page,
+    filters: { ...state.filters },
+    options: {
+      includeTopN: Number(opts.includeTopN || 10),
+      includeDetailAll: Boolean(opts.includeDetailAll),
+      includeOwnerName: Boolean(opts.includeOwnerName),
+      detailLevel: opts.detailLevel || 'standard',
+    },
+  };
+}
+
+async function generateAiPrompt() {
+  const drawer = aiPromptState();
+  if (!state.hasData) {
+    setAiPromptStatus('AI分析用プロンプトを生成するには、先に予実績管理データを取り込んでください。', 'error');
+    return;
+  }
+  drawer.markdown = '';
+  drawer.jsonContext = null;
+  drawer.generatedAt = '';
+  drawer.warnings = [];
+  drawer.loading = true;
+  setAiPromptStatus('プロンプト生成中です…', 'info');
+  renderAiPromptDrawer();
+  try {
+    const payload = await api('/ai-prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiPromptRequestBody()),
+    });
+    drawer.markdown = payload.markdown || '';
+    drawer.jsonContext = payload.jsonContext || null;
+    drawer.generatedAt = payload.generatedAt || '';
+    drawer.warnings = payload.warnings || [];
+    setAiPromptStatus(`生成しました（${drawer.markdown.length.toLocaleString('ja-JP')}文字）。コピーしてCopilotへ貼り付けてください。`, 'ok');
+  } catch (error) {
+    console.error('[ai-prompt] failed:', error);
+    setAiPromptStatus(error.message || 'プロンプト生成に失敗しました。条件を変更して再実行してください。', 'error');
+  } finally {
+    drawer.loading = false;
+    renderAiPromptDrawer();
+  }
+}
+
+async function copyAiPrompt() {
+  const markdown = aiPromptState().markdown;
+  if (!markdown) return setAiPromptStatus('先にプロンプトを生成してください。', 'warn');
+  try {
+    await navigator.clipboard.writeText(markdown);
+    setAiPromptStatus('コピーしました。Copilotを開いて貼り付けてください。', 'ok');
+  } catch (error) {
+    console.warn('[ai-prompt] clipboard unavailable:', error);
+    const preview = document.getElementById('aiPromptPreview');
+    if (preview) preview.focus();
+    setAiPromptStatus('自動コピーできませんでした。下のプレビュー欄から手動でコピーしてください。', 'warn');
+  }
+}
+
+function openCopilot() {
+  window.open(COPILOT_CHAT_URL, '_blank', 'noopener,noreferrer');
+  setAiPromptStatus('Copilotを新規タブで開きました。プロンプト本文はURLに含めていません。', 'info');
+}
+
+function aiPromptTimestamp() {
+  const d = aiPromptState().generatedAt ? new Date(aiPromptState().generatedAt) : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+function downloadTextFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function saveAiPromptMarkdown() {
+  const markdown = aiPromptState().markdown;
+  if (!markdown) return setAiPromptStatus('先にプロンプトを生成してください。', 'warn');
+  downloadTextFile(`yojitsu-ai-prompt-${state.page}-${aiPromptTimestamp()}.md`, markdown, 'text/markdown;charset=utf-8');
+  setAiPromptStatus('Markdownを保存しました。', 'ok');
+}
+
+function saveAiPromptJson() {
+  const context = aiPromptState().jsonContext;
+  if (!context) return setAiPromptStatus('先にプロンプトを生成してください。', 'warn');
+  downloadTextFile(`yojitsu-ai-context-${state.page}-${aiPromptTimestamp()}.json`, JSON.stringify(context, null, 2), 'application/json;charset=utf-8');
+  setAiPromptStatus('JSONを保存しました。', 'ok');
+}
+
+function aiPromptCheckboxHtml(key, label, disabled = false) {
+  const opts = aiPromptOptions();
+  return `<label class="ai-option"><input type="checkbox" data-ai-option="${dataAttr(key)}" ${opts[key] ? 'checked' : ''} ${disabled ? 'disabled' : ''}> ${escapeHtml(label)}</label>`;
+}
+
+function renderAiPromptDrawer() {
+  const existing = document.getElementById('aiPromptDrawerRoot');
+  if (!aiPromptState().open) {
+    if (existing) {
+      if (typeof existing.remove === 'function') existing.remove();
+      else if (existing.parentNode) existing.parentNode.removeChild(existing);
+    }
+    return;
+  }
+  const drawer = aiPromptState();
+  const opts = aiPromptOptions();
+  const warningsHtml = drawer.warnings.length ? `<ul class="ai-prompt-warnings">${drawer.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : '';
+  const html = `
+    <div id="aiPromptDrawerRoot" class="ai-prompt-overlay" role="presentation">
+      <aside class="ai-prompt-drawer" role="dialog" aria-modal="true" aria-labelledby="aiPromptTitle">
+        <div class="ai-prompt-head">
+          <div>
+            <p class="eyebrow">Copilot分析支援</p>
+            <h3 id="aiPromptTitle">AI分析用プロンプト</h3>
+          </div>
+          <button type="button" class="icon-button" id="aiPromptClose" aria-label="閉じる">×</button>
+        </div>
+        <div class="ai-prompt-target"><strong>対象:</strong><br>${escapeHtml(aiPromptTargetLabel())}</div>
+        <p class="ai-prompt-note">この機能はAI APIを呼び出さず、外部サービスへデータ送信しません。コピー後、ユーザー自身でCopilotへ貼り付けてください。</p>
+        <section class="ai-prompt-options" aria-label="含めるデータ">
+          <h4>含めるデータ</h4>
+          <div class="ai-option-grid">
+            ${aiPromptCheckboxHtml('includeKpi', '主要KPI', true)}
+            ${aiPromptCheckboxHtml('includeMonthlyTrend', '月次推移', true)}
+            ${aiPromptCheckboxHtml('includeTopVariance', `差額上位${opts.includeTopN}件`, true)}
+            ${aiPromptCheckboxHtml('includeAlerts', 'アラート', true)}
+            ${aiPromptCheckboxHtml('includeMissingReasons', '差額理由未入力', true)}
+            ${aiPromptCheckboxHtml('includeDetailAll', '明細全件')}
+            ${aiPromptCheckboxHtml('includeOwnerName', '担当者名')}
+          </div>
+          <div class="ai-prompt-select-row">
+            <label>分析粒度 <select id="aiPromptDetailLevel"><option value="brief" ${opts.detailLevel === 'brief' ? 'selected' : ''}>短め</option><option value="standard" ${opts.detailLevel === 'standard' ? 'selected' : ''}>標準</option><option value="detail" ${opts.detailLevel === 'detail' ? 'selected' : ''}>詳細</option></select></label>
+            <label>差額上位件数 <select id="aiPromptTopN">${[5, 10, 20].map(n => `<option value="${n}" ${Number(opts.includeTopN) === n ? 'selected' : ''}>${n}件</option>`).join('')}</select></label>
+          </div>
+        </section>
+        <div class="ai-prompt-actions">
+          <button type="button" class="primary" id="aiPromptGenerate" ${drawer.loading ? 'disabled' : ''}>${drawer.loading ? '生成中…' : 'プロンプト生成'}</button>
+          <button type="button" id="aiPromptCopy">プロンプトをコピー</button>
+          <button type="button" id="aiPromptCopilot">Copilotを開く</button>
+          <button type="button" id="aiPromptSaveMd">Markdownを保存</button>
+          <button type="button" id="aiPromptSaveJson">JSONを保存</button>
+        </div>
+        <p id="aiPromptStatus" class="ai-prompt-status ai-prompt-status--${dataAttr(drawer.statusTone)}" aria-live="polite">${escapeHtml(drawer.status || '')}</p>
+        ${warningsHtml}
+        <div class="ai-prompt-meta">生成日時: ${escapeHtml(drawer.generatedAt ? formatExportDate(new Date(drawer.generatedAt)) : '未生成')} / 文字数: ${escapeHtml(drawer.markdown ? drawer.markdown.length.toLocaleString('ja-JP') : '0')}</div>
+        <textarea id="aiPromptPreview" class="ai-prompt-preview" readonly placeholder="プロンプト生成後、ここにMarkdownプレビューが表示されます。">${escapeHtml(drawer.markdown || '')}</textarea>
+      </aside>
+    </div>`;
+  if (existing) existing.outerHTML = html;
+  else document.body.insertAdjacentHTML('beforeend', html);
+  bindAiPromptDrawer();
+}
+
+function bindAiPromptDrawer() {
+  const root = document.getElementById('aiPromptDrawerRoot');
+  if (!root) return;
+  root.querySelector('#aiPromptClose').onclick = closeAiPromptDrawer;
+  root.addEventListener('click', (event) => { if (event.target === root) closeAiPromptDrawer(); });
+  root.querySelector('#aiPromptGenerate').onclick = generateAiPrompt;
+  root.querySelector('#aiPromptCopy').onclick = copyAiPrompt;
+  root.querySelector('#aiPromptCopilot').onclick = openCopilot;
+  root.querySelector('#aiPromptSaveMd').onclick = saveAiPromptMarkdown;
+  root.querySelector('#aiPromptSaveJson').onclick = saveAiPromptJson;
+  root.querySelectorAll('[data-ai-option]').forEach(input => {
+    input.onchange = () => {
+      aiPromptOptions()[input.dataset.aiOption] = input.checked;
+      if (input.dataset.aiOption === 'includeDetailAll' && input.checked) aiPromptOptions().includeTopN = 20;
+      renderAiPromptDrawer();
+    };
+  });
+  const topN = root.querySelector('#aiPromptTopN');
+  if (topN) topN.onchange = () => { aiPromptOptions().includeTopN = Number(topN.value); renderAiPromptDrawer(); };
+  const detailLevel = root.querySelector('#aiPromptDetailLevel');
+  if (detailLevel) detailLevel.onchange = () => { aiPromptOptions().detailLevel = detailLevel.value; };
 }
 
 function renderImport() {
@@ -3662,6 +3921,7 @@ async function renderPage() {
   else if (state.page === 'depreciation') renderDepreciation();
   else if (state.page === 'oacis') renderOacisActual();
   ensureExportableView();
+  renderAiPromptDrawer();
   showAdditionalDataNotice();
 }
 
