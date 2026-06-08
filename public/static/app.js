@@ -1679,7 +1679,6 @@ function initFilterBar() {
     <label>部門 <select id="fDept"><option value="">全部門</option>${depts.map(v => optionHtml(v, state.filters.department)).join('')}</select></label>
     <label>分析軸 <select id="fPers">${['費目', 'システム', '固定・変動', '投資・運用'].map(v => optionHtml(v, state.filters.perspective)).join('')}</select></label>
     <label>対象 <select id="fTarget">${targets.map(v => optionHtml(v, state.filters.target)).join('')}</select></label>
-    <button type="button" class="ai-prompt-trigger" id="aiPromptOpen">AI分析用プロンプト</button>
   `;
 
   const rerenderWithCommonFilters = () => {
@@ -1694,8 +1693,6 @@ function initFilterBar() {
   root.querySelector('#fDept').onchange = rerenderWithCommonFilters;
   root.querySelector('#fPers').onchange = rerenderWithCommonFilters;
   root.querySelector('#fTarget').onchange = rerenderWithCommonFilters;
-  const aiPromptOpen = root.querySelector('#aiPromptOpen');
-  if (aiPromptOpen) aiPromptOpen.onclick = openAiPromptDrawer;
   root.querySelector('#periodScopeTrigger').onclick = (event) => {
     event.stopPropagation();
     state.ui.periodScopePopoverOpen = !state.ui.periodScopePopoverOpen;
