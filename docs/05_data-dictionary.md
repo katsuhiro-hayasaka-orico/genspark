@@ -68,3 +68,24 @@
 
 - 金額列の正式単位（円、千円など）はファイル種別ごとに確認が必要です。
 - CSV列の業務上の正式名称とコード上の別名対応は、業務担当レビューが必要です。
+
+## AI分析用プロンプト生成コンテキスト
+
+`POST /api/ai-prompt` の `jsonContext` は、AI貼り付け用に整形した分析コンテキストです。金額単位は千円です。
+
+| 項目 | 内容 |
+|---|---|
+| `app` | アプリ名 |
+| `page`, `pageLabel` | 生成対象の画面キーと画面名 |
+| `generatedAt` | 生成日時（ISO文字列） |
+| `filters` | 対象期間、部門、分類軸、対象などの表示条件 |
+| `kpi.totalPlan`, `kpi.totalForecast`, `kpi.totalActual` | フィルタ後の計画、見込み、実績合計 |
+| `kpi.varianceForecastAmount`, `kpi.varianceActualAmount` | 見込み差額、実績差額 |
+| `kpi.varianceForecastPct`, `kpi.varianceActualPct` | 見込み差額率、実績差額率 |
+| `monthlyTrend` | 月別の計画・見込み・実績・差額 |
+| `rankings.topVarianceItems` | 差額上位明細。既定では上位10件 |
+| `rankings.topCategories`, `rankings.topDepartments`, `rankings.topVendors` | 分類、部門、ベンダーの差額上位 |
+| `alerts` | 超過、差額理由未入力、予算ゼロ実績あり、未分類などの注意情報 |
+| `dataQuality.notes` | マスクや明細件数制限、未入力件数などの注意書き |
+
+機密項目マスクが有効な場合、担当者名・契約番号・ベンダー名・摘要/理由系テキストは分析に必要な粒度へ置換されます。

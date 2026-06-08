@@ -34,3 +34,11 @@
 | 画面DOM基準のPDF/HTML出力 | `public/static/app.js`, `public/static/style.css` | `ensureExportableView`, `renderExportControls`, `exportCurrentView`, `waitForChartsReady`, `buildStandaloneHtml`, `bindExportReportHeaderState` | `#export-root` の現在DOMを出力対象にし、レポートヘッダー開閉状態を画面単位で保存する。 |
 | Electron保存処理 | `electron/main.js`, `electron/preload.js` | IPC `export:pdf`, `export:html`; `webContents.printToPDF()` | rendererにはpreload経由で必要最小限のAPIのみ公開。 |
 | 出力エラー表示 | `public/static/app.js`, `docs/09_error-handling.md` | `setExportStatus`, `exportErrorMessage` | ユーザー向けの短いメッセージを画面内に表示。 |
+
+## AI分析用プロンプト生成
+
+| 仕様 | ソース |
+|---|---|
+| `POST /api/ai-prompt`、分析コンテキスト生成、Markdown生成、機密項目マスク | `server.js` の `buildAiPromptResponse` / `buildAiPromptContext` / `buildAiPromptMarkdown` / `/api/ai-prompt` |
+| 画面上部の「AI分析用プロンプト」ボタン、右ドロワー、コピー、Copilot起動、Markdown/JSON保存 | `public/static/app.js` の `openAiPromptDrawer` / `generateAiPrompt` / `copyAiPrompt` / `saveAiPromptMarkdown` / `saveAiPromptJson` |
+| AIプロンプトドロワーとレスポンシブ/テーマ対応スタイル | `public/static/style.css` の `.ai-prompt-*` |
