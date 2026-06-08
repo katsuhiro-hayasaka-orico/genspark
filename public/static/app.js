@@ -1754,7 +1754,12 @@ function initFilterBar() {
 function updateAiPromptTopbarButton() {
   const button = document.getElementById('aiPromptTopbarOpen');
   if (!button) return;
-  button.hidden = !EXPORTABLE_PAGES.includes(state.page);
+  const visible = AI_PROMPT_VISIBLE_PAGES.includes(state.page);
+  button.hidden = !visible;
+  if (!visible && state.ui.aiPrompt?.open) {
+    state.ui.aiPrompt.open = false;
+    renderAiPromptDrawer();
+  }
 }
 
 function setStatus() {
@@ -2079,6 +2084,7 @@ function chartColors() {
 
 
 const EXPORTABLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail', 'project', 'depreciation', 'oacis'];
+const AI_PROMPT_VISIBLE_PAGES = ['summary', 'trend', 'category', 'alert', 'vendor', 'detail'];
 const EXPORT_APP_TITLE = 'IT予実績管理ダッシュボード';
 const EXPORT_HEADER_STORAGE_PREFIX = 'exportReportHeaderOpen:';
 let isExportingReport = false;
@@ -2857,16 +2863,6 @@ function renderSummary() {
         </div>
       </div>
       <div class="bento-card bento-card--wide kpi-strip">${kpiCards}</div>
-      <div class="bento-card bento-card--small insight-card">
-        <h4>選択期間カード</h4>
-        <p class="muted">選択スコープ: ${escapeHtml(s.label || '通期')}</p>
-        <dl>
-          <dt>予算</dt><dd>${money(s.totalPlan)}</dd>
-          <dt>見込み／実績</dt><dd>${money(s.comparable)}</dd>
-          <dt>差額</dt><dd class="${Math.abs(periodVariance.amount) >= state.settings.thresholds.amountGap ? 'warn' : ''}">${money(periodVariance.amount)}</dd>
-          <dt>差額率</dt><dd>${animatedValueHtml(periodVariance.rate, 'pct')}</dd>
-        </dl>
-      </div>
       <div class="bento-card bento-card--wide chart-card">
         <div class="card-title-row"><h4>予算 vs 見込み／実績の推移</h4><span class="badge">最優先グラフ</span></div>
         <div class="chart-frame chart-frame--large"><canvas id="sumChart1"></canvas></div>
