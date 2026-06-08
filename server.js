@@ -1840,6 +1840,368 @@ function getAggregations(data) {
 }
 
 
+const AI_PROMPT_PAGE_LABELS = Object.freeze({
+  summary: '全体サマリー',
+  trend: '推移分析',
+  category: 'カテゴリ別分析',
+  alert: 'アラート',
+  vendor: 'ベンダー／契約更新',
+  detail: '明細ドリルダウン',
+  project: '新規案件コスト',
+  depreciation: '減価償却シミュレーション',
+  oacis: 'OACIS実績',
+});
+
+function maskAiPromptValue(value, label = '項目') {
+  const text = safeString(value);
+  return text ? `（${label}マスク済み）` : '';
+}
+
+function formatAiPromptDate(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatAiPromptNumber(value) {
+  return Math.round(Number(value || 0)).toLocaleString('ja-JP');
+}
+
+function formatAiPromptPct(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function aiPromptCell(value) {
+  const text = String(value ?? '').trim();
+  return text ? text.replace(/\|/g, '／').replace(/\r?\n/g, ' ') : '未入力';
+}
+
+function buildMarkdownTable(headers, rows) {
+  if (!rows || rows.length === 0) return '該当データなし';
+  const aligns = headers.map((h, idx) => (/金額|計画|見込み|実績|差額|件数|順位|率|値/.test(h) || idx === 0 && /順位/.test(h)) ? '---:' : '---');
+  return [
+    `| ${headers.map(aiPromptCell).join(' |')} |`,
+    `|${aligns.join('|')}|`,
+    ...rows.map(row => `| ${row.map(aiPromptCell).join(' |')} |`),
+  ].join('\n');
+}
+
+function monthRangeForAiPrompt(filters = {}, sortedYMs = []) {
+  const yms = [...new Set(sortedYMs.filter(Boolean))].sort();
+  const latest = yms[yms.length - 1] || '';
+  const previous = yms.length > 1 ? yms[yms.length - 2] : latest;
+  const preset = filters.scopePreset || 'currentMonth';
+  const single = (ym) => ({ from: ym || latest, to: ym || latest });
+  if (filters.scopeMode === 'custom') {
+    if (filters.customRangeUnit === 'fiscalPeriod') return fiscalPeriodMonthRange(filters.fiscalPeriodFrom || filters.fiscalPeriod, filters.fiscalPeriodTo || filters.fiscalPeriod);
+    return { from: filters.targetYearMonthFrom || filters.targetYearMonth || latest, to: filters.targetYearMonthTo || filters.targetYearMonth || latest };
+  }
+  if (preset === 'previousMonth') return single(previous);
+  if (preset === 'dataLatestMonth') return single(latest);
+  if (preset === 'specificMonth' || filters.scopeMode === 'single') return single(filters.targetYearMonth || latest);
+  if (preset === 'last3Months') return { from: yms.slice(-3)[0] || latest, to: latest };
+  if (preset === 'last12Months') return { from: yms.slice(-12)[0] || latest, to: latest };
+  if (preset === 'fiscalPeriod') return fiscalPeriodMonthRange(filters.fiscalPeriod, filters.fiscalPeriod);
+  if (preset === 'currentFiscalPeriodFull') return fiscalPeriodMonthRange(deriveFiscalPeriodFromYearMonth(latest), deriveFiscalPeriodFromYearMonth(latest));
+  if (preset === 'previousFiscalPeriodFull') {
+    const p = Number(deriveFiscalPeriodFromYearMonth(latest));
+    return fiscalPeriodMonthRange(Number.isFinite(p) ? String(p - 1) : '', Number.isFinite(p) ? String(p - 1) : '');
+  }
+  return single(latest);
+}
+
+function fiscalPeriodMonthRange(fromPeriod, toPeriod) {
+  const from = fromPeriod ? yearMonthForFiscalPeriodMonth(fromPeriod, 4) : '';
+  const to = toPeriod ? yearMonthForFiscalPeriodMonth(toPeriod, 3) : '';
+  return { from, to };
+}
+
+function periodInRangeForAiPrompt(period, filters = {}) {
+  const p = Number(period);
+  if (!Number.isFinite(p)) return true;
+  let from = '';
+  let to = '';
+  if (filters.scopeMode === 'custom' && filters.customRangeUnit === 'fiscalPeriod') {
+    from = filters.fiscalPeriodFrom || filters.fiscalPeriod;
+    to = filters.fiscalPeriodTo || filters.fiscalPeriod || from;
+  } else if (filters.scopePreset === 'fiscalPeriod') {
+    from = filters.fiscalPeriod;
+    to = filters.fiscalPeriod;
+  }
+  if (!from && !to) return true;
+  const nf = Number(from || to);
+  const nt = Number(to || from);
+  return (!Number.isFinite(nf) || p >= nf) && (!Number.isFinite(nt) || p <= nt);
+}
+
+function filterItemsForAiPrompt(items = [], filters = {}, sortedYMs = []) {
+  const range = monthRangeForAiPrompt(filters, sortedYMs);
+  const inMonthRange = (ym) => (!range.from || String(ym) >= String(range.from)) && (!range.to || String(ym) <= String(range.to));
+  const isNew = (item) => /新規|new/i.test(item.project_name || '');
+  return items.filter((item) => {
+    if (filters.department && item.department_name !== filters.department) return false;
+    if (filters.target === '新規案件' && !isNew(item)) return false;
+    if (filters.target === '継続案件' && isNew(item)) return false;
+    if (safeString(filters.target).startsWith('ベンダー:')) {
+      const vendor = safeString(filters.target).replace('ベンダー:', '');
+      if ((item.vendor_name || item.payee_name || '') !== vendor) return false;
+    }
+    if (!periodInRangeForAiPrompt(item.fiscal_period, filters)) return false;
+    const monthlyKeys = Object.keys(item.monthly || {});
+    return monthlyKeys.length === 0 || monthlyKeys.some(inMonthRange);
+  }).map((item) => {
+    const monthly = {};
+    let totalPlan = 0;
+    let totalForecast = 0;
+    let totalActual = 0;
+    const entries = Object.entries(item.monthly || {}).filter(([ym]) => inMonthRange(ym));
+    if (entries.length) {
+      for (const [ym, values] of entries) {
+        monthly[ym] = values;
+        totalPlan += Number(values.plan || 0);
+        totalForecast += Number(values.forecast || 0);
+        totalActual += Number(values.actual || 0);
+      }
+    } else {
+      totalPlan = Number(item.totalPlan || 0);
+      totalForecast = Number(item.totalForecast || 0);
+      totalActual = Number(item.totalActual || 0);
+      Object.assign(monthly, item.monthly || {});
+    }
+    return { ...item, monthly, totalPlan, totalForecast, totalActual };
+  });
+}
+
+function groupAiPromptRanking(items, keyFn, topN, maskSensitive) {
+  const map = new Map();
+  for (const item of items) {
+    const key = keyFn(item) || '未設定';
+    if (!map.has(key)) map.set(key, { name: key, plan: 0, forecast: 0, actual: 0, varianceActualAmount: 0, itemCount: 0 });
+    const row = map.get(key);
+    row.plan += item.totalPlan;
+    row.forecast += item.totalForecast;
+    row.actual += item.totalActual;
+    row.varianceActualAmount += item.totalActual - item.totalPlan;
+    row.itemCount += 1;
+  }
+  return [...map.values()].sort((a, b) => Math.abs(b.varianceActualAmount) - Math.abs(a.varianceActualAmount)).slice(0, topN).map(row => ({ ...row, name: maskSensitive ? maskAiPromptValue(row.name, 'ベンダー') : row.name }));
+}
+
+function sanitizeAiPromptItem(item, options = {}) {
+  const maskSensitive = options.maskSensitive !== false;
+  const maskVendor = maskSensitive && options.includeVendorName !== true;
+  return {
+    managementNo: item.management_no || '',
+    itemNo: item.item_no || '',
+    projectName: item.project_name || item.system_name || '未設定',
+    department: item.department_name || '未設定',
+    vendor: maskVendor ? maskAiPromptValue(item.vendor_name || item.payee_name, 'ベンダー') : (item.vendor_name || item.payee_name || '未設定'),
+    ownerName: options.includeOwnerName ? (maskSensitive ? maskAiPromptValue(item.owner_name, '担当者') : item.owner_name || '') : '',
+    contractNo: options.includeContractNo ? (maskSensitive ? maskAiPromptValue(item.contract_no, '契約番号') : item.contract_no || '') : '',
+    plan: item.totalPlan,
+    forecast: item.totalForecast,
+    actual: item.totalActual,
+    varianceForecastAmount: item.totalForecast - item.totalPlan,
+    varianceActualAmount: item.totalActual - item.totalPlan,
+    varianceReasonCategory: item.variance_reason_category || '未入力',
+    varianceReason: maskSensitive ? (item.variance_reason ? '（摘要・理由マスク済み）' : '') : (item.variance_reason || ''),
+  };
+}
+
+function buildAiPromptContext({ page = 'summary', filters = {}, options = {} } = {}) {
+  const data = buildUnifiedData();
+  if (!data || !data.items.length) {
+    const err = new Error('AI分析用プロンプトを生成するには、先に予実績管理データを取り込んでください。');
+    err.status = 400;
+    throw err;
+  }
+  const topN = Math.max(1, Math.min(50, Number(options.includeTopN || 10)));
+  const maskSensitive = options.maskSensitive !== false;
+  const generatedAt = new Date().toISOString();
+  const filteredItems = filterItemsForAiPrompt(data.items, filters, data.sortedYMs);
+  if (!filteredItems.length) {
+    const err = new Error('現在のフィルタ条件では、分析対象データがありません。');
+    err.status = 400;
+    throw err;
+  }
+  const scopedData = { ...data, items: filteredItems, sortedYMs: [...new Set(filteredItems.flatMap(item => Object.keys(item.monthly || {})))].sort() };
+  const agg = getAggregations(scopedData);
+  const varianceRows = filteredItems.map(item => ({ ...item, varianceActualAmount: item.totalActual - item.totalPlan, varianceForecastAmount: item.totalForecast - item.totalPlan }))
+    .sort((a, b) => Math.abs(b.varianceActualAmount) - Math.abs(a.varianceActualAmount));
+  const detailLimit = options.includeDetailAll ? Math.min(varianceRows.length, 200) : topN;
+  const topVarianceItems = varianceRows.slice(0, detailLimit).map(item => sanitizeAiPromptItem(item, options));
+  const overrunItems = varianceRows.filter(item => item.totalActual > item.totalPlan || item.totalForecast > item.totalPlan).slice(0, topN).map(item => sanitizeAiPromptItem(item, options));
+  const missingReason = filteredItems.filter(item => (item.totalActual > item.totalPlan || item.totalForecast > item.totalPlan) && !safeString(item.variance_reason));
+  const zeroPlanActual = filteredItems.filter(item => Number(item.totalPlan || 0) === 0 && Number(item.totalActual || 0) > 0);
+  const unclassified = filteredItems.filter(item => !safeString(item.budget_category) || !safeString(item.system_classification) || !safeString(item.department_name));
+  const vendorNames = new Set(filteredItems.map(item => item.vendor_name || item.payee_name).filter(Boolean));
+  const monthlyTrend = scopedData.sortedYMs.map((ym) => {
+    const row = agg.monthlyByType[ym] || { plan: 0, forecast: 0, actual: 0 };
+    return { ym, plan: row.plan, forecast: row.forecast, actual: row.actual, varianceForecast: row.forecast - row.plan, varianceActual: row.actual - row.plan };
+  });
+  const context = {
+    app: '予実績管理ダッシュボード',
+    page,
+    pageLabel: AI_PROMPT_PAGE_LABELS[page] || '汎用分析',
+    generatedAt,
+    filters: {
+      periodLabel: filters.fiscalPeriod ? periodLabel(filters.fiscalPeriod) : '',
+      scopeLabel: aiPromptScopeLabel(filters, data.sortedYMs),
+      department: filters.department || '全部門',
+      perspective: filters.perspective || '費目',
+      target: filters.target || 'すべて',
+      fiscalPeriod: filters.fiscalPeriod || '',
+      fiscalPeriodFrom: filters.fiscalPeriodFrom || '',
+      fiscalPeriodTo: filters.fiscalPeriodTo || '',
+      targetYearMonth: filters.targetYearMonth || '',
+      targetYearMonthFrom: filters.targetYearMonthFrom || '',
+      targetYearMonthTo: filters.targetYearMonthTo || '',
+    },
+    kpi: {
+      totalPlan: agg.totalPlan,
+      totalForecast: agg.totalForecast,
+      totalActual: agg.totalActual,
+      varianceForecastAmount: agg.totalForecast - agg.totalPlan,
+      varianceActualAmount: agg.totalActual - agg.totalPlan,
+      varianceForecastPct: agg.totalPlan > 0 ? Math.round((agg.totalForecast - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
+      varianceActualPct: agg.totalPlan > 0 ? Math.round((agg.totalActual - agg.totalPlan) / agg.totalPlan * 1000) / 10 : 0,
+      itemCount: agg.itemCount,
+      departmentCount: agg.departments.length,
+      vendorCount: vendorNames.size,
+    },
+    monthlyTrend,
+    rankings: {
+      topVarianceItems,
+      topCategories: groupAiPromptRanking(filteredItems, item => item.budget_category || item.system_classification || item.expense_item_name, topN, false),
+      topDepartments: groupAiPromptRanking(filteredItems, item => item.department_name, topN, false),
+      topVendors: groupAiPromptRanking(filteredItems, item => item.vendor_name || item.payee_name, topN, maskSensitive && options.includeVendorName !== true),
+    },
+    alerts: {
+      overrunItems,
+      missingVarianceReasonCount: missingReason.length,
+      zeroPlanActualItems: zeroPlanActual.slice(0, topN).map(item => sanitizeAiPromptItem(item, options)),
+      unclassifiedCount: unclassified.length,
+    },
+    dataQuality: { notes: [] },
+  };
+  if (maskSensitive) {
+    context.dataQuality.notes.push('担当者名・契約番号・請求書番号・摘要系テキストは必要に応じてマスクしています。');
+    if (options.includeVendorName !== true) context.dataQuality.notes.push('支払先・ベンダー名はマスク済みです。ベンダー分析で実名が必要な場合のみ「そのまま含める」を選択してください。');
+  }
+  if (!options.includeDetailAll) context.dataQuality.notes.push(`明細は差額上位${topN}件のみ含めています。`);
+  if (missingReason.length) context.dataQuality.notes.push(`差額理由未入力が${missingReason.length}件あります。`);
+  if (zeroPlanActual.length) context.dataQuality.notes.push(`予算ゼロ・実績ありが${zeroPlanActual.length}件あります。`);
+  if (!AI_PROMPT_PAGE_LABELS[page]) context.dataQuality.notes.push('未対応画面のため、共通KPI中心の汎用コンテキストです。');
+  return context;
+}
+
+function aiPromptScopeLabel(filters = {}, sortedYMs = []) {
+  const range = monthRangeForAiPrompt(filters, sortedYMs);
+  const monthLabel = range.from && range.to && range.from !== range.to ? `${fmtYM(range.from)}〜${fmtYM(range.to)}` : fmtYM(range.to || range.from || '');
+  const fiscal = filters.fiscalPeriodFrom && filters.fiscalPeriodTo && filters.fiscalPeriodFrom !== filters.fiscalPeriodTo
+    ? `第${filters.fiscalPeriodFrom}期〜第${filters.fiscalPeriodTo}期`
+    : (filters.fiscalPeriod ? `第${filters.fiscalPeriod}期` : '');
+  return [fiscal, monthLabel].filter(Boolean).join(' / ') || '全期間';
+}
+
+function buildAiPromptMarkdown(context) {
+  const k = context.kpi;
+  const diffRows = context.rankings.topVarianceItems.map((item, idx) => [
+    idx + 1, item.managementNo, item.projectName, item.department, item.vendor,
+    formatAiPromptNumber(item.plan), formatAiPromptNumber(item.forecast), formatAiPromptNumber(item.actual),
+    formatAiPromptNumber(item.varianceActualAmount), item.varianceReasonCategory, item.varianceReason || '未入力',
+  ]);
+  const monthlyRows = context.monthlyTrend.map(row => [fmtYM(row.ym), formatAiPromptNumber(row.plan), formatAiPromptNumber(row.forecast), formatAiPromptNumber(row.actual), formatAiPromptNumber(row.varianceForecast), formatAiPromptNumber(row.varianceActual)]);
+  const alertRows = [
+    ['予算超過・見込み超過', context.alerts.overrunItems.length, context.alerts.overrunItems.slice(0, 3).map(i => i.projectName).join('、') || '該当なし'],
+    ['差額理由未入力', context.alerts.missingVarianceReasonCount, context.alerts.missingVarianceReasonCount ? '差額発生案件' : '該当なし'],
+    ['予算ゼロ・実績あり', context.alerts.zeroPlanActualItems.length, context.alerts.zeroPlanActualItems.slice(0, 3).map(i => i.projectName).join('、') || '該当なし'],
+    ['未分類・未設定', context.alerts.unclassifiedCount, context.alerts.unclassifiedCount ? '分類・部門未設定行' : '該当なし'],
+  ];
+  const notes = context.dataQuality.notes.length ? context.dataQuality.notes.map(n => `- ${n}`).join('\n') : '- 該当データなし';
+  return `# 予実績ダッシュボード AI分析依頼
+
+あなたは情報システム部門の予実績管理を支援する分析担当者です。
+以下のダッシュボードデータをもとに、会議で使える示唆を作成してください。
+
+## 分析目的
+
+- 予算・見込み・実績の特徴を把握する
+- 異常ポイント、要確認ポイントを特定する
+- 深掘りすべき分類、案件、ベンダーを示す
+- 次に担当者へ確認すべきアクションを出す
+
+## 前提条件
+
+- 金額単位は千円です
+- 与えられたデータ以外の推測は禁止です
+- 数値を引用する場合は、必ず根拠となる項目名を示してください
+- 差額理由が未入力の場合は、入力依頼をネクストアクションに含めてください
+- 出力は日本語にしてください
+- 会議で使える実務的な表現にしてください
+- 断定できない事項は「確認が必要」と明記してください
+
+## 出力形式
+
+1. 全体要約
+2. 特徴
+3. 異常ポイント・要確認ポイント
+4. 注目すべき分類・案件・ベンダー
+5. ネクストアクション
+6. データ品質上の注意
+
+## 対象条件
+
+- 画面: ${context.pageLabel}
+- 対象期: ${context.filters.fiscalPeriod || context.filters.fiscalPeriodFrom || '指定なし'}
+- 対象年月: ${context.filters.scopeLabel}
+- 部門: ${context.filters.department}
+- 分類軸: ${context.filters.perspective}
+- 生成日時: ${formatAiPromptDate(new Date(context.generatedAt))}
+
+## 主要KPI
+
+${buildMarkdownTable(['指標', '値'], [
+  ['計画', formatAiPromptNumber(k.totalPlan)],
+  ['見込み', formatAiPromptNumber(k.totalForecast)],
+  ['実績', formatAiPromptNumber(k.totalActual)],
+  ['見込み差額', formatAiPromptNumber(k.varianceForecastAmount)],
+  ['実績差額', formatAiPromptNumber(k.varianceActualAmount)],
+  ['見込み差額率', formatAiPromptPct(k.varianceForecastPct)],
+  ['実績差額率', formatAiPromptPct(k.varianceActualPct)],
+  ['明細件数', formatAiPromptNumber(k.itemCount)],
+])}
+
+## 月次推移
+
+${buildMarkdownTable(['年月', '計画', '見込み', '実績', '見込み差額', '実績差額'], monthlyRows)}
+
+## 差額上位
+
+${buildMarkdownTable(['順位', '管理番号', '案件名', '部門', 'ベンダー', '計画', '見込み', '実績', '差額', '差額理由分類', '差額理由'], diffRows)}
+
+## アラート
+
+${buildMarkdownTable(['種別', '件数', '主な対象'], alertRows)}
+
+## データ品質上の注意
+
+${notes}
+`;
+}
+
+function buildAiPromptResponse(body = {}) {
+  const context = buildAiPromptContext(body);
+  const warnings = [...context.dataQuality.notes];
+  return {
+    title: '予実績ダッシュボード AI分析用プロンプト',
+    markdown: buildAiPromptMarkdown(context),
+    jsonContext: context,
+    warnings,
+    generatedAt: context.generatedAt,
+  };
+}
+
+
 function monthsBetweenYearMonths(fromYm, toYm) {
   const from = parseYM(fromYm);
   const to = parseYM(toYm);
@@ -2109,6 +2471,18 @@ app.get('/api/dashboard/summary', (_, res) => {
     yoyMonthly: agg.yoyMonthly,
     overrunItems: agg.variances.filter(v => v.overrun_actual || v.overrun_forecast).slice(0, 15),
   });
+});
+
+
+// AI prompt generation support (no external AI/API calls)
+app.post('/api/ai-prompt', (req, res) => {
+  try {
+    res.json(buildAiPromptResponse(req.body || {}));
+  } catch (error) {
+    const status = Number(error.status || 500);
+    console.error('[ai-prompt] failed:', error.message);
+    res.status(status).json({ error: error.message || 'プロンプト生成に失敗しました。条件を変更して再実行してください。' });
+  }
 });
 
 // Items list with filters
