@@ -3,6 +3,7 @@
 @layer reset {
   *, *::before, *::after { box-sizing: border-box; }
   html { color-scheme: light; }
+  html, body { width: 100%; min-height: 100%; }
   body { margin: 0; }
   button, input, select, textarea { font: inherit; }
 }
@@ -100,8 +101,8 @@
 }
 
 @layer layout {
-  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 100vh; }
-  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-3); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100vh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; transition: width .24s ease, padding .24s ease, transform .28s ease; }
+  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 100dvh; min-height: calc(100dvh / var(--app-zoom, 1)); zoom: var(--app-zoom, 1); }
+  .sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); padding: var(--space-3); box-shadow: var(--shadow-sm); position: sticky; top: 0; height: 100dvh; min-height: 100dvh; height: calc(100dvh / var(--app-zoom, 1)); min-height: calc(100dvh / var(--app-zoom, 1)); overflow: hidden; overscroll-behavior: contain; transition: width .24s ease, padding .24s ease, transform .28s ease; }
   .main { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
   .topbar { background: color-mix(in srgb, var(--surface-raised) 96%, transparent); border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px); }
   .topbar-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -121,7 +122,7 @@
 
 @layer components {
 
-  .sidebar { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-height: 100vh; }
+  .sidebar { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; }
   .sidebar-head { display: flex; justify-content: flex-end; margin-top: 6px; padding-right: 14px; }
   .sidebar-collapse { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 15px; line-height: 1; }
   #sidebarNav { display: grid; gap: 2px; align-content: start; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
@@ -323,7 +324,7 @@
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; }
     .mobile-menu-toggle { display: inline-grid; }
-    .sidebar { display: grid; position: fixed; top: 0; left: 0; width: min(86vw, 320px); height: 100dvh; z-index: 20; transform: translateX(-102%); transition: transform .28s ease; box-shadow: var(--shadow-lg); }
+    .sidebar { display: grid; position: fixed; top: 0; left: 0; width: min(86vw, 320px); height: 100dvh; height: calc(100dvh / var(--app-zoom, 1)); z-index: 20; transform: translateX(-102%); transition: transform .28s ease; box-shadow: var(--shadow-lg); }
     body.mobile-menu-open .sidebar { transform: translateX(0); }
     body.sidebar-collapsed .sidebar { width: 64px; padding: var(--space-3) 8px; }
     body.sidebar-collapsed .brand,
@@ -477,9 +478,11 @@
   .ai-prompt-trigger { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); background: color-mix(in srgb, var(--primary) 9%, var(--surface)); color: var(--primary); font-weight: 800; white-space: nowrap; }
   .ai-prompt-trigger--toolbar, .ai-prompt-trigger--topbar { min-height: 38px; }
   .ai-prompt-trigger--topbar[hidden] { display: none; }
-  .ai-prompt-overlay { position: fixed; inset: 0; z-index: 120; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .32); backdrop-filter: blur(2px); }
-  .ai-prompt-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; padding: var(--space-5); border-left: 1px solid var(--border); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); display: grid; align-content: start; gap: var(--space-4); }
-  .ai-prompt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border); padding-bottom: var(--space-3); }
+  body.ai-prompt-open { overflow: hidden; }
+  .ai-prompt-overlay { position: fixed; inset: 0; width: 100vw; height: 100dvh; min-height: 100vh; z-index: 1200; display: block; background: rgba(0, 0, 0, .32); backdrop-filter: blur(2px); overflow: hidden; }
+  .ai-prompt-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw); height: auto; max-height: none; border-left: 1px solid var(--border); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; }
+  .ai-prompt-head { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border); padding: var(--space-5) var(--space-5) var(--space-3); }
+  .ai-prompt-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-5); display: grid; align-content: start; gap: var(--space-4); }
   .ai-prompt-head h3 { margin: 2px 0 0; }
   .ai-prompt-target, .ai-prompt-note, .ai-prompt-options { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); padding: var(--space-3); }
   .ai-prompt-note { color: var(--text-muted); border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); background: color-mix(in srgb, var(--warning) 7%, var(--surface)); }
@@ -499,7 +502,8 @@
   .ai-prompt-meta { font-size: 12px; color: var(--text-muted); }
   .ai-prompt-preview { width: 100%; min-height: 42vh; resize: vertical; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.55; white-space: pre; }
   @media (max-width: 700px) {
-    .ai-prompt-drawer { padding: var(--space-3); }
+    .ai-prompt-head { padding: var(--space-3) var(--space-3) var(--space-2); }
+    .ai-prompt-body { padding: var(--space-3); }
     .ai-option-grid { grid-template-columns: 1fr; }
     .ai-prompt-actions { align-items: stretch; flex-direction: column; }
     .ai-prompt-actions button, .ai-prompt-select-row label { width: 100%; }

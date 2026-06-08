@@ -714,9 +714,12 @@ function updateZoomControls() {
 
 function applyDisplayZoom() {
   state.ui.displayZoom = normalizeZoomPercent(state.ui.displayZoom);
-  document.body.style.zoom = String(state.ui.displayZoom / 100);
-  document.documentElement.style.setProperty('--app-zoom', String(state.ui.displayZoom / 100));
+  const zoom = state.ui.displayZoom / 100;
+
+  document.body.style.removeProperty('zoom');
+  document.documentElement.style.setProperty('--app-zoom', String(zoom));
   localStorage.setItem('displayZoom', String(state.ui.displayZoom));
+
   updateZoomControls();
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 }
@@ -2430,6 +2433,10 @@ function closeAiPromptDrawer() {
   renderAiPromptDrawer();
 }
 
+function handleAiPromptEscape(event) {
+  if (event.key === 'Escape' && aiPromptState().open) closeAiPromptDrawer();
+}
+
 function aiPromptRequestBody() {
   const opts = aiPromptOptions();
   return {
@@ -2536,12 +2543,17 @@ function aiPromptCheckboxHtml(key, label, disabled = false) {
 function renderAiPromptDrawer() {
   const existing = document.getElementById('aiPromptDrawerRoot');
   if (!aiPromptState().open) {
+    if (document.body.classList) document.body.classList.remove('ai-prompt-open');
+    if (document.removeEventListener) document.removeEventListener('keydown', handleAiPromptEscape);
     if (existing) {
       if (typeof existing.remove === 'function') existing.remove();
       else if (existing.parentNode) existing.parentNode.removeChild(existing);
     }
     return;
   }
+  if (document.body.classList) document.body.classList.add('ai-prompt-open');
+  if (document.removeEventListener) document.removeEventListener('keydown', handleAiPromptEscape);
+  if (document.addEventListener) document.addEventListener('keydown', handleAiPromptEscape);
   const drawer = aiPromptState();
   const opts = aiPromptOptions();
   const warningsHtml = drawer.warnings.length ? `<ul class="ai-prompt-warnings">${drawer.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : '';
@@ -2555,35 +2567,37 @@ function renderAiPromptDrawer() {
           </div>
           <button type="button" class="icon-button" id="aiPromptClose" aria-label="閉じる">×</button>
         </div>
-        <div class="ai-prompt-target"><strong>対象:</strong><br>${escapeHtml(aiPromptTargetLabel())}</div>
-        <p class="ai-prompt-note">この機能はAI APIを呼び出さず、外部サービスへデータ送信しません。コピー後、ユーザー自身でCopilotへ貼り付けてください。</p>
-        <section class="ai-prompt-options" aria-label="含めるデータ">
-          <h4>含めるデータ</h4>
-          <div class="ai-option-grid">
-            ${aiPromptCheckboxHtml('includeKpi', '主要KPI', true)}
-            ${aiPromptCheckboxHtml('includeMonthlyTrend', '月次推移', true)}
-            ${aiPromptCheckboxHtml('includeTopVariance', `差額上位${opts.includeTopN}件`, true)}
-            ${aiPromptCheckboxHtml('includeAlerts', 'アラート', true)}
-            ${aiPromptCheckboxHtml('includeMissingReasons', '差額理由未入力', true)}
-            ${aiPromptCheckboxHtml('includeDetailAll', '明細全件')}
-            ${aiPromptCheckboxHtml('includeOwnerName', '担当者名')}
+        <div class="ai-prompt-body">
+          <div class="ai-prompt-target"><strong>対象:</strong><br>${escapeHtml(aiPromptTargetLabel())}</div>
+          <p class="ai-prompt-note">この機能はAI APIを呼び出さず、外部サービスへデータ送信しません。コピー後、ユーザー自身でCopilotへ貼り付けてください。</p>
+          <section class="ai-prompt-options" aria-label="含めるデータ">
+            <h4>含めるデータ</h4>
+            <div class="ai-option-grid">
+              ${aiPromptCheckboxHtml('includeKpi', '主要KPI', true)}
+              ${aiPromptCheckboxHtml('includeMonthlyTrend', '月次推移', true)}
+              ${aiPromptCheckboxHtml('includeTopVariance', `差額上位${opts.includeTopN}件`, true)}
+              ${aiPromptCheckboxHtml('includeAlerts', 'アラート', true)}
+              ${aiPromptCheckboxHtml('includeMissingReasons', '差額理由未入力', true)}
+              ${aiPromptCheckboxHtml('includeDetailAll', '明細全件')}
+              ${aiPromptCheckboxHtml('includeOwnerName', '担当者名')}
+            </div>
+            <div class="ai-prompt-select-row">
+              <label>分析粒度 <select id="aiPromptDetailLevel"><option value="brief" ${opts.detailLevel === 'brief' ? 'selected' : ''}>短め</option><option value="standard" ${opts.detailLevel === 'standard' ? 'selected' : ''}>標準</option><option value="detail" ${opts.detailLevel === 'detail' ? 'selected' : ''}>詳細</option></select></label>
+              <label>差額上位件数 <select id="aiPromptTopN">${[5, 10, 20].map(n => `<option value="${n}" ${Number(opts.includeTopN) === n ? 'selected' : ''}>${n}件</option>`).join('')}</select></label>
+            </div>
+          </section>
+          <div class="ai-prompt-actions">
+            <button type="button" class="primary" id="aiPromptGenerate" ${drawer.loading ? 'disabled' : ''}>${drawer.loading ? '生成中…' : 'プロンプト生成'}</button>
+            <button type="button" id="aiPromptCopy">プロンプトをコピー</button>
+            <button type="button" id="aiPromptCopilot">Copilotを開く</button>
+            <button type="button" id="aiPromptSaveMd">Markdownを保存</button>
+            <button type="button" id="aiPromptSaveJson">JSONを保存</button>
           </div>
-          <div class="ai-prompt-select-row">
-            <label>分析粒度 <select id="aiPromptDetailLevel"><option value="brief" ${opts.detailLevel === 'brief' ? 'selected' : ''}>短め</option><option value="standard" ${opts.detailLevel === 'standard' ? 'selected' : ''}>標準</option><option value="detail" ${opts.detailLevel === 'detail' ? 'selected' : ''}>詳細</option></select></label>
-            <label>差額上位件数 <select id="aiPromptTopN">${[5, 10, 20].map(n => `<option value="${n}" ${Number(opts.includeTopN) === n ? 'selected' : ''}>${n}件</option>`).join('')}</select></label>
-          </div>
-        </section>
-        <div class="ai-prompt-actions">
-          <button type="button" class="primary" id="aiPromptGenerate" ${drawer.loading ? 'disabled' : ''}>${drawer.loading ? '生成中…' : 'プロンプト生成'}</button>
-          <button type="button" id="aiPromptCopy">プロンプトをコピー</button>
-          <button type="button" id="aiPromptCopilot">Copilotを開く</button>
-          <button type="button" id="aiPromptSaveMd">Markdownを保存</button>
-          <button type="button" id="aiPromptSaveJson">JSONを保存</button>
+          <p id="aiPromptStatus" class="ai-prompt-status ai-prompt-status--${dataAttr(drawer.statusTone)}" aria-live="polite">${escapeHtml(drawer.status || '')}</p>
+          ${warningsHtml}
+          <div class="ai-prompt-meta">生成日時: ${escapeHtml(drawer.generatedAt ? formatExportDate(new Date(drawer.generatedAt)) : '未生成')} / 文字数: ${escapeHtml(drawer.markdown ? drawer.markdown.length.toLocaleString('ja-JP') : '0')}</div>
+          <textarea id="aiPromptPreview" class="ai-prompt-preview" readonly placeholder="プロンプト生成後、ここにMarkdownプレビューが表示されます。">${escapeHtml(drawer.markdown || '')}</textarea>
         </div>
-        <p id="aiPromptStatus" class="ai-prompt-status ai-prompt-status--${dataAttr(drawer.statusTone)}" aria-live="polite">${escapeHtml(drawer.status || '')}</p>
-        ${warningsHtml}
-        <div class="ai-prompt-meta">生成日時: ${escapeHtml(drawer.generatedAt ? formatExportDate(new Date(drawer.generatedAt)) : '未生成')} / 文字数: ${escapeHtml(drawer.markdown ? drawer.markdown.length.toLocaleString('ja-JP') : '0')}</div>
-        <textarea id="aiPromptPreview" class="ai-prompt-preview" readonly placeholder="プロンプト生成後、ここにMarkdownプレビューが表示されます。">${escapeHtml(drawer.markdown || '')}</textarea>
       </aside>
     </div>`;
   if (existing) existing.outerHTML = html;
