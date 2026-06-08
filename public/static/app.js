@@ -413,8 +413,6 @@ const state = {
         includeMissingReasons: true,
         includeDetailAll: false,
         includeOwnerName: false,
-        includeContractNo: false,
-        maskSensitive: true,
         includeTopN: 10,
         detailLevel: 'standard',
       },
@@ -1793,7 +1791,9 @@ function closeMobileMenu() {
 
 function goPage(page) {
   closeMobileMenu();
+  const pageChanged = state.page !== page;
   withViewTransition(() => {
+    if (pageChanged) clearAiPromptGeneratedResult('画面が切り替わったため、前回生成したプロンプトをクリアしました。');
     state.page = page;
     initNav();
     initFilterBar();
@@ -2379,6 +2379,16 @@ function aiPromptOptions() {
   return aiPromptState().options;
 }
 
+function clearAiPromptGeneratedResult(message = '') {
+  const drawer = aiPromptState();
+  drawer.markdown = '';
+  drawer.jsonContext = null;
+  drawer.generatedAt = '';
+  drawer.warnings = [];
+  drawer.status = message;
+  drawer.statusTone = message ? 'info' : 'info';
+}
+
 function aiPromptTargetLabel() {
   return `${currentScreenName()} / ${formatScopeSummary().replace(/^表示中：/, '')} / ${state.filters.department || '全部門'} / ${state.filters.target || 'すべて'}`;
 }
@@ -2413,11 +2423,8 @@ function aiPromptRequestBody() {
     filters: { ...state.filters },
     options: {
       includeTopN: Number(opts.includeTopN || 10),
-      maskSensitive: opts.maskSensitive !== false,
       includeDetailAll: Boolean(opts.includeDetailAll),
       includeOwnerName: Boolean(opts.includeOwnerName),
-      includeContractNo: Boolean(opts.includeContractNo),
-      includeVendorName: opts.maskSensitive === false || state.page === 'vendor',
       detailLevel: opts.detailLevel || 'standard',
     },
   };
@@ -2429,6 +2436,10 @@ async function generateAiPrompt() {
     setAiPromptStatus('AI分析用プロンプトを生成するには、先に予実績管理データを取り込んでください。', 'error');
     return;
   }
+  drawer.markdown = '';
+  drawer.jsonContext = null;
+  drawer.generatedAt = '';
+  drawer.warnings = [];
   drawer.loading = true;
   setAiPromptStatus('プロンプト生成中です…', 'info');
   renderAiPromptDrawer();
@@ -2542,18 +2553,10 @@ function renderAiPromptDrawer() {
             ${aiPromptCheckboxHtml('includeMissingReasons', '差額理由未入力', true)}
             ${aiPromptCheckboxHtml('includeDetailAll', '明細全件')}
             ${aiPromptCheckboxHtml('includeOwnerName', '担当者名')}
-            ${aiPromptCheckboxHtml('includeContractNo', '契約番号')}
           </div>
           <div class="ai-prompt-select-row">
             <label>分析粒度 <select id="aiPromptDetailLevel"><option value="brief" ${opts.detailLevel === 'brief' ? 'selected' : ''}>短め</option><option value="standard" ${opts.detailLevel === 'standard' ? 'selected' : ''}>標準</option><option value="detail" ${opts.detailLevel === 'detail' ? 'selected' : ''}>詳細</option></select></label>
             <label>差額上位件数 <select id="aiPromptTopN">${[5, 10, 20].map(n => `<option value="${n}" ${Number(opts.includeTopN) === n ? 'selected' : ''}>${n}件</option>`).join('')}</select></label>
-          </div>
-        </section>
-        <section class="ai-prompt-options" aria-label="機密項目">
-          <h4>機密項目</h4>
-          <div class="ai-radio-row">
-            <label><input type="radio" name="aiMaskSensitive" value="true" ${opts.maskSensitive ? 'checked' : ''}> マスクする</label>
-            <label><input type="radio" name="aiMaskSensitive" value="false" ${!opts.maskSensitive ? 'checked' : ''}> そのまま含める</label>
           </div>
         </section>
         <div class="ai-prompt-actions">
@@ -2590,9 +2593,6 @@ function bindAiPromptDrawer() {
       if (input.dataset.aiOption === 'includeDetailAll' && input.checked) aiPromptOptions().includeTopN = 20;
       renderAiPromptDrawer();
     };
-  });
-  root.querySelectorAll('input[name="aiMaskSensitive"]').forEach(input => {
-    input.onchange = () => { aiPromptOptions().maskSensitive = input.value !== 'false'; renderAiPromptDrawer(); };
   });
   const topN = root.querySelector('#aiPromptTopN');
   if (topN) topN.onchange = () => { aiPromptOptions().includeTopN = Number(topN.value); renderAiPromptDrawer(); };

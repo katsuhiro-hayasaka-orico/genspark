@@ -1852,11 +1852,6 @@ const AI_PROMPT_PAGE_LABELS = Object.freeze({
   oacis: 'OACIS実績',
 });
 
-function maskAiPromptValue(value, label = '項目') {
-  const text = safeString(value);
-  return text ? `（${label}マスク済み）` : '';
-}
-
 function formatAiPromptDate(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -1971,7 +1966,7 @@ function filterItemsForAiPrompt(items = [], filters = {}, sortedYMs = []) {
   });
 }
 
-function groupAiPromptRanking(items, keyFn, topN, maskSensitive) {
+function groupAiPromptRanking(items, keyFn, topN) {
   const map = new Map();
   for (const item of items) {
     const key = keyFn(item) || '未設定';
@@ -1983,27 +1978,24 @@ function groupAiPromptRanking(items, keyFn, topN, maskSensitive) {
     row.varianceActualAmount += item.totalActual - item.totalPlan;
     row.itemCount += 1;
   }
-  return [...map.values()].sort((a, b) => Math.abs(b.varianceActualAmount) - Math.abs(a.varianceActualAmount)).slice(0, topN).map(row => ({ ...row, name: maskSensitive ? maskAiPromptValue(row.name, 'ベンダー') : row.name }));
+  return [...map.values()].sort((a, b) => Math.abs(b.varianceActualAmount) - Math.abs(a.varianceActualAmount)).slice(0, topN);
 }
 
 function sanitizeAiPromptItem(item, options = {}) {
-  const maskSensitive = options.maskSensitive !== false;
-  const maskVendor = maskSensitive && options.includeVendorName !== true;
   return {
     managementNo: item.management_no || '',
     itemNo: item.item_no || '',
     projectName: item.project_name || item.system_name || '未設定',
     department: item.department_name || '未設定',
-    vendor: maskVendor ? maskAiPromptValue(item.vendor_name || item.payee_name, 'ベンダー') : (item.vendor_name || item.payee_name || '未設定'),
-    ownerName: options.includeOwnerName ? (maskSensitive ? maskAiPromptValue(item.owner_name, '担当者') : item.owner_name || '') : '',
-    contractNo: options.includeContractNo ? (maskSensitive ? maskAiPromptValue(item.contract_no, '契約番号') : item.contract_no || '') : '',
+    vendor: item.vendor_name || item.payee_name || '未設定',
+    ownerName: options.includeOwnerName ? (item.owner_name || '') : '',
     plan: item.totalPlan,
     forecast: item.totalForecast,
     actual: item.totalActual,
     varianceForecastAmount: item.totalForecast - item.totalPlan,
     varianceActualAmount: item.totalActual - item.totalPlan,
     varianceReasonCategory: item.variance_reason_category || '未入力',
-    varianceReason: maskSensitive ? (item.variance_reason ? '（摘要・理由マスク済み）' : '') : (item.variance_reason || ''),
+    varianceReason: item.variance_reason || '',
   };
 }
 
@@ -2015,7 +2007,6 @@ function buildAiPromptContext({ page = 'summary', filters = {}, options = {} } =
     throw err;
   }
   const topN = Math.max(1, Math.min(50, Number(options.includeTopN || 10)));
-  const maskSensitive = options.maskSensitive !== false;
   const generatedAt = new Date().toISOString();
   const filteredItems = filterItemsForAiPrompt(data.items, filters, data.sortedYMs);
   if (!filteredItems.length) {
@@ -2071,9 +2062,9 @@ function buildAiPromptContext({ page = 'summary', filters = {}, options = {} } =
     monthlyTrend,
     rankings: {
       topVarianceItems,
-      topCategories: groupAiPromptRanking(filteredItems, item => item.budget_category || item.system_classification || item.expense_item_name, topN, false),
-      topDepartments: groupAiPromptRanking(filteredItems, item => item.department_name, topN, false),
-      topVendors: groupAiPromptRanking(filteredItems, item => item.vendor_name || item.payee_name, topN, maskSensitive && options.includeVendorName !== true),
+      topCategories: groupAiPromptRanking(filteredItems, item => item.budget_category || item.system_classification || item.expense_item_name, topN),
+      topDepartments: groupAiPromptRanking(filteredItems, item => item.department_name, topN),
+      topVendors: groupAiPromptRanking(filteredItems, item => item.vendor_name || item.payee_name, topN),
     },
     alerts: {
       overrunItems,
@@ -2083,10 +2074,6 @@ function buildAiPromptContext({ page = 'summary', filters = {}, options = {} } =
     },
     dataQuality: { notes: [] },
   };
-  if (maskSensitive) {
-    context.dataQuality.notes.push('担当者名・契約番号・請求書番号・摘要系テキストは必要に応じてマスクしています。');
-    if (options.includeVendorName !== true) context.dataQuality.notes.push('支払先・ベンダー名はマスク済みです。ベンダー分析で実名が必要な場合のみ「そのまま含める」を選択してください。');
-  }
   if (!options.includeDetailAll) context.dataQuality.notes.push(`明細は差額上位${topN}件のみ含めています。`);
   if (missingReason.length) context.dataQuality.notes.push(`差額理由未入力が${missingReason.length}件あります。`);
   if (zeroPlanActual.length) context.dataQuality.notes.push(`予算ゼロ・実績ありが${zeroPlanActual.length}件あります。`);
@@ -2105,8 +2092,10 @@ function aiPromptScopeLabel(filters = {}, sortedYMs = []) {
 
 function buildAiPromptMarkdown(context) {
   const k = context.kpi;
+  const includeOwnerName = context.rankings.topVarianceItems.some(item => item.ownerName);
+  const diffHeaders = ['順位', '管理番号', '案件名', '部門', ...(includeOwnerName ? ['担当者'] : []), 'ベンダー', '計画', '見込み', '実績', '差額', '差額理由分類', '差額理由'];
   const diffRows = context.rankings.topVarianceItems.map((item, idx) => [
-    idx + 1, item.managementNo, item.projectName, item.department, item.vendor,
+    idx + 1, item.managementNo, item.projectName, item.department, ...(includeOwnerName ? [item.ownerName || '未入力'] : []), item.vendor,
     formatAiPromptNumber(item.plan), formatAiPromptNumber(item.forecast), formatAiPromptNumber(item.actual),
     formatAiPromptNumber(item.varianceActualAmount), item.varianceReasonCategory, item.varianceReason || '未入力',
   ]);
@@ -2177,7 +2166,7 @@ ${buildMarkdownTable(['年月', '計画', '見込み', '実績', '見込み差�
 
 ## 差額上位
 
-${buildMarkdownTable(['順位', '管理番号', '案件名', '部門', 'ベンダー', '計画', '見込み', '実績', '差額', '差額理由分類', '差額理由'], diffRows)}
+${buildMarkdownTable(diffHeaders, diffRows)}
 
 ## アラート
 

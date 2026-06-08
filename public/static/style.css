@@ -484,9 +484,9 @@
   .ai-prompt-note { color: var(--text-muted); border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); background: color-mix(in srgb, var(--warning) 7%, var(--surface)); }
   .ai-prompt-options h4 { margin: 0 0 var(--space-2); }
   .ai-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
-  .ai-option, .ai-radio-row label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-  .ai-option input, .ai-radio-row input { accent-color: var(--primary); }
-  .ai-radio-row, .ai-prompt-select-row, .ai-prompt-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .ai-option { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .ai-option input { accent-color: var(--primary); }
+  .ai-prompt-select-row, .ai-prompt-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
   .ai-prompt-select-row { margin-top: var(--space-3); }
   .ai-prompt-actions button { min-height: 38px; }
   .ai-prompt-status { min-height: 1.4em; margin: 0; font-weight: 700; }

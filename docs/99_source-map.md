@@ -39,6 +39,6 @@
 
 | 仕様 | ソース |
 |---|---|
-| `POST /api/ai-prompt`、分析コンテキスト生成、Markdown生成、機密項目マスク | `server.js` の `buildAiPromptResponse` / `buildAiPromptContext` / `buildAiPromptMarkdown` / `/api/ai-prompt` |
+| `POST /api/ai-prompt`、分析コンテキスト生成、Markdown生成、担当者名の任意出力 | `server.js` の `buildAiPromptResponse` / `buildAiPromptContext` / `buildAiPromptMarkdown` / `/api/ai-prompt` |
 | 画面上部の「AI分析用プロンプト」ボタン、右ドロワー、コピー、Copilot起動、Markdown/JSON保存 | `public/static/app.js` の `openAiPromptDrawer` / `generateAiPrompt` / `copyAiPrompt` / `saveAiPromptMarkdown` / `saveAiPromptJson` |
 | AIプロンプトドロワーとレスポンシブ/テーマ対応スタイル | `public/static/style.css` の `.ai-prompt-*` |

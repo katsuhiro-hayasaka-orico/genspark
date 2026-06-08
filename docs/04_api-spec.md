@@ -61,10 +61,10 @@
 | API | `POST /api/ai-prompt` |
 | 用途 | 表示中画面・フィルタ条件をもとに、Copilot等へ手動貼り付けするためのMarkdownプロンプトと分析用JSONコンテキストを生成する |
 | 外部送信 | 行わない。サーバ内の取込済みデータを集計・整形するのみで、AI APIや外部AIサービスは呼び出さない |
-| 主なリクエスト | `page`, `filters`, `options.includeTopN`, `options.maskSensitive`, `options.includeDetailAll`, `options.includeOwnerName`, `options.includeContractNo` |
+| 主なリクエスト | `page`, `filters`, `options.includeTopN`, `options.includeDetailAll`, `options.includeOwnerName` |
 | 主なレスポンス | `title`, `markdown`, `jsonContext`, `warnings`, `generatedAt` |
 | データ未取込 | 400。`AI分析用プロンプトを生成するには、先に予実績管理データを取り込んでください。` |
 | フィルタ後0件 | 400。`現在のフィルタ条件では、分析対象データがありません。` |
 | 関連処理 | `buildAiPromptResponse`, `buildAiPromptContext`, `buildAiPromptMarkdown`, `filterItemsForAiPrompt` |
 
-`jsonContext` は、生データ全件ではなく分析用コンテキストです。主要KPI、月次推移、差額上位、アラート件数、データ品質注意を含みます。既定では `maskSensitive: true` とし、担当者名、契約番号、ベンダー名、摘要・理由系テキストを必要に応じてマスクします。明細は既定で差額上位10件のみです。
+`jsonContext` は、生データ全件ではなく分析用コンテキストです。主要KPI、月次推移、差額上位、アラート件数、データ品質注意を含みます。担当者名はユーザーが「担当者名」を明示選択した場合のみ含めます。契約番号はAI分析用プロンプトの含めるデータ対象外です。ベンダー名はマスクせず分析コンテキストに含めます。明細は既定で差額上位10件のみです。

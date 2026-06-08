@@ -86,6 +86,6 @@
 | `rankings.topVarianceItems` | 差額上位明細。既定では上位10件 |
 | `rankings.topCategories`, `rankings.topDepartments`, `rankings.topVendors` | 分類、部門、ベンダーの差額上位 |
 | `alerts` | 超過、差額理由未入力、予算ゼロ実績あり、未分類などの注意情報 |
-| `dataQuality.notes` | マスクや明細件数制限、未入力件数などの注意書き |
+| `dataQuality.notes` | 明細件数制限、未入力件数などの注意書き |
 
-機密項目マスクが有効な場合、担当者名・契約番号・ベンダー名・摘要/理由系テキストは分析に必要な粒度へ置換されます。
+担当者名はユーザーが「担当者名」を明示選択した場合のみ `rankings.topVarianceItems[].ownerName` 等に含めます。契約番号はAI分析用プロンプトの含めるデータ対象外です。ベンダー名はマスクせず含めます。
