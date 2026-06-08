@@ -475,7 +475,8 @@
 @layer components {
   .export-toolbar-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
   .ai-prompt-trigger { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); background: color-mix(in srgb, var(--primary) 9%, var(--surface)); color: var(--primary); font-weight: 800; white-space: nowrap; }
-  .ai-prompt-trigger--toolbar { min-height: 38px; }
+  .ai-prompt-trigger--toolbar, .ai-prompt-trigger--topbar { min-height: 38px; }
+  .ai-prompt-trigger--topbar[hidden] { display: none; }
   .ai-prompt-overlay { position: fixed; inset: 0; z-index: 120; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .32); backdrop-filter: blur(2px); }
   .ai-prompt-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; padding: var(--space-5); border-left: 1px solid var(--border); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); display: grid; align-content: start; gap: var(--space-4); }
   .ai-prompt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border); padding-bottom: var(--space-3); }

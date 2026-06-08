@@ -1754,6 +1754,12 @@ function initFilterBar() {
   }
 }
 
+function updateAiPromptTopbarButton() {
+  const button = document.getElementById('aiPromptTopbarOpen');
+  if (!button) return;
+  button.hidden = !EXPORTABLE_PAGES.includes(state.page);
+}
+
 function setStatus() {
   applyTheme();
   document.getElementById('statusBadge').textContent = state.hasData ? 'データ読込済' : 'データなし';
@@ -2178,7 +2184,6 @@ function renderExportControls({ screenName = currentScreenName(), targetSelector
         <button type="button" role="menuitem" data-export-format="html">HTMLとして保存</button>
       </div>
     </div>
-    <button type="button" class="ai-prompt-trigger ai-prompt-trigger--toolbar" id="aiPromptToolbarOpen">AI分析用プロンプト</button>
     </div>`;
   const toolbarAiPrompt = host.querySelector('#aiPromptToolbarOpen');
   if (toolbarAiPrompt) toolbarAiPrompt.onclick = openAiPromptDrawer;
@@ -3907,6 +3912,7 @@ function renderOacisActual() {
 
 async function renderPage() {
   document.getElementById('pageTitle').textContent = NAV_PAGES.find(p => p.key === state.page)?.label || '';
+  updateAiPromptTopbarButton();
   if (state.page === 'import') return renderImport();
   if (state.page === 'settings') return renderSettings();
   if (state.page === 'manual') return renderManual();
@@ -3965,6 +3971,8 @@ function showManualHintDialog() {
   if (zoomIn) zoomIn.onclick = () => changeDisplayZoom(APP_ZOOM.step);
   const zoomReset = document.getElementById('zoomReset');
   if (zoomReset) zoomReset.onclick = () => setDisplayZoom(APP_ZOOM.defaultValue);
+  const aiPromptTopbarOpen = document.getElementById('aiPromptTopbarOpen');
+  if (aiPromptTopbarOpen) aiPromptTopbarOpen.onclick = openAiPromptDrawer;
   const quickSettings = document.getElementById('quickSettings');
   if (quickSettings) quickSettings.onclick = () => goPage('settings');
   document.addEventListener('keydown', handleZoomShortcut);
