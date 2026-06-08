@@ -80,10 +80,44 @@ this.saveCategoryDimensionSettings = saveCategoryDimensionSettings;
 this.setDetectedCategoryDimensions = (dimensions) => { detectedCategoryDimensionsCache = dimensions; };
 this.resetCategoryDimensionSettings = resetCategoryDimensionSettings;
 this.displayFiscalYearFromFiscalPeriod = displayFiscalYearFromFiscalPeriod;
-this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;`, context);
+this.importFileTypeOptions = IMPORT_FILE_TYPE_OPTIONS;
+this.updateAiPromptTopbarButton = updateAiPromptTopbarButton;`, context);
 
   return context;
 }
+
+
+test('summary removes duplicate selected-period card', async () => {
+  const context = createRenderHarness();
+
+  const summaryHtml = await context.__runPage('summary');
+
+  assert.match(summaryHtml, /kpi-strip/);
+  assert.doesNotMatch(summaryHtml, /選択期間カード/);
+});
+
+test('AI prompt topbar button is hidden on additional CSV pages', () => {
+  const context = createRenderHarness();
+  const button = context.document.getElementById('aiPromptTopbarOpen');
+
+  context.state.page = 'summary';
+  context.updateAiPromptTopbarButton();
+  assert.equal(button.hidden, false);
+
+  context.state.ui.aiPrompt.open = true;
+  context.state.page = 'project';
+  context.updateAiPromptTopbarButton();
+  assert.equal(button.hidden, true);
+  assert.equal(context.state.ui.aiPrompt.open, false);
+
+  context.state.page = 'depreciation';
+  context.updateAiPromptTopbarButton();
+  assert.equal(button.hidden, true);
+
+  context.state.page = 'oacis';
+  context.updateAiPromptTopbarButton();
+  assert.equal(button.hidden, true);
+});
 
 test('summary, vendor, and detail pages render without leaving prior content in place', async () => {
   const context = createRenderHarness();
