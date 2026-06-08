@@ -11,6 +11,8 @@ test('dashboard display zoom controls are available and persisted', () => {
   assert.ok(html.includes('id="zoomIn"'), 'topbar should include zoom in control');
   assert.ok(html.includes('id="zoomReset"'), 'topbar should include zoom reset control');
   assert.ok(appJs.includes('localStorage.setItem(\'displayZoom\''), 'display zoom should be saved to localStorage');
-  assert.ok(appJs.includes('document.body.style.zoom'), 'display zoom should apply to the whole dashboard body');
+  assert.ok(appJs.includes("document.documentElement.style.setProperty('--app-zoom'"), 'display zoom should publish the app zoom custom property');
+  const bodyZoomUsage = ['document.body.style', 'zoom'].join('.');
+  assert.ok(!appJs.includes(bodyZoomUsage), 'display zoom should not apply to the whole dashboard body');
   assert.ok(appJs.includes('handleZoomShortcut'), 'display zoom should support keyboard shortcuts');
 });
